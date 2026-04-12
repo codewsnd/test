@@ -31,10 +31,12 @@ class JiraDataToMarkdownServiceTest {
     private final JiraFieldService jiraFieldService = mock(JiraFieldService.class);
     private final JiraCommentFieldParser jiraCommentFieldParser = mock(JiraCommentFieldParser.class);
     private final JiraEspecialFieldParser jiraEspecialFieldParser = mock(JiraEspecialFieldParser.class);
+    private final JiraZephyrFieldParser jiraZephyrFieldParser = mock(JiraZephyrFieldParser.class);
     private final JiraDataToMarkdownService jiraDataToMarkdownService = new JiraDataToMarkdownService(
             jiraFieldService,
             jiraCommentFieldParser,
-            jiraEspecialFieldParser
+            jiraEspecialFieldParser,
+            jiraZephyrFieldParser
     );
 
     @Test
@@ -202,6 +204,89 @@ class JiraDataToMarkdownServiceTest {
     }
 
     @Test
+    void convertJiraDataToMarkdown_shouldAppendZephyrFieldsForTestIssue() throws Exception {
+        SearchRequest searchRequest = new SearchRequest();
+        HttpResponse<String> response = mock(HttpResponse.class);
+        JsonNode testDetails = OBJECT_MAPPER.readTree("""
+                {
+                  "step": "Open login page"
+                }
+                """);
+        JsonNode testExecutions = OBJECT_MAPPER.readTree("""
+                {
+                  "executions": [
+                    {
+                      "execution": {
+                        "status": "PASS"
+                      }
+                    }
+                  ]
+                }
+                """);
+
+        when(jiraFieldService.loadVisibleFieldCatalog(searchRequest)).thenReturn(Map.of(
+                "summary", "Summary"
+        ));
+        when(response.body()).thenReturn("""
+                {
+                  "issues": [
+                    {
+                      "id": "10000",
+                      "key": "DEV-TEST-1",
+                      "fields": {
+                        "summary": "Test issue",
+                        "issuetype": {
+                          "name": "Test"
+                        }
+                      }
+                    }
+                  ]
+                }
+                """);
+        when(jiraCommentFieldParser.isEmptyContent(any())).thenAnswer(invocation -> {
+            JsonNode jiraContent = invocation.getArgument(0);
+            if (jiraContent == null || jiraContent.isMissingNode() || jiraContent.isNull()) {
+                return true;
+            }
+            if (jiraContent.isTextual()) {
+                return jiraContent.asText().isBlank();
+            }
+            return false;
+        });
+        when(jiraCommentFieldParser.parseContent(any())).thenAnswer(invocation -> {
+            JsonNode jiraContent = invocation.getArgument(0);
+            if (jiraContent == null) {
+                return "";
+            }
+            if (jiraContent.isTextual()) {
+                return jiraContent.asText();
+            }
+            if (jiraContent.has("step")) {
+                return jiraContent.path("step").asText();
+            }
+            if (jiraContent.path("executions").isArray() && !jiraContent.path("executions").isEmpty()) {
+                return jiraContent.path("executions").get(0).path("execution").path("status").asText();
+            }
+            if (jiraContent.path("name").isTextual()) {
+                return jiraContent.path("name").asText();
+            }
+            return "generic";
+        });
+        when(jiraEspecialFieldParser.parseEspecialField(anyString(), anyString(), any())).thenReturn("");
+        when(jiraZephyrFieldParser.loadTestFields(any(), any())).thenReturn(Map.of(
+                "Test Details", testDetails,
+                "Test Executions", testExecutions
+        ));
+
+        String markdown = jiraDataToMarkdownService.convertJiraDataToMarkdown(searchRequest, response);
+
+        assertTrue(markdown.contains("# Jira Issue ID/KEY: DEV-TEST-1"));
+        assertTrue(markdown.contains("## Jira Summary/Title\nTest issue"));
+        assertTrue(markdown.contains("## Test Details\nOpen login page"));
+        assertTrue(markdown.contains("## Test Executions\nPASS"));
+    }
+
+    @Test
     void convertJiraDataToMarkdown_shouldReturnFailureMessageWhenResponseBodyIsInvalidJson() {
         SearchRequest searchRequest = new SearchRequest();
         HttpResponse<String> response = mock(HttpResponse.class);
@@ -264,6 +349,7 @@ class JiraDataToMarkdownServiceTest {
         Method appendIssueMarkdownMethod = JiraDataToMarkdownService.class.getDeclaredMethod(
                 "appendIssueMarkdown",
                 StringBuilder.class,
+                SearchRequest.class,
                 JsonNode.class,
                 Map.class
         );
@@ -271,7 +357,7 @@ class JiraDataToMarkdownServiceTest {
 
         StringBuilder issueBuilder = new StringBuilder();
         ObjectNode issueNode = OBJECT_MAPPER.createObjectNode();
-        appendIssueMarkdownMethod.invoke(jiraDataToMarkdownService, issueBuilder, issueNode, Map.of());
+        appendIssueMarkdownMethod.invoke(jiraDataToMarkdownService, issueBuilder, null, issueNode, Map.of());
         assertTrue(issueBuilder.toString().startsWith("# Jira Issue ID/KEY: Unknown"));
 
         Method readTextMethod = JiraDataToMarkdownService.class.getDeclaredMethod("readText", JsonNode.class, String[].class);

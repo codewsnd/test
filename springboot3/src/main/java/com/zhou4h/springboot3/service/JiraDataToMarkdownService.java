@@ -29,6 +29,7 @@ public class JiraDataToMarkdownService {
     private final JiraFieldService jiraFieldService;
     private final JiraCommentFieldParser jiraCommentFieldParser;
     private final JiraEspecialFieldParser jiraEspecialFieldParser;
+    private final JiraZephyrFieldParser jiraZephyrFieldParser;
 
     /**
      * 将 Jira 响应转换为 Markdown。
@@ -60,7 +61,7 @@ public class JiraDataToMarkdownService {
 
             StringBuilder markdown = new StringBuilder();
             for (int index = 0; index < issueNodes.size(); index++) {
-                appendIssueMarkdown(markdown, issueNodes.get(index), fieldNameMap);
+                appendIssueMarkdown(markdown, searchRequest, issueNodes.get(index), fieldNameMap);
             }
 
             String markdownContent = markdown.toString().trim();
@@ -76,10 +77,11 @@ public class JiraDataToMarkdownService {
      * 追加单个 issue 的 Markdown 内容。
      *
      * @param markdown     Markdown 构建器
-     * @param issueNode    issue 节点
-     * @param fieldNameMap 字段名称映射
+     * @param searchRequest 查询请求
+     * @param issueNode     issue 节点
+     * @param fieldNameMap  字段名称映射
      */
-    private void appendIssueMarkdown(StringBuilder markdown, JsonNode issueNode, Map<String, String> fieldNameMap) {
+    private void appendIssueMarkdown(StringBuilder markdown, SearchRequest searchRequest, JsonNode issueNode, Map<String, String> fieldNameMap) {
         String issueKey = readText(issueNode, JSON_KEY_KEY);
         if (!StringUtils.hasText(issueKey)) {
             issueKey = readText(issueNode, JSON_KEY_ID);
@@ -93,6 +95,30 @@ public class JiraDataToMarkdownService {
                 .append(issueKey)
                 .append(DOUBLE_NEW_LINE);
         appendIssueFields(markdown, issueNode.path(JSON_KEY_FIELDS), fieldNameMap);
+        appendZephyrFields(markdown, searchRequest, issueNode);
+    }
+
+    /**
+     * 追加 Test 类型 issue 的 Zephyr 扩展字段。
+     *
+     * @param markdown Markdown 构建器
+     * @param searchRequest 查询请求
+     * @param issueNode issue 节点
+     */
+    private void appendZephyrFields(StringBuilder markdown, SearchRequest searchRequest, JsonNode issueNode) {
+        Map<String, JsonNode> testFieldMap = jiraZephyrFieldParser.loadTestFields(searchRequest, issueNode);
+        if (testFieldMap == null || testFieldMap.isEmpty()) {
+            return;
+        }
+
+        for (Map.Entry<String, JsonNode> testFieldEntry : testFieldMap.entrySet()) {
+            appendSingleField(
+                    markdown,
+                    testFieldEntry.getKey(),
+                    testFieldEntry.getValue(),
+                    Map.of(testFieldEntry.getKey(), testFieldEntry.getKey())
+            );
+        }
     }
 
     /**
