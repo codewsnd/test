@@ -1,0 +1,13 @@
+task:
+  - "Title"
+  - "Summary"
+  - "Status"
+  - "Project"
+  - "Type"
+  - "Assignee"
+  - "Reporter"
+  - "hahaha333"
+story:
+  - "Title"
+  - "Summary"
+  - "Story Points"

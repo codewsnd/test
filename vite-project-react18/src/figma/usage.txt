@@ -1,0 +1,21 @@
+安装社区代码神器 “Scripter”
+Scripter 是 Figma 社区里非常著名的开源插件，它相当于在 Figma 里内置了一个可以随时运行代码的“控制台”。
+
+在你的 Figma 网页版里，打开任意一个设计文件。
+
+按下快捷键 Shift + I（或者点击顶部工具栏那个像四个菱形拼在一起的 Resources 图标）。
+
+切换到 Plugins（插件） 选项卡。
+
+在搜索框里输入 Scripter。找到那个图标是黑色背景、带着尖括号 < > 的插件，点击 Run（运行）。
+
+
+skill路径
+C:\Users\xxx\.codex\skills
+
+
+使用figma-api-data-to-react
+figma x
+
+figma url: https://www.figma.com/design/yw3T5negFBP7qvClFTxRrQ/Untitled?node-id=0-1&p=f&t=WP6jo4kbCwhadz8z-0
+在D:\github\demo\vite-project-react18\src\mytest\Test4 中生成组件

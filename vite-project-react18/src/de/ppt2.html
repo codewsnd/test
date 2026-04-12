@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>测试用例智能生成工具 - 正式汇报版</title>
+  <style>
+    :root {
+      --hsbc-red: #db0011;
+      --hsbc-red-dark: #b3000e;
+      --text: #2d2d2d;
+      --text-soft: #666666;
+      --line: #d9d9d9;
+      --line-strong: #bfbfbf;
+      --bg: #efefef;
+      --panel: #ffffff;
+      --panel-soft: #f7f7f7;
+      --shadow: 0 14px 36px rgba(0, 0, 0, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, "Microsoft YaHei", "PingFang SC", sans-serif;
+      overflow: hidden;
+    }
+
+    body {
+      position: relative;
+    }
+
+    .deck {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      min-height: 100vh;
+    }
+
+    .nav {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      background: #262626;
+      border-right: 4px solid var(--hsbc-red);
+    }
+
+    .nav button {
+      width: 12px;
+      height: 12px;
+      border: 0;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.25);
+      cursor: pointer;
+      transition: 0.2s ease;
+    }
+
+    .nav button.active,
+    .nav button:hover {
+      background: var(--hsbc-red);
+      transform: scale(1.18);
+    }
+
+    .stage {
+      position: relative;
+      min-height: 100vh;
+      background:
+        linear-gradient(135deg, transparent 0 72%, rgba(219, 0, 17, 0.04) 72% 100%),
+        linear-gradient(180deg, #f7f7f7 0%, #ececec 100%);
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      padding: 28px 36px 24px;
+      opacity: 0;
+      transform: translateX(36px);
+      pointer-events: none;
+      transition: opacity 0.32s ease, transform 0.32s ease;
+    }
+
+    .slide.active {
+      opacity: 1;
+      transform: translateX(0);
+      pointer-events: auto;
+    }
+
+    .topbar,
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--text-soft);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .mark {
+      width: 30px;
+      height: 30px;
+      position: relative;
+      background: #fff;
+      border: 1px solid var(--line);
+    }
+
+    .mark::before,
+    .mark::after {
+      content: "";
+      position: absolute;
+      background: var(--hsbc-red);
+    }
+
+    .mark::before {
+      inset: 0 50% 0 0;
+      clip-path: polygon(0 0, 100% 50%, 0 100%);
+    }
+
+    .mark::after {
+      inset: 0 0 0 50%;
+      clip-path: polygon(100% 0, 0 50%, 100% 100%);
+    }
+
+    .page-no {
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text-soft);
+      font-size: 12px;
+    }
+
+    .content {
+      min-height: 0;
+      display: grid;
+      align-content: center;
+      gap: 22px;
+    }
+
+    .slide-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: 34px;
+    }
+
+    .hero-card {
+      min-height: 560px;
+      display: grid;
+      grid-template-columns: 1.08fr 0.92fr;
+      gap: 26px;
+      align-items: center;
+      border-top: 8px solid var(--hsbc-red);
+    }
+
+    .thanks-card {
+      min-height: 560px;
+      display: grid;
+      grid-template-columns: 1.02fr 0.98fr;
+      gap: 22px;
+      align-items: center;
+      border-top: 8px solid var(--hsbc-red);
+    }
+
+    .mini-label {
+      display: inline-block;
+      padding: 7px 10px;
+      border-left: 4px solid var(--hsbc-red);
+      background: rgba(219, 0, 17, 0.08);
+      color: var(--hsbc-red);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      margin-bottom: 12px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    .title-xl {
+      font-size: clamp(42px, 5vw, 68px);
+      line-height: 1.06;
+      letter-spacing: -0.02em;
+      font-weight: 700;
+    }
+
+    .title-lg {
+      font-size: clamp(30px, 3.5vw, 46px);
+      line-height: 1.12;
+      letter-spacing: -0.02em;
+      font-weight: 700;
+    }
+
+    .title-md {
+      font-size: 22px;
+      line-height: 1.35;
+      font-weight: 700;
+    }
+
+    .accent {
+      color: var(--hsbc-red);
+    }
+
+    .copy-lg {
+      font-size: 18px;
+      line-height: 1.8;
+      color: var(--text-soft);
+      max-width: 840px;
+    }
+
+    .copy {
+      font-size: 16px;
+      line-height: 1.8;
+      color: var(--text-soft);
+    }
+
+    .grid-2,
+    .grid-3,
+    .flow-grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .flow-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .block {
+      background: #fff;
+      border: 1px solid var(--line);
+      padding: 22px;
+      min-height: 180px;
+    }
+
+    .metric {
+      padding: 18px 0 18px 16px;
+      border-left: 4px solid var(--hsbc-red);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .metric:last-child {
+      border-bottom: 0;
+    }
+
+    .metric-number {
+      font-size: 34px;
+      line-height: 1;
+      font-weight: 700;
+      color: var(--hsbc-red);
+      margin-bottom: 8px;
+    }
+
+    .bullet-list {
+      list-style: none;
+      padding: 0;
+      margin: 14px 0 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    .bullet-list li {
+      position: relative;
+      padding-left: 18px;
+      color: var(--text-soft);
+      line-height: 1.7;
+    }
+
+    .bullet-list li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 10px;
+      width: 7px;
+      height: 7px;
+      background: var(--hsbc-red);
+    }
+
+    .step {
+      background: #fff;
+      border: 1px solid var(--line);
+      padding: 20px;
+      min-height: 180px;
+      position: relative;
+    }
+
+    .step::after {
+      content: "→";
+      position: absolute;
+      right: -13px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 26px;
+      color: #999;
+    }
+
+    .step:last-child::after {
+      display: none;
+    }
+
+    .step-no {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      background: var(--hsbc-red);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 14px;
+    }
+
+    .table-wrap {
+      background: #fff;
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      padding: 13px 10px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid #e8e8e8;
+      color: var(--text-soft);
+      line-height: 1.6;
+    }
+
+    th {
+      background: #f3f3f3;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .summary-box {
+      background: #fafafa;
+      border-left: 4px solid var(--hsbc-red);
+      padding: 18px 18px 18px 16px;
+    }
+
+    .footer {
+      padding-top: 12px;
+      border-top: 2px solid var(--hsbc-red);
+    }
+
+    .footer-note {
+      color: var(--text-soft);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .controls {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .controls button {
+      width: 38px;
+      height: 38px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 18px;
+    }
+
+    .controls button:hover {
+      color: var(--hsbc-red);
+      border-color: var(--hsbc-red);
+    }
+
+    .progress {
+      flex: 1;
+      max-width: 280px;
+      height: 6px;
+      background: #dadada;
+      overflow: hidden;
+      margin-left: auto;
+    }
+
+    .progress-bar {
+      width: 0;
+      height: 100%;
+      background: var(--hsbc-red);
+      transition: width 0.25s ease;
+    }
+
+    @media (max-width: 1180px) {
+      .deck {
+        grid-template-columns: 1fr;
+      }
+
+      .nav {
+        flex-direction: row;
+        padding: 14px 10px 0;
+        border-right: 0;
+        border-bottom: 4px solid var(--hsbc-red);
+      }
+
+      .slide {
+        position: relative;
+        min-height: 100vh;
+        padding: 22px 18px;
+      }
+
+      .hero-card,
+      .thanks-card,
+      .grid-2,
+      .grid-3,
+      .flow-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .step::after {
+        content: "↓";
+        right: 50%;
+        top: auto;
+        bottom: -18px;
+        transform: translateX(50%);
+      }
+
+      html,
+      body {
+        overflow: auto;
+      }
+
+      .stage {
+        min-height: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="deck">
+    <aside class="nav" aria-label="navigation">
+      <button class="dot active" data-slide="0" aria-label="感谢"></button>
+      <button class="dot" data-slide="1" aria-label="概览"></button>
+      <button class="dot" data-slide="2" aria-label="痛点"></button>
+      <button class="dot" data-slide="3" aria-label="闭环"></button>
+      <button class="dot" data-slide="4" aria-label="功能"></button>
+      <button class="dot" data-slide="5" aria-label="示例"></button>
+      <button class="dot" data-slide="6" aria-label="价值"></button>
+      <button class="dot" data-slide="7" aria-label="结束"></button>
+    </aside>
+
+    <main class="stage">
+      <section class="slide active">
+        <header class="topbar">
+          <div class="brand"><span class="mark"></span><span>Internal Presentation</span></div>
+          <div class="page-no">01 / 08</div>
+        </header>
+        <div class="content">
+          <div class="slide-card thanks-card">
+            <div>
+              <div class="mini-label">Opening</div>
+              <h1 class="title-xl">感谢各位参加<br><span class="accent">本次方案汇报</span></h1>
+              <p class="copy-lg">
+                本次汇报将简要说明测试用例智能生成工具如何减少测试准备成本，
+                并为使用者提供更快、更稳、更清晰的操作体验。
+              </p>
+            </div>
+            <div class="block">
+              <div class="title-md">本次汇报关注点</div>
+              <ul class="bullet-list">
+                <li>当前测试准备流程存在的主要问题。</li>
+                <li>产品如何形成需求到用例的自动化闭环。</li>
+                <li>这套能力为使用者带来的直接价值。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <footer class="footer">
+          <div class="footer-note">开场页建议控制在 20 秒内，直接进入主题。</div>
+          <div class="progress"><div class="progress-bar"></div></div>
+        </footer>
+      </section>
+
+      <section class="slide">
+        <header class="topbar">
+          <div class="brand"><span class="mark"></span><span>Overview</span></div>
+          <div class="page-no">02 / 08</div>
+        </header>
+        <div class="content">
+          <div class="slide-card hero-card">
+            <div>
+              <div class="mini-label">Product Overview</div>
+              <h2 class="title-xl">测试用例智能生成工具<br><span class="accent">让需求到测试闭环自动化</span></h2>
+              <p class="copy-lg">
+                基于 JIRA 工单和本地需求文件，自动完成需求提取、测试用例生成与同步回填，
+                让测试准备流程更加标准、可追踪、可复用。
+              </p>
+            </div>
+            <div>
+              <div class="metric">
+                <div class="metric-number">2</div>
+                <div class="copy">需求输入模式：JIRA / 本地文件</div>
+              </div>
+              <div class="metric">
+                <div class="metric-number">4</div>
+                <div class="copy">核心步骤：拉取 / 生成 / 校验 / 回填</div>
+              </div>
+              <div class="metric">
+                <div class="metric-number">5</div>
+                <div class="copy">标准字段：ID / 描述 / 前置 / 步骤 / 预期</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <footer class="footer">
+          <div class="footer-note">这一页只讲一句话定位，不展开实现细节。</div>
+          <div class="controls">
+            <button class="prev-btn" aria-label="上一页">←</button>
+            <button class="next-btn" aria-label="下一页">→</button>
+          </div>
+        </footer>
+      </section>
+
+      <section class="slide">
+        <header class="topbar">
+          <div class="brand"><span class="mark"></span><span>Current Challenges</span></div>
+          <div class="page-no">03 / 08</div>
+        </header>
+        <div class="content">
+          <div class="slide-card">
+            <div class="mini-label">Challenges</div>
+            <h2 class="title-lg">当前问题集中在三个方面</h2>
+            <div class="grid-3" style="margin-top: 18px;">
+              <div class="block">
+                <h3 class="title-md">需求整理耗时</h3>
+                <p class="copy">测试人员需要在工单、附件和会议记录之间反复切换。</p>
+              </div>
+              <div class="block">
+                <h3 class="title-md">用例质量波动</h3>
+                <p class="copy">不同人员输出深度不同，边界和异常场景不够稳定。</p>
+              </div>
+              <div class="block">
+                <h3 class="title-md">回填动作重复</h3>
+                <p class="copy">生成结果还需手工整理和同步，闭环不够顺畅。</p>
+              </div>
+            </div>
+            <div class="summary-box" style="margin-top: 18px;">
+              <div class="title-md">核心结论</div>
+              <p class="copy">如果测试准备流程继续依赖人工扩张，使用者会持续感受到效率下降和操作负担上升。</p>
+            </div>
+          </div>
+        </div>
+        <footer class="footer">
+          <div class="footer-note">建议口播节奏：问题不是做不到，而是准备流程不够高效。</div>
+          <div class="controls">
+            <button class="prev-btn" aria-label="上一页">←</button>
+            <button class="next-btn" aria-label="下一页">→</button>
+          </div>
+        </footer>
+      </section>
+
+      <section class="slide">
+        <header class="topbar">
+          <div class="brand"><span class="mark"></span><span>Closed Loop</span></div>
+          <div class="page-no">04 / 08</div>
+        </header>
+        <div class="content">
+          <div class="slide-card">
+            <div class="mini-label">Workflow</div>
+            <h2 class="title-lg">通过四步形成完整闭环</h2>
+            <div class="flow-grid" style="margin-top: 18px;">
+              <div class="step">
+                <div class="step-no">1</div>
+                <h3 class="title-md">输入需求</h3>
+                <p class="copy">支持 JIRA 工单编号或本地需求文件。</p>
+              </div>
+              <div class="step">
+                <div class="step-no">2</div>
+                <h3 class="title-md">提取信息</h3>
+                <p class="copy">按字段提取 description 等关键内容。</p>
+              </div>
+              <div class="step">
+                <div class="step-no">3</div>
+                <h3 class="title-md">生成用例</h3>
+                <p class="copy">自动覆盖主流程、边界与异常场景。</p>
+              </div>
+              <div class="step">
+                <div class="step-no">4</div>
+                <h3 class="title-md">同步回填</h3>
+                <p class="copy">生成结果可直接回填 JIRA，形成追踪闭环。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <footer class="footer">
+          <div class="footer-note">这一页聚焦流程变化，不需要列出太多补充说明。</div>
+          <div class="controls">
+            <button class="prev-btn" aria-label="上一页">←</button>
+            <button class="next-btn" aria-label="下一页">→</button>
+          </div>
+        </footer>
+      </section>
+
+      <section class="slide">
+        <header class="topbar">
+          <div class="brand"><span class="mark"></span><span>Capabilities</span></div>
+          <div class="page-no">05 / 08</div>
+        </header>
+        <div class="content">
+          <div class="slide-card">
+            <div class="mini-label">Capabilities</div>
+            <h2 class="title-lg">核心能力分为主链路与支撑能力</h2>
+            <div class="grid-2" style="margin-top: 18px;">
+              <div class="block">
+                <h3 class="title-md">主链路能力</h3>
+                <ul class="bullet-list">
+                  <li>JIRA 工单精准检索与字段提取。</li>
+                  <li>需求驱动的测试用例智能生成。</li>
+                  <li>测试用例一键同步回填 JIRA。</li>
+                  <li>JIRA 与本地文件双模式输入适配。</li>
+                </ul>
+              </div>
+              <div class="block">
+                <h3 class="title-md">支撑能力</h3>
+                <ul class="bullet-list">
+                  <li>GRA / Confluence token 权限配置。</li>
+                  <li>多数据源接入与切换能力。</li>
+                  <li>按 source 筛选的历史记录查询。</li>
+                  <li>后续将继续优化全量检索体验。</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+        <footer class="footer">
+          <div class="footer-note">建议这一页用“主链路 + 支撑能力”两个层级来讲。</div>
+          <div class="controls">
+            <button class="prev-btn" aria-label="上一页">←</button>
+            <button class="next-btn" aria-label="下一页">→</button>
+          </div>
+        </footer>
+      </section>
+
+      <section class="slide">
+        <header class="topbar">
+          <div class="brand"><span class="mark"></span><span>Example Output</span></div>
+          <div class="page-no">06 / 08</div>
+        </header>
+        <div class="content">
+          <div class="slide-card">
+            <div class="mini-label">Example</div>
+            <h2 class="title-lg">测试用例输出示例</h2>
+            <div class="table-wrap" style="margin-top: 18px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Test Case Id</th>
+                    <th>Test Case Description</th>
+                    <th>Preconditions</th>
+                    <th>Test Steps</th>
+                    <th>Expected Results</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>TC-001</td>
+                    <td>Generate test cases from a valid JIRA ticket</td>
+                    <td>User has a valid token and enters an existing JIRA ticket number.</td>
+                    <td>1. Input ticket number. 2. Select source. 3. Click generate.</td>
+                    <td>System retrieves requirement details and generates structured test cases successfully.</td>
+                  </tr>
+                  <tr>
+                    <td>TC-002</td>
+                    <td>Handle missing description in requirement data</td>
+                    <td>The selected JIRA ticket exists but description is empty.</td>
+                    <td>1. Input ticket number. 2. Click generate. 3. Observe prompt.</td>
+                    <td>System shows a clear message and asks the user to supplement or correct the input.</td>
+                  </tr>
+                  <tr>
+                    <td>TC-003</td>
+                    <td>Sync generated test cases back to JIRA</td>
+                    <td>Structured test cases have already been generated successfully.</td>
+                    <td>1. Review cases. 2. Click sync to JIRA. 3. Check history record.</td>
+                    <td>System syncs cases to the target JIRA ticket and records the operation history.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <footer class="footer">
+          <div class="footer-note">示例页建议停留稍长一些，用来证明输出结果具备落地性。</div>
+          <div class="controls">
+            <button class="prev-btn" aria-label="上一页">←</button>
+            <button class="next-btn" aria-label="下一页">→</button>
+          </div>
+        </footer>
+      </section>
+
+      <section class="slide">
+        <header class="topbar">
+          <div class="brand"><span class="mark"></span><span>User Value</span></div>
+          <div class="page-no">07 / 08</div>
+        </header>
+        <div class="content">
+          <div class="slide-card">
+            <div class="mini-label">User Value</div>
+            <h2 class="title-lg">为使用者带来的三项直接价值</h2>
+            <div class="grid-3" style="margin-top: 18px;">
+              <div class="block">
+                <div class="metric-number">更快</div>
+                <p class="copy">减少需求整理、用例编写和回填同步的时间投入。</p>
+              </div>
+              <div class="block">
+                <div class="metric-number">更稳</div>
+                <p class="copy">通过结构化生成降低输出质量对个人经验的依赖。</p>
+              </div>
+              <div class="block">
+                <div class="metric-number">更清晰</div>
+                <p class="copy">需求、用例和历史记录形成关联，便于回查和复用。</p>
+              </div>
+            </div>
+            <div class="summary-box" style="margin-top: 18px;">
+              <div class="title-md">一句话总结</div>
+              <p class="copy">这套工具让测试准备过程从“人工整理”转向“标准化生成与闭环管理”。</p>
+            </div>
+          </div>
+        </div>
+        <footer class="footer">
+          <div class="footer-note">价值页只保留三点，适合投屏，也便于口播。</div>
+          <div class="controls">
+            <button class="prev-btn" aria-label="上一页">←</button>
+            <button class="next-btn" aria-label="下一页">→</button>
+          </div>
+        </footer>
+      </section>
+
+      <section class="slide">
+        <header class="topbar">
+          <div class="brand"><span class="mark"></span><span>Closing</span></div>
+          <div class="page-no">08 / 08</div>
+        </header>
+        <div class="content">
+          <div class="slide-card thanks-card">
+            <div>
+              <div class="mini-label">Thank You</div>
+              <h2 class="title-xl">感谢聆听<br><span class="accent">期待交流与反馈</span></h2>
+              <p class="copy-lg">
+                当前主链路已经完成打通，后续将继续围绕检索体验、模板能力和平台化方向持续优化。
+              </p>
+            </div>
+            <div class="block">
+              <div class="title-md">结束页建议口播</div>
+              <ul class="bullet-list">
+                <li>核心闭环已经可用。</li>
+                <li>用户价值已经明确。</li>
+                <li>后续优化路径清晰。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <footer class="footer">
+          <div class="footer-note">感谢观看</div>
+          <div class="controls">
+            <button class="prev-btn" aria-label="上一页">←</button>
+            <button class="next-btn" aria-label="下一页">→</button>
+          </div>
+        </footer>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      const slides = Array.from(document.querySelectorAll('.slide'));
+      const dots = Array.from(document.querySelectorAll('.nav button'));
+      const prevButtons = Array.from(document.querySelectorAll('.prev-btn'));
+      const nextButtons = Array.from(document.querySelectorAll('.next-btn'));
+      const progressBar = document.querySelector('.progress-bar');
+      let current = 0;
+
+      function render(index) {
+        current = Math.max(0, Math.min(index, slides.length - 1));
+        slides.forEach((slide, i) => slide.classList.toggle('active', i === current));
+        dots.forEach((dot, i) => dot.classList.toggle('active', i === current));
+        if (progressBar) {
+          progressBar.style.width = ((current + 1) / slides.length) * 100 + '%';
+        }
+      }
+
+      dots.forEach((dot, index) => {
+        dot.addEventListener('click', () => render(index));
+      });
+
+      prevButtons.forEach((button) => button.addEventListener('click', () => render(current - 1)));
+      nextButtons.forEach((button) => button.addEventListener('click', () => render(current + 1)));
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowRight' || event.key === 'PageDown') render(current + 1);
+        if (event.key === 'ArrowLeft' || event.key === 'PageUp') render(current - 1);
+        if (event.key === 'Home') render(0);
+        if (event.key === 'End') render(slides.length - 1);
+      });
+
+      render(0);
+    })();
+  </script>
+</body>
+</html>

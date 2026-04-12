@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Test Case 汇报 - HSBC Executive Deck</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css" />
+  <style>
+    :root{--red:#db0011;--red2:#b0000d;--ink:#1f2937;--muted:#6b7280;--line:#e5e7eb;--soft:#f6f7f9;--panel:rgba(255,255,255,.96);--shadow:0 30px 80px rgba(15,23,42,.10);--shadow2:0 12px 30px rgba(15,23,42,.06);--r1:30px;--r2:22px;--r3:16px}
+    html,body{margin:0;padding:0;background:radial-gradient(circle at 90% 0%,rgba(219,0,17,.08),transparent 20%),radial-gradient(circle at 0% 100%,rgba(219,0,17,.05),transparent 18%),linear-gradient(180deg,#fff 0%,#fbfbfc 100%);color:var(--ink);font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+    .reveal{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:var(--ink)}
+    .reveal .slides{text-align:left}.reveal .controls,.reveal .progress{color:var(--red)}.reveal .progress{height:4px}
+    .deck-slide{width:100%;min-height:700px;padding:30px 28px 20px;border-radius:var(--r1);background:var(--panel);border:1px solid rgba(219,0,17,.08);box-shadow:var(--shadow);position:relative;overflow:hidden}
+    .deck-slide:before{content:"";position:absolute;top:0;right:0;width:260px;height:260px;background:linear-gradient(135deg,rgba(219,0,17,.12),transparent 68%);clip-path:polygon(100% 0,0 0,100% 100%)}
+    .deck-slide:after{content:"";position:absolute;left:-80px;bottom:-100px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(219,0,17,.08),transparent 70%)}
+    .brand-bar,.footer-row{display:flex;justify-content:space-between;align-items:center;gap:16px;position:relative;z-index:2}
+    .brand-left{display:flex;align-items:center;gap:14px}
+    .brand-mark{display:inline-grid;grid-template-columns:repeat(2,16px);grid-template-rows:repeat(2,16px);gap:2px;transform:rotate(45deg)}
+    .brand-mark span{background:var(--red);width:16px;height:16px;display:inline-block}
+    .brand-copy{display:flex;flex-direction:column;gap:3px}
+    .brand-copy strong{font-size:13px;letter-spacing:.20em;text-transform:uppercase;color:var(--muted);font-weight:700}
+    .brand-copy span,.page-chip,.tag-row span{font-size:12px;color:#9ca3af}
+    .page-chip{border:1px solid var(--line);border-radius:999px;padding:8px 12px;background:rgba(255,255,255,.92);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+    .eyebrow{color:var(--red);font-size:12px;font-weight:800;letter-spacing:.20em;text-transform:uppercase;margin:18px 0 12px;position:relative;z-index:2}
+    .hero-title,.section-title{margin:0;letter-spacing:-.04em;line-height:1.08;position:relative;z-index:2}
+    .hero-title{font-size:56px;max-width:860px}.section-title{font-size:38px;max-width:920px}
+    .subtitle{margin-top:18px;font-size:19px;line-height:1.72;color:var(--muted);max-width:800px;position:relative;z-index:2}
+    .body{position:relative;z-index:2;margin-top:24px}.grid-hero{display:grid;grid-template-columns:1.15fr .85fr;gap:22px}.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:24px}
+    .card,.metric,.journey-step,.exec-item,.roadmap-row,.quote-card,.closing-quote,.speaker-note{background:#fff;border:1px solid var(--line);box-shadow:var(--shadow2)}
+    .card,.quote-card,.closing-quote,.speaker-note{border-radius:var(--r2);padding:22px}
+    .card.soft{background:var(--soft)} .card h3,.journey-step h3,.speaker-note h3{margin:0 0 10px;font-size:21px;line-height:1.3;letter-spacing:-.02em}
+    .card p,.journey-step p,.speaker-note p,.roadmap-row p{margin:0;color:var(--muted);font-size:15px;line-height:1.8}
+    .metric{border-radius:var(--r2);padding:18px}.metric strong{display:block;color:var(--red);font-size:34px;line-height:1;letter-spacing:-.05em;margin-bottom:8px}.metric span{display:block;color:var(--muted);font-size:13px;line-height:1.55}
+    .big-statement{font-size:30px;line-height:1.5;letter-spacing:-.03em;margin-top:24px;max-width:760px}.big-statement strong,.quote-card strong,.exec-item strong,.roadmap-row strong,.closing-quote strong{color:var(--red2)}
+    .list{list-style:none;padding:0;margin:0;display:grid;gap:12px}.list li{position:relative;padding-left:18px;color:#3c4654;font-size:16px;line-height:1.75}.list li:before{content:"";position:absolute;left:0;top:11px;width:8px;height:8px;background:var(--red);border-radius:50%;box-shadow:0 0 0 4px rgba(219,0,17,.09)}
+    .hero-panel{min-height:420px;display:flex;flex-direction:column;justify-content:center}.hero-side{display:grid;grid-template-rows:1fr auto;gap:18px;min-height:420px}
+    .quote-card{background:linear-gradient(160deg,rgba(219,0,17,.08),rgba(255,255,255,.85) 35%),#fff;border-color:rgba(219,0,17,.12)}.quote-card strong,.exec-item strong,.roadmap-row strong{display:block;font-size:13px;text-transform:uppercase;letter-spacing:.12em;margin-bottom:10px}.quote-card p{margin:0;font-size:24px;line-height:1.6;letter-spacing:-.02em}
+    .chart-card{min-height:280px;padding:0;overflow:hidden;border-radius:var(--r2)}.chart-title{padding:20px 22px 0;font-size:20px;font-weight:700;letter-spacing:-.02em}.chart{width:100%;height:230px}
+    .journey{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:8px}.journey-step{border-radius:var(--r2);padding:20px 18px;min-height:208px;position:relative}.journey-step:after{content:"→";position:absolute;right:-12px;top:50%;transform:translateY(-50%);color:var(--red);font-size:22px;font-weight:800}.journey-step:last-child:after{display:none}
+    .step-no{width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:rgba(219,0,17,.10);color:var(--red);font-size:14px;font-weight:800;margin-bottom:14px}
+    .spotlight{border-left:4px solid var(--red);padding:16px 18px;border-radius:18px;background:rgba(219,0,17,.04);color:#4b5563;font-size:15px;line-height:1.85;margin-top:18px}
+    .executive-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.exec-item{border-radius:var(--r2);padding:18px}.exec-item p{margin:0;color:#3c4654;font-size:16px;line-height:1.7}
+    .roadmap{display:grid;gap:14px}.roadmap-row{display:grid;grid-template-columns:130px 1fr;gap:18px;align-items:start;padding:16px 18px;border-radius:var(--r3)}.roadmap-row p{color:#46505d}
+    .tag-row{display:flex;gap:10px;flex-wrap:wrap}.tag-row span{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.9);color:var(--muted)}
+    .closing-panel{display:grid;grid-template-columns:1.1fr .9fr;gap:20px;align-items:stretch;margin-top:8px}.closing-quote{padding:26px;background:linear-gradient(140deg,rgba(219,0,17,.08),rgba(255,255,255,.92) 30%),#fff;border-color:rgba(219,0,17,.12)}.closing-quote p{margin:0;font-size:30px;line-height:1.55;letter-spacing:-.03em}
+    .kbd{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;padding:0 8px;border-radius:8px;border:1px solid var(--line);background:#fff;font-size:12px;color:var(--muted)}
+    @media (max-width:1280px){.hero-title{font-size:48px}.section-title{font-size:34px}.grid-hero,.grid-2,.grid-3,.metrics,.journey,.executive-strip,.closing-panel{grid-template-columns:1fr}.hero-side{min-height:auto}.journey-step:after{display:none}}
+  </style>
+</head>
+<body>
+  <div class="reveal">
+    <div class="slides">
+      <section>
+        <div class="deck-slide">
+          <div class="brand-bar">
+            <div class="brand-left">
+              <div class="brand-mark"><span></span><span></span><span></span><span></span></div>
+              <div class="brand-copy"><strong>HSBC Executive Briefing</strong><span>AI Test Case Workflow</span></div>
+            </div>
+            <div class="page-chip">01 / 09</div>
+          </div>
+          <div class="eyebrow">Management Briefing</div>
+          <h1 class="hero-title">AI 测试用例导出能力<br />管理层汇报</h1>
+          <p class="subtitle">这项能力已经把 AI 生成的测试内容，从“可阅读的结果”，推进到了“可确认、可导出、可追踪的企业流程节点”。</p>
+          <div class="body grid-hero">
+            <div class="hero-panel">
+              <div class="big-statement">我们不是在做一张更漂亮的测试表格，而是在建立一条<strong>AI 成果进入正式交付体系</strong>的通道。</div>
+              <div class="metrics">
+                <div class="metric fragment fade-up"><strong>更快</strong><span>减少人工整理与转抄成本，加快从生成到落地的速度。</span></div>
+                <div class="metric fragment fade-up"><strong>更稳</strong><span>保留人工确认环节，避免未经审核的 AI 结果直接进入系统。</span></div>
+                <div class="metric fragment fade-up"><strong>更清晰</strong><span>统一进入 JIRA，方便协作、分派与追踪。</span></div>
+                <div class="metric fragment fade-up"><strong>可衡量</strong><span>开始具备使用数据和接受度统计的管理基础。</span></div>
+              </div>
+            </div>
+            <div class="hero-side">
+              <div class="quote-card fragment fade-left"><strong>核心判断</strong><p>这项能力的价值，在于让 AI 结果从“建议”升级为“进入企业流程的正式半成品”。</p></div>
+              <div class="card chart-card fragment fade-left"><div class="chart-title">能力价值构成</div><div id="valueChart" class="chart"></div></div>
+            </div>
+          </div>
+          <div class="footer-row"><div class="tag-row"><span>效率提升</span><span>风险可控</span><span>流程闭环</span><span>可持续复制</span></div></div>
+        </div>
+      </section>
+
+      <section>
+        <div class="deck-slide">
+          <div class="brand-bar">
+            <div class="brand-left">
+              <div class="brand-mark"><span></span><span></span><span></span><span></span></div>
+              <div class="brand-copy"><strong>HSBC Executive Briefing</strong><span>Why It Matters</span></div>
+            </div>
+            <div class="page-chip">02 / 09</div>
+          </div>
+          <div class="eyebrow">Business Context</div>
+          <h2 class="section-title">为什么这件事值得汇报给管理层</h2>
+          <div class="body grid-3">
+            <div class="card fragment fade-up"><h3>过去的问题</h3><ul class="list"><li>AI 可以生成测试内容，但结果往往停留在“看得见、用不上”的阶段。</li><li>团队仍需手工整理、复制和再录入，时间成本高。</li><li>生成内容与正式执行系统之间存在断层，难以形成稳定流程。</li></ul></div>
+            <div class="card soft fragment fade-up"><h3>现在的变化</h3><ul class="list"><li>生成后可直接进入处理界面，而不是从聊天文本手工转抄。</li><li>支持人工确认和调整，避免未经审核直接入库。</li><li>确认后的结果可直接进入 JIRA，形成流程上的承接。</li></ul></div>
+            <div class="card fragment fade-up"><h3>管理意义</h3><ul class="list"><li>AI 的价值从“展示效果”变成“流程价值”。</li><li>减少重复劳动，有助于释放团队时间。</li><li>为后续规模推广提供可复制模板。</li></ul></div>
+          </div>
+          <div class="spotlight fragment fade-in">对老板来说，最重要的一点不是“页面做得多复杂”，而是这项能力已经开始把 AI 输出嵌入正式工作流，这意味着 AI 在业务中的角色正在从“辅助建议”升级为“流程节点”。</div>
+        </div>
+      </section>
+
+      <section>
+        <div class="deck-slide">
+          <div class="brand-bar">
+            <div class="brand-left">
+              <div class="brand-mark"><span></span><span></span><span></span><span></span></div>
+              <div class="brand-copy"><strong>HSBC Executive Briefing</strong><span>End-to-End Flow</span></div>
+            </div>
+            <div class="page-chip">03 / 09</div>
+          </div>
+          <div class="eyebrow">End-to-End Flow</div>
+          <h2 class="section-title">当前已经具备完整的业务闭环</h2>
+          <div class="body">
+            <div class="journey">
+              <div class="journey-step fragment fade-up"><div class="step-no">1</div><h3>AI 生成测试用例</h3><p>用户在日常对话场景中得到测试用例初稿，降低起草门槛。</p></div>
+              <div class="journey-step fragment fade-up"><div class="step-no">2</div><h3>进入专门处理面板</h3><p>用户可直接打开专门界面查看内容，而不是在聊天文本里继续操作。</p></div>
+              <div class="journey-step fragment fade-up"><div class="step-no">3</div><h3>人工筛选与修订</h3><p>支持查看、修改、勾选、导入已有表格，保留业务判断。</p></div>
+              <div class="journey-step fragment fade-up"><div class="step-no">4</div><h3>正式导出并回显结果</h3><p>确认后导入 JIRA，并回显生成结果，让用户知道流程已经真正完成。</p></div>
+            </div>
+            <div class="executive-strip" style="margin-top:18px">
+              <div class="exec-item fragment fade-up"><strong>效率</strong><p>从“先生成，再手工整理”变成“生成后直接处理”。</p></div>
+              <div class="exec-item fragment fade-up"><strong>质量</strong><p>通过人工确认，把控最终导出内容的准确性和完整性。</p></div>
+              <div class="exec-item fragment fade-up"><strong>闭环</strong><p>最终结果能进入正式系统，而不是停留在临时页面或文本中。</p></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="deck-slide">
+          <div class="brand-bar">
+            <div class="brand-left">
+              <div class="brand-mark"><span></span><span></span><span></span><span></span></div>
+              <div class="brand-copy"><strong>HSBC Executive Briefing</strong><span>Delivered Capability</span></div>
+            </div>
+            <div class="page-chip">04 / 09</div>
+          </div>
+          <div class="eyebrow">What Has Been Delivered</div>
+          <h2 class="section-title">目前已经交付的核心能力</h2>
+          <div class="body grid-2">
+            <div class="card fragment fade-right"><h3>已落地能力</h3><ul class="list"><li>可从 AI 回复直接进入测试用例处理路径。</li><li>支持整批查看测试用例内容并进行人工修订。</li><li>支持“合并导出”与“拆分导出”两种业务处理方式。</li><li>支持导出后展示结果，形成明确反馈。</li></ul></div>
+            <div class="card soft fragment fade-left"><h3>体现出的产品方向</h3><ul class="list"><li>AI 负责提升起草效率，业务人员保留最终确认权。</li><li>结果可直接进入协作系统，减少中间环节。</li><li>已经具备“平台化复制”的雏形，而不是单点功能。</li></ul></div>
+            <div class="card chart-card fragment fade-right"><div class="chart-title">阶段价值分布</div><div id="impactChart" class="chart"></div></div>
+            <div class="card fragment fade-left"><h3>为什么这不是概念验证</h3><p>因为它已经完成了从“生成内容”到“进入系统”的主路径打通。对管理层来说，这意味着 AI 已经开始承担真实的业务承接角色。</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="deck-slide">
+          <div class="brand-bar">
+            <div class="brand-left">
+              <div class="brand-mark"><span></span><span></span><span></span><span></span></div>
+              <div class="brand-copy"><strong>HSBC Executive Briefing</strong><span>Executive Lens</span></div>
+            </div>
+            <div class="page-chip">05 / 09</div>
+          </div>
+          <div class="eyebrow">Management Lens</div>
+          <h2 class="section-title">从老板视角，最值得关心的三件事</h2>
+          <div class="body grid-3">
+            <div class="card fragment zoom-in"><h3>它能不能真正帮助业务</h3><p>能。它减少的是“生成之后的整理与转抄成本”，让 AI 成果更快进入执行流程。</p></div>
+            <div class="card soft fragment zoom-in"><h3>风险是不是可控</h3><p>是可控的。当前保留人工审阅和筛选，不让 AI 结果无审核直接进入正式系统。</p></div>
+            <div class="card fragment zoom-in"><h3>后续有没有放大价值</h3><p>有。它沉淀的是“AI 结果进入企业流程”的方法，可以复制到更多输出场景。</p></div>
+          </div>
+          <div class="executive-strip" style="margin-top:18px">
+            <div class="exec-item fragment fade-up"><strong>现在</strong><p>已经完成主链路打通，证明 AI 内容可以被业务系统承接。</p></div>
+            <div class="exec-item fragment fade-up"><strong>下一步</strong><p>继续提高稳定性、可视化和管理可读性，提升使用体验。</p></div>
+            <div class="exec-item fragment fade-up"><strong>长期</strong><p>逐步沉淀为平台能力，支持更多 AI 场景进入正式交付体系。</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="deck-slide">
+          <div class="brand-bar">
+            <div class="brand-left">
+              <div class="brand-mark"><span></span><span></span><span></span><span></span></div>
+              <div class="brand-copy"><strong>HSBC Executive Briefing</strong><span>Management Dashboard</span></div>
+            </div>
+            <div class="page-chip">06 / 09</div>
+          </div>
+          <div class="eyebrow">Dashboard View</div>
+          <h2 class="section-title">如果面向管理层持续汇报，可以沉淀哪些指标</h2>
+          <div class="body grid-2">
+            <div class="card fragment fade-right"><h3>建议关注的管理指标</h3><ul class="list"><li>AI 生成后进入处理面板的次数。</li><li>最终导出成功的比例。</li><li>用户在导出前的修改程度。</li><li>不同导出模式的使用倾向。</li><li>从生成到导出的整体耗时。</li></ul></div>
+            <div class="card chart-card fragment fade-left"><div class="chart-title">建议管理看板结构</div><div id="dashboardChart" class="chart"></div></div>
+          </div>
+          <div class="spotlight fragment fade-in">一旦这些指标沉淀下来，管理层就不只是“知道有这个功能”，而是可以判断这项 AI 能力是否真正提升了效率、被业务接受，以及哪些环节还需要继续优化。</div>
+        </div>
+      </section>
+
+      <section>
+        <div class="deck-slide">
+          <div class="brand-bar">
+            <div class="brand-left">
+              <div class="brand-mark"><span></span><span></span><span></span><span></span></div>
+              <div class="brand-copy"><strong>HSBC Executive Briefing</strong><span>Next Focus</span></div>
+            </div>
+            <div class="page-chip">07 / 09</div>
+          </div>
+          <div class="eyebrow">Next Focus</div>
+          <h2 class="section-title">下一阶段建议重点</h2>
+          <div class="body roadmap">
+            <div class="roadmap-row fragment fade-up"><strong>Priority 1</strong><p>继续提升真实业务场景中的稳定性与流畅度，让从生成到导出的主路径更顺滑。</p></div>
+            <div class="roadmap-row fragment fade-up"><strong>Priority 2</strong><p>补充管理可视化，让老板看到“使用量、导出量、接受度、人工调整比例”等核心观察维度。</p></div>
+            <div class="roadmap-row fragment fade-up"><strong>Priority 3</strong><p>把这套模式复制到更多 AI 输出场景，形成“AI 结果进入企业流程”的通用模板。</p></div>
+            <div class="roadmap-row fragment fade-up"><strong>Priority 4</strong><p>逐步从单点能力，演进为可复用的平台型能力，支持更多团队共享这套模式。</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="deck-slide">
+          <div class="brand-bar">
+            <div class="brand-left">
+              <div class="brand-mark"><span></span><span></span><span></span><span></span></div>
+              <div class="brand-copy"><strong>HSBC Executive Briefing</strong><span>Key Message</span></div>
+            </div>
+            <div class="page-chip">08 / 09</div>
+          </div>
+          <div class="eyebrow">Key Message</div>
+          <h2 class="section-title">一句话给老板的核心结论</h2>
+          <div class="body closing-panel">
+            <div class="closing-quote fragment fade-right"><p>我们已经把 AI 测试用例能力，从“内容生成工具”推进到了<strong>“可进入正式业务流程的交付能力”</strong>。</p></div>
+            <div class="speaker-note fragment fade-left"><h3>适合现场讲的话</h3><p>过去 AI 只能帮我们先写出来，现在它已经能帮助团队更快地把结果推进到正式系统中。这说明 AI 开始具备真正的业务承接价值，而不只是一个展示效果。</p></div>
+          </div>
+          <div class="executive-strip" style="margin-top:20px">
+            <div class="exec-item fragment fade-up"><strong>不是</strong><p>不是一个孤立的页面功能。</p></div>
+            <div class="exec-item fragment fade-up"><strong>而是</strong><p>是 AI 输出对接企业流程的关键连接器。</p></div>
+            <div class="exec-item fragment fade-up"><strong>意义</strong><p>为后续更大范围的 AI 落地提供模板和信心。</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="deck-slide">
+          <div class="brand-bar">
+            <div class="brand-left">
+              <div class="brand-mark"><span></span><span></span><span></span><span></span></div>
+              <div class="brand-copy"><strong>HSBC Executive Briefing</strong><span>Close</span></div>
+            </div>
+            <div class="page-chip">09 / 09</div>
+          </div>
+          <div class="eyebrow">Closing Page</div>
+          <h2 class="section-title">Thank You</h2>
+          <p class="subtitle">这份页面已按企业汇报风格增强，适合在正式场景下做演示。支持分页切换、动画推进与图表展示。</p>
+          <div class="body grid-2">
+            <div class="card fragment fade-up"><h3>演示方式</h3><ul class="list"><li>支持键盘 <span class="kbd">←</span> / <span class="kbd">→</span> 切换。</li><li>支持 Reveal.js 的完整演示模式与过渡效果。</li><li>图表使用 ECharts 呈现，更接近正式企业汇报观感。</li></ul></div>
+            <div class="card soft fragment fade-up"><h3>说明</h3><p>本页面依赖外部 CDN 资源加载 Reveal.js 与 ECharts，如果你后面需要离线版，我也可以继续帮你改成无外网依赖的本地版本。</p></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <script>
+    Reveal.initialize({width:1440,height:810,margin:.03,hash:true,controls:true,progress:true,center:false,transition:'slide',backgroundTransition:'fade',slideNumber:false,plugins:[RevealNotes]});
+    function createChart(id, option){const element=document.getElementById(id);if(!element||typeof echarts==='undefined'){return null}const chart=echarts.init(element,null,{renderer:'svg'});chart.setOption(option);return chart}
+    const valueChart=createChart('valueChart',{animationDuration:900,color:['#db0011','#ff8b94','#1f2937'],tooltip:{trigger:'item'},series:[{type:'pie',radius:['50%','72%'],center:['50%','54%'],label:{formatter:'{b}\\n{d}%',color:'#4b5563',fontSize:12,lineHeight:18},itemStyle:{borderColor:'#fff',borderWidth:4},data:[{value:42,name:'流程承接'},{value:33,name:'效率提升'},{value:25,name:'风险控制'}]}]});
+    const impactChart=createChart('impactChart',{animationDuration:900,grid:{left:48,right:20,top:36,bottom:26},xAxis:{type:'category',data:['效率','规范性','可追踪','扩展性'],axisLine:{lineStyle:{color:'#d1d5db'}},axisLabel:{color:'#6b7280',fontSize:12}},yAxis:{type:'value',max:100,splitLine:{lineStyle:{color:'#eef0f3'}},axisLabel:{color:'#9ca3af',fontSize:12}},series:[{data:[82,76,80,72],type:'bar',barWidth:34,itemStyle:{borderRadius:[10,10,0,0],color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'#db0011'},{offset:1,color:'#ff8d97'}])}}]});
+    const dashboardChart=createChart('dashboardChart',{animationDuration:900,tooltip:{trigger:'axis'},legend:{top:8,textStyle:{color:'#6b7280',fontSize:12}},grid:{left:46,right:20,top:54,bottom:26},xAxis:{type:'category',data:['生成进入面板','人工修改','成功导出','结果回看'],axisLabel:{color:'#6b7280',fontSize:12,interval:0},axisLine:{lineStyle:{color:'#d1d5db'}}},yAxis:{type:'value',max:100,splitLine:{lineStyle:{color:'#eef0f3'}},axisLabel:{color:'#9ca3af',fontSize:12}},series:[{name:'建议纳入看板',type:'line',smooth:true,symbolSize:8,lineStyle:{width:4,color:'#db0011'},itemStyle:{color:'#db0011'},areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(219,0,17,0.25)'},{offset:1,color:'rgba(219,0,17,0.04)'}])},data:[100,64,78,56]}]});
+    window.addEventListener('resize',()=>{[valueChart,impactChart,dashboardChart].forEach(chart=>{if(chart){chart.resize()}})});
+  </script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+    margin: 0;
+    padding: 0;
+}
+
+/* 删除所有自定义样式，改用以下代码 */
+.custom-tabs {
+    height: 100%;
+}
+
+.custom-tabs > .ant-tabs-content-holder {
+    height: 100%;
+}
+
+.custom-tabs > .ant-tabs-content-holder > .ant-tabs-content {
+    height: 100%;
+}
+
+.custom-tabs > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane {
+    height: 100%;
+    overflow-y: auto; /* 添加滚动 */
+}

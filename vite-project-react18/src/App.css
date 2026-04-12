@@ -1,0 +1,135 @@
+/* App.css */
+.app {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.6;
+}
+
+h1 {
+    color: #2c3e50;
+    border-bottom: 2px solid #ecf0f1;
+    padding-bottom: 10px;
+}
+
+.controls {
+    margin: 20px 0;
+}
+
+.checkbox-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.checkbox-container input {
+    transform: scale(1.2);
+}
+
+.input-section {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+@media (max-width: 768px) {
+    .input-section {
+        grid-template-columns: 1fr;
+    }
+}
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.input-group label {
+    font-weight: bold;
+    margin-bottom: 8px;
+    color: #34495e;
+}
+
+.input-group textarea {
+    padding: 10px;
+    border: 1px solid #bdc3c7;
+    border-radius: 4px;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 80px;
+}
+
+.input-group textarea:focus {
+    outline: none;
+    border-color: #3498db;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+.result-section h2 {
+    color: #2c3e50;
+    border-bottom: 1px solid #ecf0f1;
+    padding-bottom: 8px;
+}
+
+.result-type {
+    margin: 25px 0;
+    padding: 15px;
+    border: 1px solid #ecf0f1;
+    border-radius: 8px;
+    background-color: #f9f9f9;
+}
+
+.result-type h3 {
+    margin-top: 0;
+    color: #34495e;
+}
+
+.diff-result {
+    padding: 15px;
+    background-color: white;
+    border-radius: 4px;
+    margin: 15px 0;
+    line-height: 1.8;
+    min-height: 60px;
+    border: 1px solid #e1e1e1;
+}
+
+.string-display {
+    margin: 10px 0;
+}
+
+.legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-top: 15px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.color-box {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border-radius: 2px;
+}
+
+.color-box.same {
+    background-color: #f0f9f0;
+    border: 1px solid #2ecc71;
+}
+
+.color-box.removed {
+    background-color: #ffe8e8;
+    border: 1px solid #e74c3c;
+}
+
+.color-box.added {
+    background-color: #e8f0ff;
+    border: 1px solid #3498db;
+}

@@ -1,0 +1,39 @@
+/**
+ * Radio 单选框自定义样式
+ * 修改为：白色背景 + 黑色圆点
+ */
+
+/* 未选中状态：灰色边框 + 白色背景 */
+.ant-radio-wrapper .ant-radio-inner {
+  background-color: #ffffff !important;
+  border-color: #d9d9d9 !important;
+}
+
+/* 选中状态：黑色边框 + 白色背景 */
+.ant-radio-wrapper .ant-radio-checked .ant-radio-inner {
+  border-color: #000000 !important;
+  background-color: #ffffff !important;
+}
+
+/* 选中状态的内部圆点：黑色 */
+.ant-radio-wrapper .ant-radio-checked .ant-radio-inner::after {
+  background-color: #000000 !important;
+}
+
+/* 鼠标悬停时：黑色边框 + 白色背景 */
+.ant-radio-wrapper:hover .ant-radio-inner {
+  border-color: #000000 !important;
+  background-color: #ffffff !important;
+}
+
+/* 选中且悬停：黑色边框 + 白色背景 */
+.ant-radio-wrapper:hover .ant-radio-checked .ant-radio-inner {
+  border-color: #000000 !important;
+  background-color: #ffffff !important;
+}
+
+/* 聚焦状态：黑色边框 */
+.ant-radio-wrapper .ant-radio-input:focus + .ant-radio-inner {
+  border-color: #000000 !important;
+  background-color: #ffffff !important;
+}

@@ -1,0 +1,58 @@
+# Copy Deck Formatter
+
+Process Confluence copy deck tables and return formatted data in a copydeck code block.
+
+## Input Format
+User provides: `[Confluence URL] [Table Name]`
+
+Example:
+- `https://confluence.company.com/pages/viewpage.action?pageId=12345 Login Flow`
+- `https://your-domain.atlassian.net/wiki/rest/api/content/s12321 Provision Test Demo`
+
+## Processing Steps
+
+1. **Extract parameters from user input:**
+   - First part: Confluence page URL
+   - Second part (remaining text): Table name
+
+2. **Call the tool:**
+   - Use `processDataByUrlAndTable` tool with extracted URL and table name
+   - The tool will return a processed JSON 2D array
+
+3. **Return the result:**
+   - Wrap the returned JSON array in a copydeck code block
+   - NO additional text, explanations, or confirmations
+
+## Output Format
+```copydeck
+[["Header1","Header2",...],["Data1","Data2",...],...]
+```
+
+## Output Rules
+1. Return ONLY the copydeck code block
+2. NO explanations, confirmations, or additional text
+3. NO text before the code block
+4. NO text after the code block
+5. Single-line JSON format
+6. Empty cells use `""` not `null`
+
+## Example
+
+User input:
+```
+https://confluence.company.com/pages/viewpage.action?pageId=12345 Login Flow
+```
+
+Step 1: Extract parameters
+- URL: `https://confluence.company.com/pages/viewpage.action?pageId=12345`
+- Table name: `Login Flow`
+
+Step 2: Call tool
+- `processDataByUrlAndTable(url, tablename)`
+
+Step 3: Output (example result)
+```copydeck
+[["Copy key |key|","Row |row|","Screen name/Snagit ID","English |values=en|","Result |values=en|","Test Evidence |values=en|"],["login","40.1","Login Screen","Welcome","PASS",""]]
+```
+
+CRITICAL: Return ONLY the copydeck code block. Nothing else.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Figma API Data to React"
+  short_description: "1:1 Figma to AntD5 + Tailwind React via persisted REST JSON"
+  default_prompt: "Use $figma-api-data-to-react with my Figma access token, Figma URL, and absolute React output path to persist complete REST data under figma-data, reuse that JSON when it already exists, and generate a 1:1 React and TypeScript implementation with Ant Design 5 components plus Tailwind using real padding and margin instead of absolute layout."
