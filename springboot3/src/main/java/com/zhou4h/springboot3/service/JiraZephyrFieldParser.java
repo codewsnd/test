@@ -13,8 +13,10 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 import static com.zhou4h.springboot3.common.JiraDataToMarkdownConstants.*;
 
@@ -68,13 +70,7 @@ public class JiraZephyrFieldParser {
             testFields.put(TEST_DETAILS_FIELD_NAME, testDetails);
         }
 
-        String executionsIdentifier = StringUtils.hasText(issueKey) ? issueKey : issueId;
-        JsonNode testExecutions = requestJsonSafely(
-                apiPrefix + ZAPI_BASE_PATH + EXECUTIONS_BY_TEST_PATH + encodeQueryValue(executionsIdentifier),
-                authorizationHeader,
-                TEST_EXECUTIONS_FIELD_NAME,
-                executionsIdentifier
-        );
+        JsonNode testExecutions = requestExecutionsSafely(apiPrefix, authorizationHeader, issueId, issueKey);
         if (testExecutions != null) {
             testFields.put(TEST_EXECUTIONS_FIELD_NAME, testExecutions);
         }
@@ -105,9 +101,45 @@ public class JiraZephyrFieldParser {
         try {
             return requestJson(url, authorizationHeader);
         } catch (CustomBaseException exception) {
-            log.warn("Load {} failed for Jira test issue {}", fieldName, issueIdentifier, exception);
+            log.warn("Load {} failed for Jira test issue {} via {}", fieldName, issueIdentifier, url, exception);
             return null;
         }
+    }
+
+    /**
+     * 安全请求 Test Executions，优先使用 issueId，失败时回退到 issueKey。
+     *
+     * @param apiPrefix Jira 地址前缀
+     * @param authorizationHeader 认证头
+     * @param issueId issue id
+     * @param issueKey issue key
+     * @return 解析后的 JSON 节点
+     */
+    private JsonNode requestExecutionsSafely(String apiPrefix, String authorizationHeader, String issueId, String issueKey) {
+        String attemptedUrls = EMPTY;
+        CustomBaseException lastException = null;
+
+        for (String executionIdentifier : buildExecutionIdentifiers(issueId, issueKey)) {
+            String url = apiPrefix + ZAPI_BASE_PATH + EXECUTIONS_BY_TEST_PATH + encodeQueryValue(executionIdentifier);
+            attemptedUrls = attemptedUrls.isEmpty() ? url : attemptedUrls + ", " + url;
+            try {
+                return requestJson(url, authorizationHeader);
+            } catch (CustomBaseException exception) {
+                lastException = exception;
+            }
+        }
+
+        if (lastException != null) {
+            String issueIdentifier = StringUtils.hasText(issueId) ? issueId : issueKey;
+            log.warn(
+                    "Load {} failed for Jira test issue {} via {}",
+                    TEST_EXECUTIONS_FIELD_NAME,
+                    issueIdentifier,
+                    attemptedUrls,
+                    lastException
+            );
+        }
+        return null;
     }
 
     /**
@@ -250,5 +282,23 @@ public class JiraZephyrFieldParser {
      */
     private String encodeQueryValue(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * 构建 Test Executions 查询标识，优先使用 issueId，再回退到 issueKey。
+     *
+     * @param issueId issue id
+     * @param issueKey issue key
+     * @return 去重后的查询标识
+     */
+    private Set<String> buildExecutionIdentifiers(String issueId, String issueKey) {
+        Set<String> executionIdentifiers = new LinkedHashSet<>();
+        if (StringUtils.hasText(issueId)) {
+            executionIdentifiers.add(issueId);
+        }
+        if (StringUtils.hasText(issueKey)) {
+            executionIdentifiers.add(issueKey);
+        }
+        return executionIdentifiers;
     }
 }
