@@ -1,0 +1,18 @@
+fields @timestamp, @message
+| filter @message like /AUDIT:/
+| filter @message like /conversation_history/
+| filter @message like /DELETE/
+| parse @message "*:* LOG:  AUDIT: *,*,*,*,*,*,*,*,*" as date, time, session, stmt, substmt, action, command, objtype, objname, original_sql, param
+| display @timestamp, action, command, objname, original_sql
+| sort @timestamp desc
+
+
+fields @timestamp, @message
+| filter @message like /AUDIT:/
+| filter @message like /conversation_history/
+| filter @message like /DELETE/
+# 核心：添加 staff_id 过滤（将 12345678 替换为你实际要查的 ID）
+| filter @message like /12345678/
+| parse @message "*:* LOG:  AUDIT: *,*,*,*,*,*,*,*,*" as date, time, session, stmt, substmt, action, command, objtype, objname, original_sql, param
+| display @timestamp, action, command, objname, original_sql
+| sort @timestamp desc
