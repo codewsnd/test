@@ -66,3 +66,14 @@ sequenceDiagram
     Service-->>GW: 业务数据
     GW-->>Browser: 正常响应
     Browser-->>User: 展示数据
+
+
+我的方案是
+
+1后端定义app:api-version: v2.3.0 以及全局过滤器注入，并提供一个查询apiversion的api
+
+2前端初始化时调用查询api，然后在Axios 拦截器，对于每个请求都在拦截 Header 中的版本号（注意 Axios 拿到的 headers key 全是小写）
+
+const newApiVersion = response.headers['x-api-version'];
+
+3 如果前端版本不一致，则弹出modal
