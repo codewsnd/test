@@ -33,3 +33,5 @@ build/
 .vscode
 .DS_Store
 application-local.properties
+springboot3-backend/src/main/resources/application-local.properties
+springboot3/src/main/resources/application-local.properties
