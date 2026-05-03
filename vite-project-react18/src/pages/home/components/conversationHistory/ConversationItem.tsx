@@ -11,9 +11,10 @@ import {
   activeConversationIdAtom,
   batchPinConversationsAtom,
   batchUnpinConversationsAtom,
-  renameConversationHistoryAtom,
+  setConversationHistoryAtom,
   batchDeleteConversationsAtom
 } from './conversationHistoryAtom';
+import { renameConversationApi } from "../../../../api/conversationHistoryApi";
 
 // 会话项Props类型
 export interface ConversationItemProps {
@@ -41,7 +42,7 @@ export default function ConversationItem({
   const [activeConversationId, setActiveConversationId] = useAtom(activeConversationIdAtom);
   const batchPinConversations = useSetAtom(batchPinConversationsAtom);
   const batchUnpinConversations = useSetAtom(batchUnpinConversationsAtom);
-  const renameConversationHistory = useSetAtom(renameConversationHistoryAtom);
+  const updateConversationHistory = useSetAtom(setConversationHistoryAtom);
   const batchDeleteConversations = useSetAtom(batchDeleteConversationsAtom);
 
   // 计算状态
@@ -54,13 +55,19 @@ export default function ConversationItem({
 
   const handleConfirmRename = async () => {
     if (renameValue.trim()) {
+      // 更新本地状态
+      updateConversationHistory({
+        conversationHistoryId: item.id,
+        updater: { title: renameValue.trim() },
+        isDone: false
+      });
+
+      // 持久化到数据库
       try {
-        await renameConversationHistory({
-          conversationHistoryId: item.id,
-          title: renameValue.trim()
-        });
+        await renameConversationApi(item.id, renameValue.trim());
       } catch (error) {
         console.error('Failed to persist rename', error);
+        // 如果API调用失败，可以考虑回滚本地状态
       }
     }
     setIsRenaming(false);
