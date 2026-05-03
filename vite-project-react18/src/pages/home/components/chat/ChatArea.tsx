@@ -131,7 +131,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
         eventSourceRef.current.abort();
       }
 
-      const sseUrl = `${API_BASE_URLS.springboot3Backend}/deepseek/chat/stream`;
+      const sseUrl = `${API_BASE_URLS.core}/deepseek/chat/stream`;
       console.log(`Creating independent SSE connection: ${sseUrl}`);
 
       // 创建新的 AbortController

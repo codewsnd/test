@@ -12,7 +12,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from app.core.settings import Settings
-from app.schemas.chat import ChatRequest, ChatResponse
+from app.schemas.chat import ChatMessage, ChatRequest, ChatResponse, ChatStreamCompatRequest
 
 
 DEFAULT_INSTRUCTION = (
@@ -89,6 +89,35 @@ class AdkChatService:
 
         yield self._sse("done", {"session_id": session_id, "done": True})
 
+    async def stream_chat_compat(self, request: ChatStreamCompatRequest) -> AsyncIterator[str]:
+        prompt = self._messages_to_prompt(request.messages)
+        session_id = await self._ensure_session(request.user_id, f"compat-{uuid4()}")
+        content = self._content_from_text(prompt)
+        sent_partial = False
+
+        try:
+            async for event in self._runner.run_async(
+                user_id=request.user_id,
+                session_id=session_id,
+                new_message=content,
+                run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+            ):
+                text = self._text_from_event(event)
+                if not text or not text.strip():
+                    continue
+
+                payload = self._spring_ai_chunk(text)
+                if event.partial:
+                    sent_partial = True
+                    yield self._sse("message", payload)
+                elif event.is_final_response() and not sent_partial:
+                    yield self._sse("message", payload)
+        except Exception as exc:
+            yield self._sse("error-message", {"error": f"LLM request failed: {exc}"})
+            return
+
+        yield self._sse("done", {"done": True})
+
     async def _ensure_session(self, user_id: str, session_id: str | None) -> str:
         if not session_id:
             session_id = str(uuid4())
@@ -114,6 +143,38 @@ class AdkChatService:
         )
 
     @staticmethod
+    def _messages_to_prompt(messages: list[ChatMessage]) -> str:
+        if not messages:
+            raise ValueError("At least one message is required")
+
+        system_messages: list[str] = []
+        transcript_lines: list[str] = []
+
+        for message in messages:
+            content = message.content.strip()
+            if not content:
+                continue
+
+            role = message.role.strip().lower()
+            if role == "system":
+                system_messages.append(content)
+            elif role == "assistant":
+                transcript_lines.append(f"Assistant: {content}")
+            else:
+                transcript_lines.append(f"User: {content}")
+
+        if not transcript_lines:
+            raise ValueError("At least one user or assistant message is required")
+
+        prompt_sections = [
+            "Continue the conversation below and reply only as the assistant."
+        ]
+        if system_messages:
+            prompt_sections.append("System instructions:\n" + "\n\n".join(system_messages))
+        prompt_sections.append("Conversation:\n" + "\n\n".join(transcript_lines))
+        return "\n\n".join(prompt_sections)
+
+    @staticmethod
     def _text_from_event(event: object) -> str:
         content = getattr(event, "content", None)
         parts = getattr(content, "parts", None)
@@ -122,5 +183,15 @@ class AdkChatService:
         return "".join(part.text or "" for part in parts)
 
     @staticmethod
-    def _sse(event: str, data: dict[str, object]) -> str:
+    def _spring_ai_chunk(text: str) -> dict[str, object]:
+        return {
+            "output": {
+                "text": text,
+                "messageType": "ASSISTANT",
+            },
+            "metadata": {},
+        }
+
+    @staticmethod
+    def _sse(event: str, data: object) -> str:
         return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"

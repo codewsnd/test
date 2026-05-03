@@ -1,6 +1,6 @@
 /**
  * 聊天 API 服务
- * 提供与后端 DeepSeek 聊天接口的交互功能
+ * 提供与 core ADK 聊天接口的交互功能
  */
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { API_BASE_URLS } from './axios';
@@ -46,10 +46,10 @@ export const chatStream = (
   callbacks: StreamCallbacks
 ): AbortController => {
   const controller = new AbortController();
-  const baseURL = API_BASE_URLS.springboot3Backend;
+  const baseURL = API_BASE_URLS.core;
 
   // 使用 fetchEventSource 处理 SSE 流
-  fetchEventSource(`${baseURL}/chat/stream`, {
+  fetchEventSource(`${baseURL}/deepseek/chat/stream`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

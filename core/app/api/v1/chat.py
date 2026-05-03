@@ -2,15 +2,20 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from app.core.settings import get_settings
-from app.schemas.chat import ChatRequest, ChatResponse, HealthResponse
+from app.schemas.chat import (
+    ChatRequest,
+    ChatResponse,
+    ChatStreamCompatRequest,
+    HealthResponse,
+)
 from app.services.adk_chat import AdkChatService
 
-router = APIRouter(prefix="/api/v1", tags=["chat"])
+router = APIRouter(tags=["chat"])
 settings = get_settings()
 chat_service = AdkChatService(settings)
 
 
-@router.get("/health", response_model=HealthResponse)
+@router.get("/api/v1/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
@@ -20,7 +25,7 @@ async def health() -> HealthResponse:
     )
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/api/v1/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
     try:
         return await chat_service.chat(request)
@@ -31,7 +36,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         ) from exc
 
 
-@router.post("/stream-chat")
+@router.post("/api/v1/stream-chat")
 async def stream_chat(request: ChatRequest) -> StreamingResponse:
     async def event_stream():
         try:
@@ -42,5 +47,15 @@ async def stream_chat(request: ChatRequest) -> StreamingResponse:
                 "error",
                 {"message": f"LLM request failed: {exc}"},
             )
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/deepseek/chat/stream")
+@router.post("/chat/stream")
+async def compat_stream_chat(request: ChatStreamCompatRequest) -> StreamingResponse:
+    async def event_stream():
+        async for chunk in chat_service.stream_chat_compat(request):
+            yield chunk
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

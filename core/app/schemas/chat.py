@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatRequest(BaseModel):
@@ -10,6 +10,32 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     session_id: str
     message: str
+
+
+class ChatMessage(BaseModel):
+    role: str = Field(..., min_length=1)
+    content: str = Field(..., min_length=1)
+
+
+class ChatDocument(BaseModel):
+    content: str | None = None
+    base64url: list[str] | None = None
+    type: str | None = None
+    extension: str | None = None
+    id: str | None = None
+    name: str | None = None
+
+
+class ChatStreamCompatRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    conversation_id: str | None = Field(default=None, alias="conversationId")
+    request_id: str | None = Field(default=None, alias="requestId")
+    agent_id: str | None = Field(default=None, alias="agentId")
+    model_name: str | None = Field(default=None, alias="modelName")
+    documents: list[ChatDocument] = Field(default_factory=list)
+    messages: list[ChatMessage] = Field(..., min_length=1)
+    user_id: str = Field(default="local-user", alias="userId", min_length=1)
 
 
 class HealthResponse(BaseModel):

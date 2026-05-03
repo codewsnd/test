@@ -49,9 +49,11 @@ export const createConversationHistoryAtom = atom(
       set(activeConversationIdAtom, newId);
 
       // 持久化到数据库
-      await saveConversationApi(newConversationHistory);
+      setTimeout(()=> {
+        saveConversationApi(newConversationHistory);
+      }, 1)
 
-      return { conversation: newConversationHistory, id: newId };
+      return { conversation: newConversationHistory};
     } catch (error) {
       // 失败时回滚
       set(conversationHistoriesAtom, prev => prev.filter(c => c.id !== newId));
@@ -277,9 +279,6 @@ Please provide only the title, no additional text or explanation.`;
       const response = await springboot3Api.post('/chat', { message: summaryContent });
       const finalTitle = (response || '').toString().trim().substring(0, 20) || fallbackTitle;
 
-      // 添加小延迟以避免与创建操作的竞态条件
-      // await new Promise(resolve => setTimeout(resolve, 100));
-
       setTimeout(()=> {
         // 更新标题
         set(setConversationHistoryAtom, {
@@ -288,8 +287,6 @@ Please provide only the title, no additional text or explanation.`;
           isDone: true
         });
       }, 100);
-
-
 
       return finalTitle;
     } catch (error) {
