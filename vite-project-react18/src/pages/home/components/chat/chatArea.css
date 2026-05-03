@@ -63,6 +63,11 @@
   padding: 16px 20px 20px;
 }
 
+.chat-area__agent-select {
+  width: 220px;
+  flex-shrink: 0;
+}
+
 .chat-area__attach-button {
   min-width: auto;
   padding: 4px 8px;
@@ -70,6 +75,16 @@
 
 .chat-area__send-button {
   min-width: 96px;
+}
+
+@media (max-width: 768px) {
+  .chat-area__composer {
+    flex-wrap: wrap;
+  }
+
+  .chat-area__agent-select {
+    width: 100%;
+  }
 }
 
 .chat-turn {

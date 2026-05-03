@@ -17,7 +17,7 @@ import java.time.Instant;
 import java.util.List;
 
 @Slf4j
-@Service
+@Service("chatAgentInfoService")
 @RequiredArgsConstructor
 public class AgentService {
 

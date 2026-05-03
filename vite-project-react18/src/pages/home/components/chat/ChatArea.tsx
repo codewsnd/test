@@ -1,11 +1,12 @@
 import { startTransition, useEffect, useRef, useState } from 'react';
-import { Button, Input, Spin, message } from 'antd';
+import { Button, Input, Select, Spin, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { useAtom, useSetAtom } from 'jotai';
 import { useRequest } from 'ahooks';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 
 import { API_BASE_URLS } from '@/api/axios';
+import { getAgentsApi } from '@/api/agentApi';
 import {
   getConversationDetailApi,
   type ConversationHistory
@@ -246,6 +247,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
   const showTestCaseSidebar = useSetAtom(showTestCaseSidebarAtom);
 
   const [localConversationId, setLocalConversationId] = useState<string | null>(conversationId ?? null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(undefined);
   const [input, setInput] = useState('');
   const [isRepositoryVisible, setIsRepositoryVisible] = useState(false);
 
@@ -267,11 +269,29 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
     ? conversationHistories.find((item) => item.id === activeConversationId)
     : undefined;
   const conversationState = conversationHistory?.conversationState ?? EMPTY_CONVERSATION_STATE;
+  const { data: agents = [], loading: loadingAgents } = useRequest(getAgentsApi);
+  const selectedAgent =
+    agents.find((agent) => String(agent.id) === selectedAgentId) ??
+    (conversationState.agentId
+      ? agents.find((agent) => String(agent.id) === conversationState.agentId)
+      : undefined);
   const latestTurn = conversationState.turns[conversationState.turns.length - 1];
   const latestTurnContentLength = latestTurn?.aiResponse.content.length ?? 0;
   const latestTurnStepCount = latestTurn?.processSteps?.length ?? 0;
   const isConversationReady = !conversationId || !!conversationHistory?.conversationState;
   const needLoadConversationDetail = Boolean(conversationId && !conversationHistory?.conversationState);
+  const isAgentSelected = Boolean(selectedAgentId);
+
+  useEffect(() => {
+    if (conversationHistory?.conversationState?.agentId) {
+      setSelectedAgentId(conversationHistory.conversationState.agentId);
+      return;
+    }
+
+    if (conversationId) {
+      setSelectedAgentId(undefined);
+    }
+  }, [conversationHistory?.conversationState?.agentId, conversationId]);
 
   const scrollToBottom = () => {
     const container = messagesContainerRef.current;
@@ -815,7 +835,8 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
     turnId: string,
     conversationHistoryId: string,
     historyTurns: ConversationTurn[],
-    userMessage: string
+    userMessage: string,
+    agentId?: string
   ) => {
     try {
       if (eventSourceRef.current) {
@@ -830,6 +851,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       const requestBody = {
         conversationId: conversationHistoryId,
         requestId: turnId,
+        agentId,
         messages: buildHistoryMessages(historyTurns, userMessage)
       };
 
@@ -1026,6 +1048,11 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       return false;
     }
 
+    if (!selectedAgentId) {
+      message.warning('Please select an agent first.');
+      return false;
+    }
+
     if (conversationId && !conversationHistory) {
       message.warning('Conversation is still loading.');
       return false;
@@ -1039,13 +1066,31 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       let historyTurns = conversationState.turns;
 
       if (!targetConversation) {
-        const result = await createConversationHistory({ title: trimmedInput });
+        const result = await createConversationHistory({
+          title: trimmedInput,
+          initialState: {
+            conversationState: {
+              turns: [],
+              agentId: selectedAgentId,
+              agentName: selectedAgent?.name
+            }
+          }
+        });
         targetConversation = result.conversation;
         targetConversationId = targetConversation.id;
         historyTurns = [];
         setLocalConversationId(targetConversation.id);
       } else {
         targetConversationId = targetConversation.id;
+        updateConversation(
+          targetConversation.id,
+          (prevState) => ({
+            ...prevState,
+            agentId: selectedAgentId,
+            agentName: selectedAgent?.name
+          }),
+          true
+        );
       }
 
       const turnIndex = historyTurns.length;
@@ -1068,7 +1113,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       );
 
       initializeTurnSteps(newTurn.id, targetConversation.id);
-      setupSSE(newTurn.id, targetConversation.id, historyTurns, trimmedInput);
+      setupSSE(newTurn.id, targetConversation.id, historyTurns, trimmedInput, selectedAgentId);
 
       return true;
     } catch (error) {
@@ -1092,6 +1137,25 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
     if (success) {
       setInput('');
     }
+  };
+
+  const handleAgentChange = (value: string) => {
+    setSelectedAgentId(value);
+
+    if (!activeConversationId || !conversationHistory) {
+      return;
+    }
+
+    const nextAgent = agents.find((agent) => String(agent.id) === value);
+    updateConversation(
+      activeConversationId,
+      (prevState) => ({
+        ...prevState,
+        agentId: value,
+        agentName: nextAgent?.name
+      }),
+      true
+    );
   };
 
   return (
@@ -1128,6 +1192,17 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       </div>
 
       <div className="chat-area__composer">
+        <Select
+          value={selectedAgentId}
+          onChange={handleAgentChange}
+          placeholder={loadingAgents ? 'Loading agents...' : 'Select agent'}
+          options={agents.map((agent) => ({
+            label: agent.name,
+            value: String(agent.id)
+          }))}
+          className="chat-area__agent-select"
+          disabled={loadingAgents || !!conversationState.currentTurnId}
+        />
         <Button
           type="text"
           icon={<PlusOutlined />}
@@ -1140,8 +1215,8 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
           onPressEnter={() => {
             void handleSendMessage();
           }}
-          placeholder="Type your message here..."
-          disabled={!!conversationState.currentTurnId}
+          placeholder={isAgentSelected ? 'Type your message here...' : 'Select an agent first'}
+          disabled={!isAgentSelected || !!conversationState.currentTurnId}
           style={{ flex: 1 }}
         />
         <Button
@@ -1149,7 +1224,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
           onClick={() => {
             void handleSendMessage();
           }}
-          disabled={!input.trim() || !!conversationState.currentTurnId}
+          disabled={!isAgentSelected || !input.trim() || !!conversationState.currentTurnId}
           className="chat-area__send-button"
         >
           Send

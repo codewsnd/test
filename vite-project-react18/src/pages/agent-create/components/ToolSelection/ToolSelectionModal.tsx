@@ -1,5 +1,4 @@
 import { useEffect, useRef, useMemo, useState } from 'react'
-import { useRequest } from 'ahooks'
 import {
   CloseOutlined,
   MinusCircleOutlined,
@@ -9,7 +8,6 @@ import {
 import { Alert, Button, ConfigProvider, Input, Modal, Select, Spin, Table, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import testCaseTheme from '@/styles/style'
-import { getAllToolsApi } from '@/api/tool/toolApi'
 import type { GetAllToolsApiItem, GetAllToolsApiParameter } from '@/api/tool/toolApi'
 import type { AgentFormData } from '@/pages/agent-create/components/agentFormTypes'
 import { capitalizeFirstLetter } from '@/utils/stringUtils'
@@ -28,6 +26,8 @@ type ToolSelectionModalProps = {
   setToolModalVisible: (visible: boolean) => void
   formData: AgentFormData
   onFormDataChange: (data: Partial<AgentFormData>) => void
+  toolList: GetAllToolsApiItem[]
+  loading?: boolean
 }
 
 type DetailRow = {
@@ -87,6 +87,8 @@ const ToolSelectionModal = ({
   setToolModalVisible,
   formData,
   onFormDataChange,
+  toolList,
+  loading = false,
 }: ToolSelectionModalProps) => {
   const successAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null)
@@ -96,12 +98,6 @@ const ToolSelectionModal = ({
   const [selectedProvider, setSelectedProvider] = useState(ALL_PROVIDERS)
   const [selectedSort, setSelectedSort] = useState(SORT_A_TO_Z)
   const [toolActionAlert, setToolActionAlert] = useState<ToolActionAlert | null>(null)
-
-  const { data: toolList = [], loading } = useRequest(getAllToolsApi, {
-    ready: toolModalVisible,
-    refreshDeps: [toolModalVisible],
-  })
-
 
   const visibleTools = useMemo(
     () => toolList.filter((tool) => !tool.is_hidden_in_tool),
@@ -184,7 +180,7 @@ const ToolSelectionModal = ({
     [filteredTools, selectedToolId],
   )
 
-  const selectedToolAdded = selectedTool ? formData.tools.includes(selectedTool.tool_full_name) : false
+  const selectedToolAdded = selectedTool ? formData.tools.includes(selectedTool.tool_name) : false
   const detailActionLabel = selectedToolAdded ? 'Remove' : 'Add to agent'
   const detailActionIcon = selectedToolAdded ? <MinusCircleOutlined /> : <PlusCircleOutlined />
 
@@ -225,12 +221,12 @@ const ToolSelectionModal = ({
   }
 
   const handleToggleTool = (tool: GetAllToolsApiItem) => {
-    const willAdd = !formData.tools.includes(tool.tool_full_name)
+    const willAdd = !formData.tools.includes(tool.tool_name)
 
     onFormDataChange({
-      tools: formData.tools.includes(tool.tool_full_name)
-        ? formData.tools.filter((item) => item !== tool.tool_full_name)
-        : [...formData.tools, tool.tool_full_name],
+      tools: formData.tools.includes(tool.tool_name)
+        ? formData.tools.filter((item) => item !== tool.tool_name)
+        : [...formData.tools, tool.tool_name],
     })
 
     setToolActionAlert({
@@ -316,7 +312,7 @@ const ToolSelectionModal = ({
                           prefix={<SearchOutlined className="text-[#8c8c8c]" />}
                           className="max-w-[460px] flex-1"
                         />
-                        <Button className="hsbcbtn" onClick={handleSearch}>
+                        <Button type="primary" onClick={handleSearch}>
                           Search
                         </Button>
                         <Button onClick={handleReset}>
@@ -332,11 +328,6 @@ const ToolSelectionModal = ({
                             setSelectedToolId(null)
                           }}
                           className="!w-[220px]"
-                          styles={{
-                            selector: {
-                              border: '1px solid #D7D8D6',
-                            },
-                          }}
                           options={categoryOptions}
                         />
                         <Select
@@ -346,11 +337,6 @@ const ToolSelectionModal = ({
                             setSelectedToolId(null)
                           }}
                           className="!w-[180px]"
-                          styles={{
-                            selector: {
-                              border: '1px solid #D7D8D6',
-                            },
-                          }}
                           options={providerOptions}
                         />
                         <Button
@@ -400,7 +386,7 @@ const ToolSelectionModal = ({
                                   key={tool.tool_full_name}
                                   tool={tool}
                                   selected={tool.tool_full_name === selectedToolId}
-                                  added={formData.tools.includes(tool.tool_full_name)}
+                                  added={formData.tools.includes(tool.tool_name)}
                                   onClick={() => setSelectedToolId(tool.tool_full_name)}
                                   onToggleAdd={() => handleToggleTool(tool)}
                                 />

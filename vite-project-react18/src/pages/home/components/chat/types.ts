@@ -22,6 +22,8 @@ export interface ConversationTurn {
 
 export interface ConversationState {
   turns: ConversationTurn[]; // 对话会话的轮次列表
+  agentId?: string;
+  agentName?: string;
   currentTurnId? : string; // 当前正在处理的回合Id
 }
 

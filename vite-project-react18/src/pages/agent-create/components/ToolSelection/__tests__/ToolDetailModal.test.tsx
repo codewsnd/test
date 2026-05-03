@@ -25,7 +25,7 @@ vi.mock('antd', () => {
     columns,
     dataSource,
   }: {
-    columns: Array<{ title: string; dataIndex: string; render?: (value: string, row: Record<string, string>) => React.ReactNode }>
+    columns: Array<{ title: string; dataIndex: string; key?: string; render?: (value: string, row: Record<string, string>) => React.ReactNode }>
     dataSource: Array<Record<string, string>>
   }) => (
     <table>

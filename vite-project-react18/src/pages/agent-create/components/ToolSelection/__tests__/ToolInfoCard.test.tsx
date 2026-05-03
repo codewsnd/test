@@ -3,36 +3,29 @@ import React from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-const { confirmMock } = vi.hoisted(() => ({
-  confirmMock: vi.fn(),
+vi.mock('@ant-design/icons', () => ({
+  CloseOutlined: () => <span>close</span>,
 }))
 
 vi.mock('antd', () => {
-  const Button = ({ children, onClick }: React.PropsWithChildren<{ onClick?: () => void }>) => (
-    <button onClick={onClick}>{children}</button>
-  )
-  const Dropdown = ({
+  const Button = ({
     children,
-    menu,
-  }: React.PropsWithChildren<{ menu: { items: Array<{ key: string; label: string; onClick?: () => void }> } }>) => (
-    <div>
+    onClick,
+    icon,
+    className,
+  }: React.PropsWithChildren<{ onClick?: () => void; icon?: React.ReactNode; className?: string }>) => (
+    <button onClick={onClick} className={className}>
+      {icon}
       {children}
-      {menu.items.map((item) => (
-        <button key={item.key} onClick={item.onClick}>
-          {item.label}
-        </button>
-      ))}
-    </div>
+    </button>
   )
   const Typography = {
     Paragraph: ({ children }: React.PropsWithChildren) => <p>{children}</p>,
-    Text: ({ children }: React.PropsWithChildren) => <span>{children}</span>,
+    Text: ({ children, className }: React.PropsWithChildren<{ className?: string }>) => <span className={className}>{children}</span>,
   }
 
   return {
     Button,
-    Dropdown,
-    Modal: { confirm: confirmMock },
     Typography,
   }
 })
@@ -44,14 +37,14 @@ vi.mock('@/pages/agent-create/components/ToolSelection/IconConfig', () => ({
 import ToolInfoCard from '../ToolInfoCard'
 
 describe('InfoCard', () => {
-  it('renders content and handles menu actions', () => {
+  it('renders content and handles quick actions', () => {
     const onViewDetails = vi.fn()
     const onFormDataChange = vi.fn()
 
     render(
       <ToolInfoCard
         tool={{
-          tool_name: 'name',
+          tool_name: 'display_tool',
           tool_display_name: 'Display',
           mcp_server_name: 'MCP',
           provider: 'Web',
@@ -63,7 +56,7 @@ describe('InfoCard', () => {
           tag: [],
           parameters: [],
         }}
-        formData={{ tools: ['keep', 'keep/remove'] }}
+        formData={{ tools: ['keep', 'display_tool'] }}
         onViewDetails={onViewDetails}
         onFormDataChange={onFormDataChange}
       />,
@@ -71,17 +64,12 @@ describe('InfoCard', () => {
 
     expect(screen.getByText('Display')).toBeInTheDocument()
     expect(screen.getByText('Description')).toBeInTheDocument()
+    expect(screen.getByText('display_tool')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByText('View and edit details'))
+    fireEvent.click(screen.getByText('Details'))
     expect(onViewDetails).toHaveBeenCalledTimes(1)
 
-    fireEvent.click(screen.getByText('Remove'))
-    const config = confirmMock.mock.calls[0][0]
-    render(config.footer(null, { OkBtn: () => <button>ok</button>, CancelBtn: () => <button>cancel</button> }))
-    expect(screen.getByText('ok')).toBeInTheDocument()
-    expect(screen.getByText('cancel')).toBeInTheDocument()
-    config.onOk()
-
+    fireEvent.click(screen.getByText('close'))
     expect(onFormDataChange).toHaveBeenCalledWith({ tools: ['keep'] })
   })
 })

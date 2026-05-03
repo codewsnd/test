@@ -15,16 +15,17 @@ import './styles/antd-common.less';
 import { getDefaultStore } from 'jotai';
 import { globalStaffIdAtom } from './atom/globalAtom';
 import { ConfigProvider } from 'antd';
-import { hsbcTheme } from './styles/hsbc';
+import { appTheme } from './styles/appTheme';
 import HtmlSharePage from './components/htmlPreview/HtmlSharePage';
-import ToolSelectionT from "@/pages/agent-create/components/ToolSelectionT";
+import AgentCreatePage from '@/pages/agent-create/AgentCreatePage';
+import AgentListPage from '@/pages/agent/AgentListPage';
 
 // 设置全局 Staff ID
 const store = getDefaultStore();
 store.set(globalStaffIdAtom, '12345678');
 
 createRoot(document.getElementById('root')!).render(
-  <ConfigProvider theme={hsbcTheme}>
+  <ConfigProvider theme={appTheme}>
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<App/>}/>
@@ -38,7 +39,9 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/workflow" element={<WorkflowEditor/>}/>
         <Route path="/diff" element={<StringDiffViewer/>}/>
         <Route path="/htmlPreview/:id" element={<HtmlSharePage/>}/>
-        <Route path="/agent-create/tool" element={<ToolSelectionT  />}/>
+        <Route path="/agent" element={<AgentListPage />}/>
+        <Route path="/agent-create" element={<AgentCreatePage />}/>
+        <Route path="/agent-create/:id" element={<AgentCreatePage />}/>
       </Routes>
     </BrowserRouter>
   </ConfigProvider>

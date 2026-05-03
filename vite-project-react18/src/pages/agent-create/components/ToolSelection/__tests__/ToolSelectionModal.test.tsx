@@ -3,9 +3,8 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import type { ChangeEvent, PropsWithChildren, ReactNode } from 'react'
 
-const { useRefMock, useRequestMock } = vi.hoisted(() => ({
+const { useRefMock } = vi.hoisted(() => ({
   useRefMock: vi.fn(),
-  useRequestMock: vi.fn(),
 }))
 
 vi.mock('react', async () => {
@@ -15,10 +14,6 @@ vi.mock('react', async () => {
     useRef: useRefMock,
   }
 })
-
-vi.mock('ahooks', () => ({
-  useRequest: useRequestMock,
-}))
 
 vi.mock('@ant-design/icons', () => ({
   CloseOutlined: () => <span>close</span>,
@@ -223,14 +218,14 @@ describe('ToolSelectionModal', () => {
   })
 
   it('renders loading state', () => {
-    useRequestMock.mockReturnValue({ data: [], loading: true })
-
     render(
       <ToolSelectionModal
         toolModalVisible={true}
         setToolModalVisible={vi.fn()}
         formData={{ tools: [] }}
         onFormDataChange={vi.fn()}
+        toolList={[]}
+        loading={true}
       />,
     )
 
@@ -238,7 +233,6 @@ describe('ToolSelectionModal', () => {
   })
 
   it('filters, selects, resets and closes modal', () => {
-    useRequestMock.mockReturnValue({ data: tools, loading: false })
     const setToolModalVisible = vi.fn()
     const onFormDataChange = vi.fn()
 
@@ -248,6 +242,8 @@ describe('ToolSelectionModal', () => {
         setToolModalVisible={setToolModalVisible}
         formData={{ tools: [] }}
         onFormDataChange={onFormDataChange}
+        toolList={tools}
+        loading={false}
       />,
     )
 
@@ -318,7 +314,6 @@ describe('ToolSelectionModal', () => {
   })
 
   it('handles add flow, alert callback and cleanup', () => {
-    useRequestMock.mockReturnValue({ data: tools, loading: false })
     useRefMock.mockImplementation(() => ({ current: 9 }))
     const onFormDataChange = vi.fn()
 
@@ -328,18 +323,25 @@ describe('ToolSelectionModal', () => {
         setToolModalVisible={vi.fn()}
         formData={{ tools: [] }}
         onFormDataChange={onFormDataChange}
+        toolList={tools}
+        loading={false}
       />,
     )
 
     fireEvent.click(screen.getByText('toggle-web/alpha'))
-    expect(onFormDataChange).toHaveBeenCalledWith({ tools: ['web/alpha'] })
+    expect(onFormDataChange).toHaveBeenCalledWith({ tools: ['alpha_name'] })
     expect(screen.getByText(/added successfully\./)).toBeInTheDocument()
     expect(clearTimeoutSpy).toHaveBeenCalledWith(9)
     expect(setTimeoutSpy).toHaveBeenCalledTimes(1)
 
     act(() => {
-      const callback = setTimeoutSpy.mock.calls[0][0] as () => void
-      callback()
+      const firstCall = setTimeoutSpy.mock.calls[0] as unknown[] | undefined
+      const callback = firstCall ? firstCall[0] : undefined
+      expect(typeof callback).toBe('function')
+
+      if (typeof callback === 'function') {
+        ;(callback as () => void)()
+      }
     })
     expect(screen.queryByText(/added successfully\./)).not.toBeInTheDocument()
 
@@ -349,15 +351,16 @@ describe('ToolSelectionModal', () => {
   })
 
   it('handles remove flow from detail panel', () => {
-    useRequestMock.mockReturnValue({ data: tools, loading: false })
     const onFormDataChange = vi.fn()
 
     render(
       <ToolSelectionModal
         toolModalVisible={true}
         setToolModalVisible={vi.fn()}
-        formData={{ tools: ['web/alpha'] }}
+        formData={{ tools: ['alpha_name'] }}
         onFormDataChange={onFormDataChange}
+        toolList={tools}
+        loading={false}
       />,
     )
 

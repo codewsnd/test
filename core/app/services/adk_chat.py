@@ -15,9 +15,9 @@ from google.adk.sessions import InMemorySessionService
 from google.adk.tools import McpToolset
 from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
 from google.genai import types
-from pydantic import BaseModel
 
 from app.core.settings import Settings
+from app.schemas.agent import ResolvedAgentConfig
 from app.schemas.chat import (
     ChatDoneEvent,
     ChatMessage,
@@ -27,12 +27,7 @@ from app.schemas.chat import (
     ChatStatusEvent,
     ChatStreamCompatRequest,
 )
-
-
-DEFAULT_INSTRUCTION = (
-    "You are a concise assistant running through Google ADK. "
-    "Answer the user directly and keep responses practical."
-)
+from app.services.agent_config import AgentConfigService
 
 
 class LocalChatAgent(Agent):
@@ -43,49 +38,61 @@ class AdkChatService:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._session_service = InMemorySessionService()
-        self._runner = Runner(
-            app_name=settings.app_name,
-            agent=self._build_agent(settings),
-            session_service=self._session_service,
-        )
+        self._agent_config_service = AgentConfigService(settings)
 
-    def _build_agent(self, settings: Settings) -> Agent:
+    def _build_agent(self, agent_config: ResolvedAgentConfig) -> Agent:
         return LocalChatAgent(
             name="chat_agent",
             model=LiteLlm(
-                model=f"openai/{settings.oml_model}",
-                api_base=settings.oml_base_url,
-                api_key=settings.oml_api_key,
-                timeout=settings.request_timeout_seconds,
+                model=f"openai/{agent_config.model_name}",
+                api_base=self._settings.oml_base_url,
+                api_key=self._settings.oml_api_key,
+                timeout=self._settings.request_timeout_seconds,
                 drop_params=True,
+                temperature=agent_config.temperature,
+                max_tokens=agent_config.max_tokens,
+                top_p=agent_config.top_p,
+                frequency_penalty=agent_config.frequency_penalty,
+                presence_penalty=agent_config.presence_penalty,
             ),
-            instruction=DEFAULT_INSTRUCTION,
-            tools=self._build_tools(settings),
+            instruction=agent_config.system_prompt,
+            tools=self._build_tools(agent_config.tools),
         )
 
-    @staticmethod
-    def _build_tools(settings: Settings) -> list[McpToolset]:
-        if not settings.mcp_enabled:
+    def _build_runner(self, agent_config: ResolvedAgentConfig) -> Runner:
+        return Runner(
+            app_name=self._settings.app_name,
+            agent=self._build_agent(agent_config),
+            session_service=self._session_service,
+        )
+
+    def _build_tools(self, tool_names: list[str]) -> list[McpToolset]:
+        if not self._settings.mcp_enabled or not tool_names:
             return []
 
         return [
             McpToolset(
                 connection_params=StreamableHTTPConnectionParams(
-                    url=settings.mcp_server_url,
-                    timeout=settings.mcp_timeout_seconds,
-                    sse_read_timeout=settings.mcp_sse_read_timeout_seconds,
+                    url=self._settings.mcp_server_url,
+                    timeout=self._settings.mcp_timeout_seconds,
+                    sse_read_timeout=self._settings.mcp_sse_read_timeout_seconds,
                     terminate_on_close=False,
                 ),
-                tool_filter=settings.mcp_tool_names or None,
+                tool_filter=tool_names or None,
             )
         ]
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
+        agent_config = await self._agent_config_service.resolve_agent_config(
+            agent_id=request.agent_id,
+            requested_model_name=request.model_name,
+        )
         session_id, _ = await self._ensure_session(request.user_id, request.session_id)
         content = self._content_from_text(request.message)
         answer_parts: list[str] = []
+        runner = self._build_runner(agent_config)
 
-        async for event in self._runner.run_async(
+        async for event in runner.run_async(
             user_id=request.user_id,
             session_id=session_id,
             new_message=content,
@@ -99,7 +106,12 @@ class AdkChatService:
         )
 
     async def stream_chat(self, request: ChatRequest) -> AsyncIterator[str]:
+        agent_config = await self._agent_config_service.resolve_agent_config(
+            agent_id=request.agent_id,
+            requested_model_name=request.model_name,
+        )
         async for chunk in self._stream_response(
+            agent_config=agent_config,
             user_id=request.user_id,
             session_id_hint=request.session_id,
             request_id=request.session_id,
@@ -109,7 +121,15 @@ class AdkChatService:
             yield chunk
 
     async def stream_chat_compat(self, request: ChatStreamCompatRequest) -> AsyncIterator[str]:
-        session_id_hint = request.conversation_id or request.request_id or f"compat-{uuid4()}"
+        agent_config = await self._agent_config_service.resolve_agent_config(
+            agent_id=request.agent_id,
+            requested_model_name=request.model_name,
+        )
+        session_id_hint = self._build_session_hint(
+            conversation_id=request.conversation_id,
+            request_id=request.request_id,
+            agent_id=request.agent_id,
+        )
         session_id, is_new_session = await self._ensure_session(request.user_id, session_id_hint)
         prompt = (
             self._messages_to_prompt(request.messages)
@@ -118,6 +138,7 @@ class AdkChatService:
         )
 
         async for chunk in self._stream_response(
+            agent_config=agent_config,
             user_id=request.user_id,
             session_id_hint=session_id,
             request_id=request.request_id,
@@ -131,7 +152,15 @@ class AdkChatService:
             yield chunk
 
     async def chat_compat(self, request: ChatStreamCompatRequest) -> dict[str, object]:
-        session_id_hint = request.conversation_id or request.request_id
+        agent_config = await self._agent_config_service.resolve_agent_config(
+            agent_id=request.agent_id,
+            requested_model_name=request.model_name,
+        )
+        session_id_hint = self._build_session_hint(
+            conversation_id=request.conversation_id,
+            request_id=request.request_id,
+            agent_id=request.agent_id,
+        )
         session_id, is_new_session = await self._ensure_session(request.user_id, session_id_hint)
         prompt = (
             self._messages_to_prompt(request.messages)
@@ -142,17 +171,18 @@ class AdkChatService:
             ChatRequest(
                 message=prompt,
                 session_id=session_id,
+                agent_id=request.agent_id,
+                model_name=agent_config.model_name,
                 user_id=request.user_id,
             )
         )
 
         content = response.message.strip()
-        model_name = request.model_name or self._settings.oml_model
         return {
             "success": True,
             "data": {
                 "content": content,
-                "modelName": model_name,
+                "modelName": agent_config.model_name,
                 "timestamp": datetime.now(UTC).isoformat(),
                 "characterCount": len(content),
             },
@@ -179,6 +209,7 @@ class AdkChatService:
     async def _stream_response(
         self,
         *,
+        agent_config: ResolvedAgentConfig,
         user_id: str,
         session_id_hint: str | None,
         prompt: str,
@@ -196,6 +227,7 @@ class AdkChatService:
         )
         started_at = self._iso_now()
         session_was_resumed = session_resumed or not created_session
+        runner = self._build_runner(agent_config)
 
         yield self._sse(
             "session",
@@ -203,7 +235,7 @@ class AdkChatService:
                 sessionId=session_id,
                 requestId=request_id,
                 conversationId=conversation_id,
-                modelName=self._settings.oml_model,
+                modelName=agent_config.model_name,
                 startedAt=started_at,
                 resumed=session_was_resumed,
             ),
@@ -238,7 +270,7 @@ class AdkChatService:
                 stage="generating",
                 state="processing",
                 label="Model running",
-                detail=f"Dispatching request to model {self._settings.oml_model}.",
+                detail=f"Dispatching request to model {agent_config.model_name}.",
                 session_id=session_id,
             ),
         )
@@ -250,7 +282,7 @@ class AdkChatService:
         character_count = 0
 
         try:
-            async for event in self._runner.run_async(
+            async for event in runner.run_async(
                 user_id=user_id,
                 session_id=session_id,
                 new_message=content,
@@ -419,6 +451,19 @@ class AdkChatService:
                 return content
 
         raise ValueError("At least one user message is required")
+
+    @staticmethod
+    def _build_session_hint(
+        *,
+        conversation_id: str | None,
+        request_id: str | None,
+        agent_id: str | None,
+    ) -> str:
+        base_id = conversation_id or request_id or f"compat-{uuid4()}"
+        if not agent_id:
+            return base_id
+
+        return f"{base_id}:agent:{agent_id}"
 
     @staticmethod
     def _text_from_event(event: Event | object) -> str:

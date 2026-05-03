@@ -79,6 +79,20 @@ class Settings(BaseSettings):
         ),
     )
     request_timeout_seconds: float = 120.0
+    agent_service_base_url: str = Field(
+        default="http://127.0.0.1:8081",
+        validation_alias=AliasChoices(
+            "AGENT_SERVICE_BASE_URL",
+            "SPRINGBOOT3_BACKEND_BASE_URL",
+        ),
+    )
+    agent_service_timeout_seconds: float = Field(
+        default=10.0,
+        validation_alias=AliasChoices(
+            "AGENT_SERVICE_TIMEOUT_SECONDS",
+            "SPRINGBOOT3_BACKEND_TIMEOUT_SECONDS",
+        ),
+    )
     cors_allow_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["null"],
         validation_alias="CORS_ALLOW_ORIGINS",

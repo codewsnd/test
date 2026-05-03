@@ -1,0 +1,134 @@
+.agent-list-page {
+  min-height: 100vh;
+  background: #f5f7fa;
+}
+
+.agent-list-page__shell {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.agent-list-page__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.agent-list-page__title.ant-typography {
+  margin: 0;
+  color: #111827;
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.agent-list-page__actions {
+  display: flex;
+  gap: 12px;
+}
+
+.agent-list-page__loading,
+.agent-list-page__empty {
+  display: flex;
+  min-height: 320px;
+  align-items: center;
+  justify-content: center;
+}
+
+.agent-list-page__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.agent-list-page__card.ant-card {
+  border: 1px solid #d9dde3;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.agent-list-page__card .ant-card-head {
+  min-height: 44px;
+  padding: 0 14px;
+}
+
+.agent-list-page__card .ant-card-body {
+  padding: 14px;
+}
+
+.agent-list-page__card-title.ant-typography {
+  margin: 0;
+  color: #111827;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.agent-list-page__card-subtitle.ant-typography {
+  display: block;
+  margin-top: 4px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.agent-list-page__prompt-preview.ant-typography {
+  min-height: 60px;
+  margin: 12px 0;
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.agent-list-page__chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.agent-list-page__chip {
+  margin: 0;
+  color: #111827;
+  background: #eef2f7;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.agent-list-page__chip--muted {
+  color: #4b5563;
+  background: #f3f4f6;
+}
+
+.agent-list-page__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #eef1f4;
+}
+
+.agent-list-page__meta-text.ant-typography {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .agent-list-page__shell {
+    padding: 16px;
+  }
+
+  .agent-list-page__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .agent-list-page__actions .ant-btn {
+    flex: 1;
+  }
+}
