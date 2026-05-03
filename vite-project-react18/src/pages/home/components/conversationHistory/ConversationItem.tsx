@@ -32,10 +32,10 @@ export interface ConversationItemProps {
 }
 
 export default function ConversationItem({
-  item, groupName, showPinOption = true, isLast = false,
-  isMultiSelectMode = false, isSelected = false, onToggleSelection,
-  selectedCount = 0, selectedConversations = [], onBatchPin, onBatchDelete
-}: ConversationItemProps) {
+                                           item, groupName, showPinOption = true, isLast = false,
+                                           isMultiSelectMode = false, isSelected = false, onToggleSelection,
+                                           selectedCount = 0, selectedConversations = [], onBatchPin, onBatchDelete
+                                         }: ConversationItemProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
 
