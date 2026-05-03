@@ -23,6 +23,8 @@ export type ConversationHistory = {
   pinnedAt?: string; // 置顶时间，用于排序
   staffId: string;
   titleGenerating?: boolean; // 标题是否正在生成中
+  isSaving?: boolean; // 前端本地状态：是否正在持久化
+  isCreate?: boolean; // 前端本地状态：是否已经成功创建到后端
 };
 
 export type ConversationStatePatch = {

@@ -19,6 +19,12 @@ const delay = (ms: number) => new Promise<void>((resolve) => {
   window.setTimeout(resolve, ms);
 });
 
+const toConversationSavePayload = ({
+  isSaving: _isSaving,
+  isCreate: _isCreate,
+  ...conversation
+}: ConversationHistory): ConversationHistory => conversation;
+
 const enqueueConversationPersistenceTask = async <T>(
   conversationId: string,
   task: () => Promise<T>
@@ -66,7 +72,9 @@ export const persistConversationCreationAtom = atom(
   null,
   async (_get, _set, conversation: ConversationHistory) =>
     enqueueConversationPersistenceTask(conversation.id, () =>
-      runWithPersistenceRetry(`Create conversation ${conversation.id}`, () => saveConversationApi(conversation))
+      runWithPersistenceRetry(`Create conversation ${conversation.id}`, () =>
+        saveConversationApi(toConversationSavePayload(conversation))
+      )
     )
 );
 
@@ -74,7 +82,9 @@ export const persistConversationSnapshotAtom = atom(
   null,
   async (_get, _set, conversation: ConversationHistory) =>
     enqueueConversationPersistenceTask(conversation.id, () =>
-      runWithPersistenceRetry(`Save conversation ${conversation.id}`, () => saveConversationApi(conversation))
+      runWithPersistenceRetry(`Save conversation ${conversation.id}`, () =>
+        saveConversationApi(toConversationSavePayload(conversation))
+      )
     )
 );
 
