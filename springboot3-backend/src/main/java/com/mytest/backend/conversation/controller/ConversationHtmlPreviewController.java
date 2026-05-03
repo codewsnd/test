@@ -1,10 +1,10 @@
-package com.mytest.backend.controller;
+package com.mytest.backend.conversation.controller;
 
-import com.mytest.backend.dto.ConversationHtmlPreviewRequest;
-import com.mytest.backend.dto.ConversationHtmlPreviewResponse;
-import com.mytest.backend.entity.ConversationHtmlPreview;
+import com.mytest.backend.conversation.dto.ConversationHtmlPreviewRequest;
+import com.mytest.backend.conversation.dto.ConversationHtmlPreviewResponse;
+import com.mytest.backend.conversation.entity.ConversationHtmlPreviewDO;
+import com.mytest.backend.conversation.service.ConversationHtmlPreviewService;
 import com.mytest.backend.exception.CustomException;
-import com.mytest.backend.service.ConversationHtmlPreviewService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,10 +34,9 @@ public class ConversationHtmlPreviewController {
     private final ConversationHtmlPreviewService conversationHtmlPreviewService;
 
     @PostMapping
-    public ConversationHtmlPreviewResponse createHtmlPreview(
-            @RequestBody ConversationHtmlPreviewRequest request) {
+    public ConversationHtmlPreviewResponse createHtmlPreview(@Valid @RequestBody ConversationHtmlPreviewRequest request) {
         try {
-            ConversationHtmlPreview preview = conversationHtmlPreviewService.createHtmlPreview(request);
+            ConversationHtmlPreviewDO preview = conversationHtmlPreviewService.createHtmlPreview(request);
             return ConversationHtmlPreviewResponse.build(preview);
         } catch (CustomException e) {
             throw e;
@@ -50,7 +49,7 @@ public class ConversationHtmlPreviewController {
     @GetMapping("/{id}")
     public ConversationHtmlPreviewResponse getHtmlPreview(@PathVariable String id) {
         try {
-            ConversationHtmlPreview preview = conversationHtmlPreviewService.getHtmlPreviewById(id);
+            ConversationHtmlPreviewDO preview = conversationHtmlPreviewService.getHtmlPreviewById(id);
             String htmlContent = conversationHtmlPreviewService.getHtmlContent(preview.getS3Path());
             return ConversationHtmlPreviewResponse.build(preview, htmlContent);
         } catch (CustomException e) {

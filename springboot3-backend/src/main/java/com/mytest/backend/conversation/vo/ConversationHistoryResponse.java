@@ -1,6 +1,6 @@
-package com.mytest.backend.vo;
+package com.mytest.backend.conversation.vo;
 
-import com.mytest.backend.entity.ConversationHistory;
+import com.mytest.backend.conversation.entity.ConversationHistoryDO;
 import lombok.Builder;
 import lombok.Data;
 
@@ -20,7 +20,7 @@ public class ConversationHistoryResponse {
     private String staffId;
     private Boolean titleGenerating;
 
-    public static ConversationHistoryResponse from(ConversationHistory entity, Object conversationState) {
+    public static ConversationHistoryResponse from(ConversationHistoryDO entity, Object conversationState) {
         return ConversationHistoryResponse.builder()
                 .id(entity.getId())
                 .title(entity.getTitle())

@@ -1,10 +1,11 @@
-package com.mytest.backend.service;
+package com.mytest.backend.conversation.service;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.uuid.Generators;
-import com.mytest.backend.dto.ConversationHtmlPreviewRequest;
-import com.mytest.backend.entity.ConversationHtmlPreview;
+import com.mytest.backend.conversation.dto.ConversationHtmlPreviewRequest;
+import com.mytest.backend.conversation.entity.ConversationHtmlPreviewDO;
+import com.mytest.backend.conversation.mapper.ConversationHtmlPreviewMapper;
 import com.mytest.backend.exception.CustomException;
-import com.mytest.backend.repository.ConversationHtmlPreviewRepository;
 import com.mytest.backend.utils.ExternalResourceUtils;
 import com.mytest.backend.utils.XssUtils;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Slf4j
@@ -33,52 +35,96 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ConversationHtmlPreviewService {
 
-    private final ConversationHtmlPreviewRepository conversationHtmlPreviewRepository;
+    private final ConversationHtmlPreviewMapper conversationHtmlPreviewMapper;
     private final S3Client s3Client;
 
     @Value("${aws.s3.bucket-name:my-bucket}")
     private String bucketName;
 
     @Transactional
-    public ConversationHtmlPreview createHtmlPreview(ConversationHtmlPreviewRequest request) {
-        String staffId = request.getStaffId();
-        String conversationId = request.getConversationId();
-        String turnId = request.getTurnId();
-        String htmlContent = request.getHtmlContent();
-        String htmlContentHash = calculateContentHash(htmlContent);
-        LocalDateTime now = LocalDateTime.now();
+    public ConversationHtmlPreviewDO createHtmlPreview(ConversationHtmlPreviewRequest request) {
+        try {
+            String htmlContent = request.getHtmlContent();
+            String htmlContentHash = calculateContentHash(htmlContent);
+            LocalDateTime now = LocalDateTime.now();
 
-        return conversationHtmlPreviewRepository.findByStaffIdAndConversationIdAndTurnId(staffId, conversationId, turnId)
-                .map(existingPreview -> updateExistingPreview(existingPreview, htmlContent, htmlContentHash, now))
-                .orElseGet(() -> createNewPreview(staffId, conversationId, turnId, htmlContent, htmlContentHash, now));
+            ConversationHtmlPreviewDO existingPreview = findByStaffConversationTurn(
+                    request.getStaffId(),
+                    request.getConversationId(),
+                    request.getTurnId()
+            );
+            if (existingPreview != null) {
+                return updateExistingPreview(existingPreview, htmlContent, htmlContentHash, now);
+            }
+            return createNewPreview(
+                    request.getStaffId(),
+                    request.getConversationId(),
+                    request.getTurnId(),
+                    htmlContent,
+                    htmlContentHash,
+                    now
+            );
+        } catch (CustomException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            log.error("Failed to create/get HTML preview", e);
+            throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to create/get HTML preview");
+        }
     }
 
-    public ConversationHtmlPreview getHtmlPreviewById(String id) {
-        return conversationHtmlPreviewRepository.findById(id)
-                .orElseThrow(() -> new CustomException(HttpStatus.NOT_FOUND.value(), "HTML preview not found"));
+    public ConversationHtmlPreviewDO getHtmlPreviewById(String id) {
+        try {
+            ConversationHtmlPreviewDO preview = conversationHtmlPreviewMapper.selectById(id);
+            if (preview == null) {
+                throw new CustomException(HttpStatus.NOT_FOUND.value(), "HTML preview not found");
+            }
+            return preview;
+        } catch (CustomException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            log.error("Failed to get HTML preview by id: {}", id, e);
+            throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to get HTML preview");
+        }
     }
 
     public String getHtmlContent(String s3Path) {
-        ResponseBytes<GetObjectResponse> bytes = s3Client.getObjectAsBytes(
-                GetObjectRequest.builder()
-                        .bucket(bucketName)
-                        .key(s3Path)
-                        .build()
-        );
-        log.info("Retrieved HTML content from S3: {}", s3Path);
-        return new String(bytes.asByteArray(), StandardCharsets.UTF_8);
+        try {
+            ResponseBytes<GetObjectResponse> bytes = s3Client.getObjectAsBytes(
+                    GetObjectRequest.builder()
+                            .bucket(bucketName)
+                            .key(s3Path)
+                            .build()
+            );
+            log.info("Retrieved HTML content from S3: {}", s3Path);
+            return new String(bytes.asByteArray(), StandardCharsets.UTF_8);
+        } catch (RuntimeException e) {
+            log.error("Failed to retrieve HTML content from S3: {}", s3Path, e);
+            throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to get HTML preview");
+        }
     }
 
-    private ConversationHtmlPreview updateExistingPreview(
-            ConversationHtmlPreview existingPreview,
+    private ConversationHtmlPreviewDO findByStaffConversationTurn(String staffId, String conversationId, String turnId) {
+        List<ConversationHtmlPreviewDO> previews = conversationHtmlPreviewMapper.selectList(
+                Wrappers.<ConversationHtmlPreviewDO>lambdaQuery()
+                        .eq(ConversationHtmlPreviewDO::getStaffId, staffId)
+                        .eq(ConversationHtmlPreviewDO::getConversationId, conversationId)
+                        .eq(ConversationHtmlPreviewDO::getTurnId, turnId)
+                        .last("LIMIT 1")
+        );
+        return previews.isEmpty() ? null : previews.get(0);
+    }
+
+    private ConversationHtmlPreviewDO updateExistingPreview(
+            ConversationHtmlPreviewDO existingPreview,
             String htmlContent,
             String htmlContentHash,
             LocalDateTime now
     ) {
         if (htmlContentHash.equals(existingPreview.getHtmlContentHash())) {
             existingPreview.setUpdatedAt(now);
+            conversationHtmlPreviewMapper.updateById(existingPreview);
             log.info("Reuse existing HTML preview for id: {}, content hash unchanged", existingPreview.getId());
-            return conversationHtmlPreviewRepository.save(existingPreview);
+            return existingPreview;
         }
 
         SecurityCheckResult securityCheckResult = checkSecurityContent(htmlContent);
@@ -93,13 +139,13 @@ public class ConversationHtmlPreviewService {
         existingPreview.setUpdatedAt(now);
 
         uploadToS3(s3Path, htmlContent);
-        ConversationHtmlPreview saved = conversationHtmlPreviewRepository.save(existingPreview);
+        conversationHtmlPreviewMapper.updateById(existingPreview);
         deleteFromS3(existingS3Path);
-        log.info("Updated HTML preview for id: {}", saved.getId());
-        return saved;
+        log.info("Updated HTML preview for id: {}", existingPreview.getId());
+        return existingPreview;
     }
 
-    private ConversationHtmlPreview createNewPreview(
+    private ConversationHtmlPreviewDO createNewPreview(
             String staffId,
             String conversationId,
             String turnId,
@@ -111,7 +157,7 @@ public class ConversationHtmlPreviewService {
         UUID uuid7 = Generators.timeBasedEpochGenerator().generate();
         String s3Path = generateS3Path(staffId, uuid7.toString());
 
-        ConversationHtmlPreview conversationHtmlPreview = ConversationHtmlPreview.builder()
+        ConversationHtmlPreviewDO preview = ConversationHtmlPreviewDO.builder()
                 .id(uuid7.toString())
                 .staffId(staffId)
                 .conversationId(conversationId)
@@ -128,9 +174,9 @@ public class ConversationHtmlPreviewService {
                 .build();
 
         uploadToS3(s3Path, htmlContent);
-        ConversationHtmlPreview saved = conversationHtmlPreviewRepository.save(conversationHtmlPreview);
-        log.info("Created HTML preview for id: {}", saved.getId());
-        return saved;
+        conversationHtmlPreviewMapper.insert(preview);
+        log.info("Created HTML preview for id: {}", preview.getId());
+        return preview;
     }
 
     private void uploadToS3(String s3Path, String htmlContent) {
@@ -141,7 +187,6 @@ public class ConversationHtmlPreviewService {
                 .contentType("text/html")
                 .contentLength((long) contentBytes.length)
                 .build();
-
         s3Client.putObject(putObjectRequest, RequestBody.fromBytes(contentBytes));
     }
 
@@ -149,7 +194,6 @@ public class ConversationHtmlPreviewService {
         if (!StringUtils.hasText(s3Path)) {
             return;
         }
-
         DeleteObjectRequest deleteObjectRequest = DeleteObjectRequest.builder()
                 .bucket(bucketName)
                 .key(s3Path)
@@ -194,7 +238,7 @@ public class ConversationHtmlPreviewService {
         );
     }
 
-    private void applySecurityMeta(ConversationHtmlPreview preview, SecurityCheckResult securityCheckResult) {
+    private void applySecurityMeta(ConversationHtmlPreviewDO preview, SecurityCheckResult securityCheckResult) {
         preview.setHasXss(securityCheckResult.hasXss());
         preview.setXssContent(securityCheckResult.xssContent());
         preview.setHasExternalReferences(securityCheckResult.hasExternalReferences());

@@ -1,15 +1,17 @@
-package com.mytest.backend.service;
+package com.mytest.backend.conversation.service;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.mytest.backend.dto.ConversationSaveRequest;
-import com.mytest.backend.entity.ConversationHistory;
+import com.mytest.backend.conversation.dto.ConversationSaveRequest;
+import com.mytest.backend.conversation.entity.ConversationHistoryDO;
+import com.mytest.backend.conversation.mapper.ConversationHistoryMapper;
+import com.mytest.backend.conversation.vo.ConversationHistoryResponse;
 import com.mytest.backend.exception.CustomException;
-import com.mytest.backend.repository.ConversationHistoryRepository;
-import com.mytest.backend.vo.ConversationHistoryResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -24,14 +26,22 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ConversationHistoryService {
 
-    private final ConversationHistoryRepository repository;
+    private final ConversationHistoryMapper conversationHistoryMapper;
     private final ObjectMapper objectMapper;
 
-    public Page<ConversationHistoryResponse> pageConversations(String staffId, String search, Pageable pageable) {
+    public org.springframework.data.domain.Page<ConversationHistoryResponse> pageConversations(
+            String staffId,
+            String search,
+            Pageable pageable
+    ) {
         try {
-            String searchTerm = (search == null) ? "" : search.trim();
-            return repository.findByStaffIdAndSearch(staffId, searchTerm, pageable)
-                    .map(conversation -> ConversationHistoryResponse.from(conversation, null));
+            String searchTerm = search == null ? "" : search.trim();
+            Page<ConversationHistoryDO> page = new Page<>(pageable.getPageNumber() + 1L, pageable.getPageSize());
+            Page<ConversationHistoryDO> result = conversationHistoryMapper.selectPageByStaffIdAndSearch(page, staffId, searchTerm);
+            List<ConversationHistoryResponse> content = result.getRecords().stream()
+                    .map(item -> ConversationHistoryResponse.from(item, null))
+                    .toList();
+            return new PageImpl<>(content, pageable, result.getTotal());
         } catch (CustomException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -42,10 +52,11 @@ public class ConversationHistoryService {
 
     public ConversationHistoryResponse getConversationDetail(String id, String staffId) {
         try {
-            ConversationHistory conversation = repository.findById(id)
-                    .filter(item -> staffId.equals(item.getStaffId()))
-                    .orElseThrow(() -> new CustomException(HttpStatus.NOT_FOUND.value(), "Conversation not found"));
-            return ConversationHistoryResponse.from(conversation, deserializeConversationState(conversation.getConversationState()));
+            ConversationHistoryDO conversation = requireAccessibleConversation(id, staffId);
+            return ConversationHistoryResponse.from(
+                    conversation,
+                    deserializeConversationState(conversation.getConversationState())
+            );
         } catch (CustomException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -61,17 +72,25 @@ public class ConversationHistoryService {
         }
 
         try {
-            ConversationHistory conversation = repository.findById(request.getId())
-                    .orElseGet(() -> {
-                        ConversationHistory newConversation = new ConversationHistory();
-                        newConversation.setId(request.getId());
-                        newConversation.setCreatedAt(request.getCreatedAt());
-                        return newConversation;
-                    });
+            Instant now = Instant.now();
+            ConversationHistoryDO conversation = conversationHistoryMapper.selectById(request.getId());
+            boolean isNew = conversation == null;
+            if (isNew) {
+                conversation = new ConversationHistoryDO();
+                conversation.setId(request.getId());
+                conversation.setCreatedAt(request.getCreatedAt() == null ? now : request.getCreatedAt());
+            }
 
-            applyRequest(request, conversation);
-            ConversationHistory saved = repository.save(conversation);
-            return ConversationHistoryResponse.from(saved, deserializeConversationState(saved.getConversationState()));
+            applyRequest(request, conversation, now);
+            if (isNew) {
+                conversationHistoryMapper.insert(conversation);
+            } else {
+                conversationHistoryMapper.updateById(conversation);
+            }
+            return ConversationHistoryResponse.from(
+                    conversation,
+                    deserializeConversationState(conversation.getConversationState())
+            );
         } catch (CustomException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -83,11 +102,13 @@ public class ConversationHistoryService {
     @Transactional
     public ConversationHistoryResponse renameConversation(String id, String newTitle) {
         try {
-            ConversationHistory conversation = repository.findById(id)
-                    .orElseThrow(() -> new CustomException(HttpStatus.NOT_FOUND.value(), "Conversation not found"));
+            ConversationHistoryDO conversation = requireExistingConversation(id);
             conversation.setTitle(newTitle);
-            ConversationHistory saved = repository.save(conversation);
-            return ConversationHistoryResponse.from(saved, deserializeConversationState(saved.getConversationState()));
+            conversationHistoryMapper.updateById(conversation);
+            return ConversationHistoryResponse.from(
+                    conversation,
+                    deserializeConversationState(conversation.getConversationState())
+            );
         } catch (CustomException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -103,7 +124,8 @@ public class ConversationHistoryService {
         }
 
         try {
-            repository.deleteAllByIdInBatch(conversationIds);
+            conversationHistoryMapper.delete(Wrappers.<ConversationHistoryDO>lambdaQuery()
+                    .in(ConversationHistoryDO::getId, conversationIds));
         } catch (RuntimeException e) {
             log.error("Failed to delete conversations", e);
             throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to delete conversations");
@@ -117,13 +139,10 @@ public class ConversationHistoryService {
         }
 
         try {
-            Instant now = Instant.now();
-            List<ConversationHistory> conversations = repository.findAllById(conversationIds);
-            conversations.forEach(conversation -> {
-                conversation.setIsPinned(true);
-                conversation.setPinnedAt(now);
-            });
-            repository.saveAll(conversations);
+            conversationHistoryMapper.update(null, Wrappers.<ConversationHistoryDO>lambdaUpdate()
+                    .in(ConversationHistoryDO::getId, conversationIds)
+                    .set(ConversationHistoryDO::getIsPinned, true)
+                    .set(ConversationHistoryDO::getPinnedAt, Instant.now()));
         } catch (RuntimeException e) {
             log.error("Failed to pin conversations", e);
             throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to pin conversations");
@@ -137,27 +156,41 @@ public class ConversationHistoryService {
         }
 
         try {
-            List<ConversationHistory> conversations = repository.findAllById(conversationIds);
-            conversations.forEach(conversation -> {
-                conversation.setIsPinned(false);
-                conversation.setPinnedAt(null);
-            });
-            repository.saveAll(conversations);
+            conversationHistoryMapper.update(null, Wrappers.<ConversationHistoryDO>lambdaUpdate()
+                    .in(ConversationHistoryDO::getId, conversationIds)
+                    .set(ConversationHistoryDO::getIsPinned, false)
+                    .set(ConversationHistoryDO::getPinnedAt, null));
         } catch (RuntimeException e) {
             log.error("Failed to unpin conversations", e);
             throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to unpin conversations");
         }
     }
 
-    private void applyRequest(ConversationSaveRequest request, ConversationHistory conversation) {
+    private ConversationHistoryDO requireAccessibleConversation(String id, String staffId) {
+        ConversationHistoryDO conversation = requireExistingConversation(id);
+        if (!staffId.equals(conversation.getStaffId())) {
+            throw new CustomException(HttpStatus.NOT_FOUND.value(), "Conversation not found");
+        }
+        return conversation;
+    }
+
+    private ConversationHistoryDO requireExistingConversation(String id) {
+        ConversationHistoryDO conversation = conversationHistoryMapper.selectById(id);
+        if (conversation == null || Boolean.TRUE.equals(conversation.getIsDeleted())) {
+            throw new CustomException(HttpStatus.NOT_FOUND.value(), "Conversation not found");
+        }
+        return conversation;
+    }
+
+    private void applyRequest(ConversationSaveRequest request, ConversationHistoryDO conversation, Instant now) {
         conversation.setTitle(request.getTitle());
         conversation.setStaffId(request.getStaffId());
         conversation.setConversationState(serializeConversationState(request.getConversationState()));
-        conversation.setIsPinned(request.getIsPinned() == null ? false : request.getIsPinned());
-        conversation.setUpdatedAt(request.getUpdatedAt() == null ? Instant.now() : request.getUpdatedAt());
+        conversation.setIsPinned(request.getIsPinned() == null ? Boolean.FALSE : request.getIsPinned());
+        conversation.setUpdatedAt(request.getUpdatedAt() == null ? now : request.getUpdatedAt());
         conversation.setPinnedAt(request.getPinnedAt());
         conversation.setTitleGenerating(request.getTitleGenerating());
-        conversation.setIsDeleted(false);
+        conversation.setIsDeleted(Boolean.FALSE);
     }
 
     private String serializeConversationState(Object conversationState) {

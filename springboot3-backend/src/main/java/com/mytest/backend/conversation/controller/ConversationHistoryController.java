@@ -1,15 +1,15 @@
-package com.mytest.backend.controller;
+package com.mytest.backend.conversation.controller;
 
-import com.mytest.backend.dto.ConversationRenameRequest;
-import com.mytest.backend.dto.ConversationSaveRequest;
-import com.mytest.backend.service.ConversationHistoryService;
-import com.mytest.backend.vo.ConversationHistoryResponse;
+import com.mytest.backend.conversation.dto.ConversationRenameRequest;
+import com.mytest.backend.conversation.dto.ConversationSaveRequest;
+import com.mytest.backend.conversation.service.ConversationHistoryService;
+import com.mytest.backend.conversation.vo.ConversationHistoryResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,8 +36,9 @@ public class ConversationHistoryController {
     public Page<ConversationHistoryResponse> pageConversations(
             @RequestParam String staffId,
             @RequestParam(required = false) String search,
-            @PageableDefault(page = 0, size = 20, sort = "updatedAt", direction = Sort.Direction.DESC)
-            Pageable pageable) {
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "updatedAt"));
         return conversationHistoryService.pageConversations(staffId, search, pageable);
     }
 

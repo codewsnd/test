@@ -1,6 +1,6 @@
-package com.mytest.backend.dto;
+package com.mytest.backend.conversation.dto;
 
-import com.mytest.backend.entity.ConversationHtmlPreview;
+import com.mytest.backend.conversation.entity.ConversationHtmlPreviewDO;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -20,7 +20,7 @@ public class ConversationHtmlPreviewResponse {
     private String externalReferencesContent;
     private Integer htmlContentLength;
 
-    public static ConversationHtmlPreviewResponse build(ConversationHtmlPreview preview) {
+    public static ConversationHtmlPreviewResponse build(ConversationHtmlPreviewDO preview) {
         return ConversationHtmlPreviewResponse.builder()
                 .id(preview.getId())
                 .hasXss(preview.getHasXss())
@@ -31,7 +31,7 @@ public class ConversationHtmlPreviewResponse {
                 .build();
     }
 
-    public static ConversationHtmlPreviewResponse build(ConversationHtmlPreview preview, String htmlContent) {
+    public static ConversationHtmlPreviewResponse build(ConversationHtmlPreviewDO preview, String htmlContent) {
         ConversationHtmlPreviewResponse response = build(preview);
         response.setHtmlContent(htmlContent);
         return response;

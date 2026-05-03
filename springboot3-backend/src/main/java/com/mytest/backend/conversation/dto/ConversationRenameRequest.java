@@ -1,4 +1,4 @@
-package com.mytest.backend.dto;
+package com.mytest.backend.conversation.dto;
 
 import lombok.Data;
 

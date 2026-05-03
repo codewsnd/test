@@ -11,7 +11,7 @@ export interface ConversationTurn {
   // AI回复部分
   aiResponse: {
     content: string;
-    status: 'pending' | 'streaming' | 'completed' | 'error';
+    status: AiResponseStatus;
     timestamp: Date; // AI回复完成时间
   }
 
@@ -24,6 +24,7 @@ export interface ConversationState {
 }
 
 export type StepStatus = 'waiting' | 'processing' | 'completed' | 'error';
+export type AiResponseStatus = 'pending' | 'streaming' | 'completed' | 'error';
 
 export interface ProcessStep {
   id: string;

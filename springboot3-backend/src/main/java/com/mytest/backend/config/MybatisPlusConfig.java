@@ -12,7 +12,8 @@ public class MybatisPlusConfig {
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor() {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
-        // 添加分页插件
+        // Logic delete is handled by MyBatis-Plus global config + @TableLogic.
+        // The interceptor here keeps pagination support for PostgreSQL queries.
         interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.POSTGRE_SQL));
         return interceptor;
     }
