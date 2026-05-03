@@ -1,13 +1,13 @@
 import type {FormResponse} from "../models/formResponse";
-import axios from "./axios";
+import { springboot2Api, springboot3BackendApi } from "./axios";
 
 export const getMyFormResponseApi = async (formId: string): Promise<FormResponse> => {
-    return axios.get(`/forms/responses/${formId}`);
+    return springboot2Api.get(`/forms/responses/${formId}`);
 }
 
 // 上传表格数据和图片到后端
 export const copyDeckUploadApi = async (formData: FormData): Promise<any> => {
-    return axios.post('http://localhost:8081/test/table', formData, {
+    return springboot3BackendApi.post('/test/table', formData, {
         headers: {
             'Content-Type': 'multipart/form-data',
         },
@@ -44,7 +44,7 @@ export const callChatCompletions = async (requestBody: ChatCompletionsRequest): 
     });
     console.log('请求体总大小:', (JSON.stringify(requestBody).length / 1024).toFixed(2), 'KB');
 
-    const result = await axios.post('http://localhost:8081/chat/completions', requestBody);
+    const result = await springboot3BackendApi.post('/chat/completions', requestBody);
     console.log('Chat completions 响应:', result);
     return result;
 }

@@ -1,4 +1,4 @@
-import axios from './axios';
+import { springboot3Api } from './axios';
 import type { ConversationState } from "../pages/home/components/chat/types";
 import { getEmployeeId } from '@/utils/userUtils';
 
@@ -45,7 +45,7 @@ export const pageConversationsApi = async (
       params.search = search.trim();
     }
 
-    return await axios.get('/conversations/histories/page', {
+    return await springboot3Api.get('/conversations/histories/page', {
       params
     });
   } catch (error) {
@@ -57,7 +57,7 @@ export const pageConversationsApi = async (
 // 保存会话 (如果存在则更新，否则创建)
 export const saveConversationApi = async (conversation: ConversationHistory): Promise<ConversationHistory> => {
   try {
-    return await axios.post('/conversations/histories', conversation);
+    return await springboot3Api.post('/conversations/histories', conversation);
   } catch (error) {
     console.error('Error saving conversation:', error);
     throw error;
@@ -65,7 +65,7 @@ export const saveConversationApi = async (conversation: ConversationHistory): Pr
 };
 
 export const getConversationDetailApi = async (id: string): Promise<ConversationHistory> => {
-  return await axios.get(`/conversations/histories/${id}`, {
+  return await springboot3Api.get(`/conversations/histories/${id}`, {
     params: { staffId: getEmployeeId() }
   });
 };
@@ -73,7 +73,7 @@ export const getConversationDetailApi = async (id: string): Promise<Conversation
 // 重命名会话
 export const renameConversationApi = async (id: string, title: string): Promise<ConversationHistory | null> => {
   try {
-    return await axios.put(`/conversations/histories/${id}/rename`, {title});
+    return await springboot3Api.put(`/conversations/histories/${id}/rename`, {title});
   } catch (error: any) {
     throw error;
   }
@@ -86,43 +86,17 @@ export const deleteConversationApi = async (id: string): Promise<void> => {
 
 // 批量删除会话
 export const batchDeleteConversationsApi = async (conversationIds: string[]): Promise<void> => {
-  await axios.delete('/conversations/histories/batch', {
+  await springboot3Api.delete('/conversations/histories/batch', {
     data: conversationIds
   });
 };
 
 // 批量置顶会话
 export const batchPinConversationsApi = async (conversationIds: string[]): Promise<void> => {
-  await axios.put('/conversations/histories/batch/pin', conversationIds);
+  await springboot3Api.put('/conversations/histories/batch/pin', conversationIds);
 };
 
 // 批量取消置顶会话
 export const batchUnpinConversationsApi = async (conversationIds: string[]): Promise<void> => {
-  await axios.put('/conversations/histories/batch/unpin', conversationIds);
-};
-
-// IndexedDB 迁移相关类型
-interface IndexedDbConversation {
-  id: string;
-  title: string;
-  conversationState?: any;
-  isPinned?: boolean;
-  createdAt?: number;
-  updatedAt?: number;
-  pinnedAt?: number;
-  userId?: string;
-  staffId?: string;
-  titleGenerating?: boolean;
-}
-
-interface MigrationRequest {
-  conversations: IndexedDbConversation[];
-}
-
-// 迁移 IndexedDB 数据到后端
-export const migrateFromIndexedDbApi = async (conversations: IndexedDbConversation[], staffId: string): Promise<string> => {
-  const request: MigrationRequest = { conversations };
-  return await axios.post('/conversations/histories/migrate', request, {
-    params: {staffId}
-  });
+  await springboot3Api.put('/conversations/histories/batch/unpin', conversationIds);
 };

@@ -35,7 +35,7 @@
 //
 // // 主 API 实例
 // const api: AxiosInstance = axios.create({
-//   baseURL: import.meta.env.VITE_API_URL,
+//   baseURL: import.meta.env.VITE_API_SPRINGBOOT3_URL,
 //   timeout: 60000,
 // });
 //

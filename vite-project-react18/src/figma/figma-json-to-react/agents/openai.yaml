@@ -1,4 +1,0 @@
-interface:
-  display_name: "Figma JSON to React"
-  short_description: "Convert Figma REST JSON into AntD5 + Tailwind React"
-  default_prompt: "Use $figma-json-to-react with my absolute Figma REST API JSON path and absolute React output path to generate 1:1 React and TypeScript components with Ant Design 5 and Tailwind."

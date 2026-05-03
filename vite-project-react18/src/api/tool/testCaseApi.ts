@@ -1,4 +1,4 @@
-import api from '../axios';
+import { springboot3Api } from '../axios';
 import {getEmployeeId} from "@/utils/userUtils";
 
 // Jira Issue接口
@@ -45,7 +45,7 @@ export const exportApi = async (): Promise<JiraIssue[]> => {
  * 保存测试用例统计数据
  */
 export const saveTestCaseStatistics = async (data: TestCaseStatisticsRequest): Promise<void> => {
-    return await api.post('/test-case/statistics', data);
+    return await springboot3Api.post('/test-case/statistics', data);
 };
 
 /**
@@ -102,7 +102,7 @@ export const listJiraIssueLabels =
   }
 
   try{
-    const data = await api.post('/api/tolsquery/querylabels', {
+    const data = await springboot3Api.post('/api/tolsquery/querylabels', {
       almType,
       staffId: getEmployeeId(),
       query

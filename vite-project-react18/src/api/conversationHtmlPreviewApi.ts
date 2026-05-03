@@ -1,7 +1,7 @@
 /**
  * HTML 预览 API 服务
  */
-import axios, {RAG_URL} from './axios';
+import { springboot3Api } from './axios';
 import {getEmployeeId} from "@/utils/userUtils";
 
 /**
@@ -69,7 +69,7 @@ export interface HtmlShareResponse {
 export const createHtmlPreviewApi = async (
   request: CreateHtmlPreviewRequest
 ): Promise<HtmlPreviewResponse> => {
-  return axios.post(`${RAG_URL}/conversation/html/preview`, {...request, staffId: getEmployeeId()});
+  return springboot3Api.post('/conversation/html/preview', {...request, staffId: getEmployeeId()});
 };
 
 /**
@@ -77,7 +77,7 @@ export const createHtmlPreviewApi = async (
  * 返回预览元信息和 HTML 内容（仅当安全时，即无 XSS 和外部引用）
  */
 export const getHtmlPreviewContentApi = async (id: string): Promise<HtmlPreviewResponse> => {
-  return axios.get(`${RAG_URL}/conversation/html/preview/${id}`);
+  return springboot3Api.get(`/conversation/html/preview/${id}`);
 };
 
 /**
@@ -86,7 +86,7 @@ export const getHtmlPreviewContentApi = async (id: string): Promise<HtmlPreviewR
 export const createHtmlShareApi = async (
   request: CreateHtmlShareRequest
 ): Promise<HtmlShareResponse> => {
-  return axios.post(`${RAG_URL}/conversation/html/preview/share`, {
+  return springboot3Api.post('/conversation/html/preview/share', {
     ...request,
     staffId: getEmployeeId(),
   });
@@ -99,19 +99,19 @@ export const updateHtmlShareStatusApi = async (
   id: string,
   request: UpdateHtmlShareStatusRequest
 ): Promise<HtmlShareResponse> => {
-  return axios.put(`${RAG_URL}/conversation/html/preview/share/${id}/status`, request);
+  return springboot3Api.put(`/conversation/html/preview/share/${id}/status`, request);
 };
 
 /**
  * 根据分享 ID 获取分享内容
  */
 export const getHtmlShareContentApi = async (id: string): Promise<HtmlShareResponse> => {
-  return axios.get(`${RAG_URL}/conversation/html/preview/share/${id}`);
+  return springboot3Api.get(`/conversation/html/preview/share/${id}`);
 };
 
 /**
  * 根据 previewId 查询分享状态
  */
 export const getHtmlShareByPreviewApi = async (previewId: string): Promise<HtmlShareResponse> => {
-  return axios.get(`${RAG_URL}/conversation/html/preview/share/preview/${previewId}`);
+  return springboot3Api.get(`/conversation/html/preview/share/preview/${previewId}`);
 };

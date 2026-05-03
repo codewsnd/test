@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import axios from '@/api/axios';
+import { springboot3BackendApi } from '@/api/axios';
 import { downloadPptFromBase64, generatePptApi } from '../pptApi';
 
 vi.mock('@/api/axios', () => ({
-  default: {
+  springboot3BackendApi: {
     post: vi.fn(),
   },
 }));
@@ -23,11 +23,11 @@ describe('pptApi', () => {
     const request = { font: 'Arial', pageCount: 3, title: 'Deck' };
     const response = { success: true, message: 'ok', fileName: 'deck.pptx' };
 
-    vi.mocked(axios.post).mockReturnValueOnce(response as never);
+    vi.mocked(springboot3BackendApi.post).mockReturnValueOnce(response as never);
 
     return generatePptApi(request).then((result) => {
       expect(result).toBe(response);
-      expect(axios.post).toHaveBeenCalledWith('http://localhost:8081/api/ppt/generate', request);
+      expect(springboot3BackendApi.post).toHaveBeenCalledWith('/api/ppt/generate', request);
     });
   });
 

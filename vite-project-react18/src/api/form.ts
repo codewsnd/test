@@ -1,4 +1,4 @@
-import api from './axios';
+import { springboot2Api } from './axios';
 import type {Form} from "../models/form";
 import type {Page} from '../models/page';
 import {buildQueryParams} from "../utils/paramUtils";
@@ -8,7 +8,7 @@ export const listFormApi = async (Form?: Form): Promise<Array<Form>> => {
     const queryString = buildQueryParams({
       ...Form
     });
-    return await api.get(`/forms?${queryString}`);
+    return await springboot2Api.get(`/forms?${queryString}`);
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -22,7 +22,7 @@ export const pageFormApi = async (page: number, size: number = 10, Form?: Form):
       size,
       ...Form
     });
-    return await api.get(`/forms/page?${queryString}`);
+    return await springboot2Api.get(`/forms/page?${queryString}`);
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -33,9 +33,9 @@ export const saveFormApi = async (Form: Form): Promise<Form> => {
   try {
     let response;
     if (Form.id) {
-      response = await api.put(`/forms/${Form.id}`, Form);
+      response = await springboot2Api.put(`/forms/${Form.id}`, Form);
     } else {
-      response = await api.post(`/forms`, Form);
+      response = await springboot2Api.post(`/forms`, Form);
     }
     return response;
   } catch (error) {
@@ -47,7 +47,7 @@ export const saveFormApi = async (Form: Form): Promise<Form> => {
 
 export const deleteFormApi = async (Form: Form): Promise<Form> => {
   try {
-    const response = await api.delete(`/forms/${Form.id}`);
+    const response = await springboot2Api.delete(`/forms/${Form.id}`);
     return response;
   } catch (error) {
     console.error('API Error', error);
@@ -58,7 +58,7 @@ export const deleteFormApi = async (Form: Form): Promise<Form> => {
 
 export const getFormApi = async (id: string): Promise<Form> => {
   try {
-    const response = await api.get(`/forms/${id}`);
+    const response = await springboot2Api.get(`/forms/${id}`);
     return response;
   } catch (error) {
     console.error('API Error', error);

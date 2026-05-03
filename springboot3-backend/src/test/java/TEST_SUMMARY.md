@@ -3,7 +3,7 @@
 ## 📋 已完成的测试文件
 
 ### 1. ConfluenceStorageUtilTest.java
-**位置**: `src/test/java/com/zhou4h/backend/utils/ConfluenceStorageUtilTest.java`
+**位置**: `src/test/java/com/mytest/backend/utils/ConfluenceStorageUtilTest.java`
 
 **测试统计**:
 - 总测试用例数: **43个**
@@ -30,7 +30,7 @@
 ---
 
 ### 2. CopyDeckControllerTest.java
-**位置**: `src/test/java/com/zhou4h/backend/controller/CopyDeckControllerTest.java`
+**位置**: `src/test/java/com/mytest/backend/controller/CopyDeckControllerTest.java`
 
 **测试统计**:
 - 总测试用例数: **17个**

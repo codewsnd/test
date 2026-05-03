@@ -1,4 +1,4 @@
-import axios from '../axios';
+import { springboot3BackendApi } from '../axios';
 import {getEmployeeId} from "@/utils/userUtils";
 import {aiChat, type AiChatRequest} from "@/api";
 import {buildGroupedMatchPrompt, buildSingleTableMatchPrompt} from './copyDeckPrompt';
@@ -19,7 +19,7 @@ export interface CopyDeckStorageResponse {
  * 获取Confluence页面的Storage HTML和页面标题
  */
 export const copyDeckStorageApi = async (confluenceUrl: string): Promise<CopyDeckStorageResponse> => {
-  return axios.get('http://localhost:8081/api/chatbycard/copydeck/storage', {
+  return springboot3BackendApi.get('/api/chatbycard/copydeck/storage', {
     params: {
       confluenceUrl,
       staffId: getEmployeeId()
@@ -211,7 +211,7 @@ export interface UploadStorageResponse {
 export const uploadStorageApi = async (
   data: UploadStorageRequest
 ): Promise<UploadStorageResponse> => {
-  return axios.post('http://localhost:8081/api/chatbycard/copydeck/upload', {
+  return springboot3BackendApi.post('/api/chatbycard/copydeck/upload', {
     ...data,
     staffId: getEmployeeId()
   });
@@ -235,7 +235,7 @@ export interface GetAttachmentsResponse {
 export const getAttachmentsApi = async (
   data: GetAttachmentsRequest
 ): Promise<GetAttachmentsResponse> => {
-  return axios.post('http://localhost:8081/api/chatbycard/copydeck/getAttachments', {
+  return springboot3BackendApi.post('/api/chatbycard/copydeck/getAttachments', {
     ...data,
     staffId: getEmployeeId()
   });

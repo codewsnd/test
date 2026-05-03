@@ -1,4 +1,4 @@
-import axios from "@/api/axios";
+import { springboot3BackendApi } from "@/api/axios";
 
 export interface AiChatRequest {
   requestId?: string;
@@ -35,8 +35,5 @@ export interface  AiChatResponse {
 
 export const aiChat = async (request: AiChatRequest): Promise<ApiResponse<AiChatResponse>> => {
   // 调用 API
-  return await axios.post(
-    'http://localhost:8081/chat/completions',
-    request
-  );
+  return await springboot3BackendApi.post('/chat/completions', request);
 }

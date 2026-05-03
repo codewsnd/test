@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import api from '@/api/axios';
+import { springboot3Api } from '@/api/axios';
 import { getEmployeeId } from '@/utils/userUtils';
 import {
   exportApi,
@@ -9,7 +9,7 @@ import {
 } from '../testCaseApi';
 
 vi.mock('@/api/axios', () => ({
-  default: {
+  springboot3Api: {
     post: vi.fn(),
   },
 }));
@@ -57,12 +57,12 @@ describe('testCaseApi', () => {
     const postResponse = { ok: true };
 
     vi.useFakeTimers();
-    vi.mocked(api.post).mockReturnValueOnce(postResponse as never);
+    vi.mocked(springboot3Api.post).mockReturnValueOnce(postResponse as never);
 
     return saveTestCaseStatistics(payload)
       .then((result) => {
         expect(result).toBe(postResponse);
-        expect(api.post).toHaveBeenCalledWith('/test-case/statistics', payload);
+        expect(springboot3Api.post).toHaveBeenCalledWith('/test-case/statistics', payload);
         const labelsPromise = getIssueLabels();
         vi.runAllTimers();
         return labelsPromise;
@@ -77,12 +77,12 @@ describe('testCaseApi', () => {
   it('returns an empty label list when almType is missing', () => {
     return listJiraIssueLabels('', 'bug').then((labels) => {
       expect(labels).toEqual([]);
-      expect(api.post).not.toHaveBeenCalled();
+      expect(springboot3Api.post).not.toHaveBeenCalled();
     });
   });
 
   it('maps jira label results, handles non-array responses, and catches failures', () => {
-    vi.mocked(api.post)
+    vi.mocked(springboot3Api.post)
       .mockReturnValueOnce(['bug', 'feature'] as never)
       .mockReturnValueOnce({ value: 'bug' } as never)
       .mockImplementationOnce(() => {
@@ -95,7 +95,7 @@ describe('testCaseApi', () => {
           { label: 'bug', value: 'bug' },
           { label: 'feature', value: 'feature' },
         ]);
-        expect(api.post).toHaveBeenNthCalledWith(1, '/api/tolsquery/querylabels', {
+        expect(springboot3Api.post).toHaveBeenNthCalledWith(1, '/api/tolsquery/querylabels', {
           almType: 'jira',
           staffId: 'staff-1',
           query: 'bu',

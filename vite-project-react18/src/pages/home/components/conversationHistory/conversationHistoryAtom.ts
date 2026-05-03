@@ -1,7 +1,6 @@
 import { atom } from 'jotai';
 import type { ConversationState } from '../chat/types';
 import { getEmployeeId } from '@/utils/userUtils';
-import { autoMigrateIfNeeded } from './indexedDbMigration';
 import type {ConversationHistory} from "@/api/conversationHistoryApi";
 import {
   pageConversationsApi,
@@ -10,7 +9,7 @@ import {
   batchPinConversationsApi,
   batchUnpinConversationsApi
 } from "@/api/conversationHistoryApi";
-import axios from "../../../../api/axios";
+import { springboot3Api } from "../../../../api/axios";
 import {v7} from 'uuid';
 
 // 分页大小配置
@@ -115,22 +114,6 @@ export const initializeDbAtom = atom(
   async (_get, set) => {
     try {
       const staffId = getEmployeeId();
-
-      // // 首先自动检查并处理 IndexedDB 迁移
-      try {
-        const migrationResult = await autoMigrateIfNeeded(staffId);
-        if (migrationResult.migrated && migrationResult.result) {
-          // 记录迁移结果，但不影响用户体验
-          if (migrationResult.result.success) {
-            console.log('IndexedDB migration completed:', migrationResult.result.message);
-          } else {
-            console.error('IndexedDB migration failed:', migrationResult.result.message);
-          }
-        }
-      } catch (error) {
-        console.warn('IndexedDB migration check failed:', error);
-        // 迁移失败不影响正常初始化
-      }
 
       // 重置搜索和分页状态
       set(searchQueryAtom, '');
@@ -291,7 +274,7 @@ AI Response: ${aiResponse}
 
 Please provide only the title, no additional text or explanation.`;
 
-      const response = await axios.post('/chat', { message: summaryContent });
+      const response = await springboot3Api.post('/chat', { message: summaryContent });
       const finalTitle = (response || '').toString().trim().substring(0, 20) || fallbackTitle;
 
       // 添加小延迟以避免与创建操作的竞态条件
@@ -400,4 +383,3 @@ export const batchUnpinConversationsAtom = atom(
     }
   }
 );
-

@@ -3,6 +3,7 @@
  * 提供与后端 DeepSeek 聊天接口的交互功能
  */
 import { fetchEventSource } from '@microsoft/fetch-event-source';
+import { API_BASE_URLS } from './axios';
 
 /**
  * 消息接口定义（与后端对应）
@@ -45,8 +46,7 @@ export const chatStream = (
   callbacks: StreamCallbacks
 ): AbortController => {
   const controller = new AbortController();
-  // const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
-  const baseURL = 'http://localhost:8081';
+  const baseURL = API_BASE_URLS.springboot3Backend;
 
   // 使用 fetchEventSource 处理 SSE 流
   fetchEventSource(`${baseURL}/chat/stream`, {

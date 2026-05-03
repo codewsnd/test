@@ -1,4 +1,4 @@
-import axios from '../axios';
+import { springboot3BackendApi } from '../axios';
 
 /**
  * PPT 生成请求参数
@@ -23,7 +23,7 @@ export interface PptGenerateResponse {
  * 调用后端 API 生成 PPT
  */
 export const generatePptApi = async (request: PptGenerateRequest): Promise<PptGenerateResponse> => {
-  return axios.post('http://localhost:8081/api/ppt/generate', request);
+  return springboot3BackendApi.post('/api/ppt/generate', request);
 };
 
 /**

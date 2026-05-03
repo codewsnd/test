@@ -8,7 +8,7 @@
         <version>3.5.4</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>com.zhou4h</groupId>
+    <groupId>com.mytest</groupId>
     <artifactId>springboot3-backend</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>springboot3-backend</name>

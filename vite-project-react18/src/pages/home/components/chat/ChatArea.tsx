@@ -5,6 +5,7 @@ import { useAtom, useSetAtom } from 'jotai';
 import { useRequest } from 'ahooks';
 
 import { fetchEventSource } from '@microsoft/fetch-event-source';
+import { API_BASE_URLS } from '@/api/axios';
 import type { ConversationTurn } from './types';
 import { StepsManager } from './StepsManager';
 import { StatusCard } from './StatusCard';
@@ -130,7 +131,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
         eventSourceRef.current.abort();
       }
 
-      const sseUrl = `http://localhost:8081/deepseek/chat/stream`;
+      const sseUrl = `${API_BASE_URLS.springboot3Backend}/deepseek/chat/stream`;
       console.log(`Creating independent SSE connection: ${sseUrl}`);
 
       // 创建新的 AbortController
