@@ -28,7 +28,7 @@ public interface ConversationHistoryMapper extends BaseMapper<ConversationHistor
               AND (
                   #{search} = ''
                   OR title ILIKE CONCAT('%', #{search}, '%')
-                  OR COALESCE(conversation_state, '') ILIKE CONCAT('%', #{search}, '%')
+                  OR COALESCE(conversation_state::text, '') ILIKE CONCAT('%', #{search}, '%')
               )
             ORDER BY is_pinned DESC NULLS LAST, pinned_at DESC NULLS LAST, updated_at DESC
             """)

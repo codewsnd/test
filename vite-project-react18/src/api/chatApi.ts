@@ -17,11 +17,57 @@ export interface ChatMessage {
  * 聊天请求参数（与后端 AiChatRequest 对应）
  */
 export interface ChatStreamRequest {
+  conversationId?: string;
   requestId?: string;
   agentId?: string;
   modelName?: string;
+  userId?: string;
   documents?: any[];
   messages: ChatMessage[];
+}
+
+export interface SessionStreamEvent {
+  sessionId?: string;
+  requestId?: string;
+  conversationId?: string;
+  modelName?: string;
+  startedAt?: string;
+  resumed?: boolean;
+}
+
+export interface StatusStreamEvent {
+  stage?: string;
+  state?: 'waiting' | 'processing' | 'completed' | 'error';
+  label?: string;
+  detail?: string;
+  sessionId?: string;
+  timestamp?: string;
+}
+
+export interface ToolCallStreamEvent {
+  toolName?: string;
+  toolCallId?: string;
+  params?: string;
+  toolname?: string;
+  timestamp?: string;
+}
+
+export interface ToolResultStreamEvent {
+  toolName?: string;
+  toolCallId?: string;
+  result?: string;
+  'tool-result'?: string;
+  timestamp?: string;
+}
+
+export interface DoneStreamEvent {
+  done?: boolean;
+  sessionId?: string;
+  requestId?: string;
+  conversationId?: string;
+  chunkCount?: number;
+  characterCount?: number;
+  completedAt?: string;
 }
 
 /**
@@ -31,6 +77,11 @@ export interface StreamCallbacks {
   onMessage: (content: string) => void; // 接收到新的内容片段
   onComplete: () => void; // 流式传输完成
   onError: (error: Error) => void; // 发生错误
+  onSession?: (event: SessionStreamEvent) => void;
+  onStatus?: (event: StatusStreamEvent) => void;
+  onToolCall?: (event: ToolCallStreamEvent) => void;
+  onToolResult?: (event: ToolResultStreamEvent) => void;
+  onDone?: (event: DoneStreamEvent) => void;
 }
 
 /**
@@ -63,43 +114,62 @@ export const chatStream = (
      */
     onmessage(event) {
       try {
-        // SSE 的 data 字段包含服务器发送的内容
-        if (event.data) {
-          let content = '';
+        if (!event.data) {
+          return;
+        }
 
-          // 尝试解析 JSON（如果后端返回的是 JSON 格式）
-          try {
-            const parsed = JSON.parse(event.data);
+        const parsed = JSON.parse(event.data);
 
-            // 根据后端返回的数据结构提取文本内容
-            // 数据结构: {"output":{"text":"..."},"metadata":{...}}
-            if (parsed.output && parsed.output.text !== null && parsed.output.text !== undefined) {
-              content = parsed.output.text;
-            } else if (parsed.content && parsed.content !== null && parsed.content !== undefined) {
-              content = parsed.content;
-            } else if (parsed.data && parsed.data !== null && parsed.data !== undefined) {
-              content = parsed.data;
-            } else if (typeof parsed === 'string') {
-              content = parsed;
-            }
-            // 如果 parsed 是对象但没有找到文本字段，就不赋值（保持 content 为空字符串）
-          } catch {
-            // 如果不是 JSON，直接使用原始数据（但要过滤特殊标记）
-            content = event.data;
-          }
+        switch (event.event) {
+          case 'session':
+            callbacks.onSession?.(parsed as SessionStreamEvent);
+            return;
 
-          // 过滤掉不应该显示的特殊标记
-          const shouldIgnore =
-            !content ||
-            content === 'null' ||
-            content === 'undefined' ||
-            content === 'Stream finished' ||
-            content.trim() === '';
+          case 'status':
+            callbacks.onStatus?.(parsed as StatusStreamEvent);
+            return;
 
-          // 只有当 content 是有效文本时才调用回调
-          if (!shouldIgnore && typeof content === 'string') {
-            callbacks.onMessage(content);
-          }
+          case 'tool-call':
+            callbacks.onToolCall?.(parsed as ToolCallStreamEvent);
+            return;
+
+          case 'tool-result':
+            callbacks.onToolResult?.(parsed as ToolResultStreamEvent);
+            return;
+
+          case 'done':
+            callbacks.onDone?.(parsed as DoneStreamEvent);
+            return;
+
+          case 'error-message':
+            callbacks.onError(new Error((parsed as { error?: string }).error || 'SSE error'));
+            return;
+
+          default:
+            break;
+        }
+
+        let content = '';
+
+        if (parsed.output && parsed.output.text !== null && parsed.output.text !== undefined) {
+          content = parsed.output.text;
+        } else if (parsed.delta && parsed.delta !== null && parsed.delta !== undefined) {
+          content = parsed.delta;
+        } else if (parsed.content && parsed.content !== null && parsed.content !== undefined) {
+          content = parsed.content;
+        } else if (typeof parsed === 'string') {
+          content = parsed;
+        }
+
+        const shouldIgnore =
+          !content ||
+          content === 'null' ||
+          content === 'undefined' ||
+          content === 'Stream finished' ||
+          content.trim() === '';
+
+        if (!shouldIgnore && typeof content === 'string') {
+          callbacks.onMessage(content);
         }
       } catch (error) {
         console.error('Error parsing SSE message:', error);
@@ -109,7 +179,7 @@ export const chatStream = (
     /**
      * 连接打开时触发
      */
-    onopen(response) {
+    async onopen(response) {
       if (response.ok) {
         console.log('SSE connection opened');
       } else {

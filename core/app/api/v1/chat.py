@@ -70,8 +70,8 @@ async def stream_chat(request: ChatRequest) -> StreamingResponse:
                 yield chunk
         except Exception as exc:
             yield chat_service._sse(
-                "error",
-                {"message": f"LLM request failed: {exc}"},
+                "error-message",
+                {"error": f"LLM request failed: {exc}"},
             )
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

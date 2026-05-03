@@ -17,7 +17,6 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.UUID;
 
 @Slf4j
 @Service
@@ -46,9 +45,9 @@ public class ConversationHtmlShareService {
                 return existingShare;
             }
 
-            UUID uuid7 = Generators.timeBasedEpochGenerator().generate();
+            String shareId = Generators.timeBasedEpochGenerator().generate().toString();
             ConversationHtmlShareDO share = ConversationHtmlShareDO.builder()
-                    .id(uuid7.toString())
+                    .id(shareId)
                     .previewId(preview.getId())
                     .staffId(preview.getStaffId())
                     .conversationId(preview.getConversationId())
@@ -73,7 +72,7 @@ public class ConversationHtmlShareService {
     @Transactional
     public ConversationHtmlShareDO updateShareStatus(String id, Boolean enabled) {
         try {
-            ConversationHtmlShareDO share = conversationHtmlShareMapper.selectById(id);
+            ConversationHtmlShareDO share = conversationHtmlShareMapper.selectById(id.trim());
             if (share == null) {
                 throw new CustomException(HttpStatus.NOT_FOUND.value(), "HTML share not found");
             }
@@ -97,7 +96,7 @@ public class ConversationHtmlShareService {
 
     public ConversationHtmlShareDO getHtmlShareById(String id) {
         try {
-            ConversationHtmlShareDO share = conversationHtmlShareMapper.selectById(id);
+            ConversationHtmlShareDO share = conversationHtmlShareMapper.selectById(id.trim());
             if (share == null) {
                 throw new CustomException(HttpStatus.NOT_FOUND.value(), "HTML share not found");
             }
@@ -112,7 +111,7 @@ public class ConversationHtmlShareService {
 
     public ConversationHtmlShareDO getHtmlShareByPreviewId(String previewId) {
         try {
-            ConversationHtmlShareDO share = findByPreviewId(previewId);
+            ConversationHtmlShareDO share = findByPreviewId(previewId.trim());
             if (share == null) {
                 return null;
             }
@@ -145,12 +144,12 @@ public class ConversationHtmlShareService {
                         .eq(ConversationHtmlShareDO::getPreviewId, previewId)
                         .last("LIMIT 1")
         );
-        return shares.isEmpty() ? null : shares.get(0);
+        return shares.stream().findFirst().orElse(null);
     }
 
     private String resolvePreviewId(ConversationHtmlShareCreateRequest request) {
         if (StringUtils.hasText(request.getPreviewId())) {
-            return request.getPreviewId();
+            return request.getPreviewId().trim();
         }
 
         if (!StringUtils.hasText(request.getStaffId())

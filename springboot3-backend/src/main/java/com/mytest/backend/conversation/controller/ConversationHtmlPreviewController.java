@@ -4,11 +4,10 @@ import com.mytest.backend.conversation.dto.ConversationHtmlPreviewRequest;
 import com.mytest.backend.conversation.dto.ConversationHtmlPreviewResponse;
 import com.mytest.backend.conversation.entity.ConversationHtmlPreviewDO;
 import com.mytest.backend.conversation.service.ConversationHtmlPreviewService;
-import com.mytest.backend.exception.CustomException;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -18,10 +17,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-@Slf4j
 @RestController
 @RequestMapping("/conversation/html/preview")
 @RequiredArgsConstructor
+@Validated
 @CrossOrigin(origins = "*", allowedHeaders = "*", methods = {
         RequestMethod.GET,
         RequestMethod.POST,
@@ -35,28 +34,14 @@ public class ConversationHtmlPreviewController {
 
     @PostMapping
     public ConversationHtmlPreviewResponse createHtmlPreview(@Valid @RequestBody ConversationHtmlPreviewRequest request) {
-        try {
-            ConversationHtmlPreviewDO preview = conversationHtmlPreviewService.createHtmlPreview(request);
-            return ConversationHtmlPreviewResponse.build(preview);
-        } catch (CustomException e) {
-            throw e;
-        } catch (RuntimeException e) {
-            log.error("Failed to create HTML preview", e);
-            throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to create HTML preview");
-        }
+        ConversationHtmlPreviewDO preview = conversationHtmlPreviewService.createHtmlPreview(request);
+        return ConversationHtmlPreviewResponse.build(preview);
     }
 
     @GetMapping("/{id}")
-    public ConversationHtmlPreviewResponse getHtmlPreview(@PathVariable String id) {
-        try {
-            ConversationHtmlPreviewDO preview = conversationHtmlPreviewService.getHtmlPreviewById(id);
-            String htmlContent = conversationHtmlPreviewService.getHtmlContent(preview.getS3Path());
-            return ConversationHtmlPreviewResponse.build(preview, htmlContent);
-        } catch (CustomException e) {
-            throw e;
-        } catch (RuntimeException e) {
-            log.warn("HTML preview error for id: {}", id, e);
-            throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to get HTML preview");
-        }
+    public ConversationHtmlPreviewResponse getHtmlPreview(@PathVariable @NotBlank String id) {
+        ConversationHtmlPreviewDO preview = conversationHtmlPreviewService.getHtmlPreviewById(id);
+        String htmlContent = conversationHtmlPreviewService.getHtmlContent(preview.getS3Path());
+        return ConversationHtmlPreviewResponse.build(preview, htmlContent);
     }
 }

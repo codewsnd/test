@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.mytest.backend.conversation.typehandler.JsonbStringTypeHandler;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -16,7 +17,7 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@TableName("conversation_history")
+@TableName(value = "conversation_history", autoResultMap = true)
 public class ConversationHistoryDO {
 
     @TableId(value = "id", type = IdType.INPUT)
@@ -25,7 +26,7 @@ public class ConversationHistoryDO {
     @TableField("title")
     private String title;
 
-    @TableField("conversation_state")
+    @TableField(value = "conversation_state", typeHandler = JsonbStringTypeHandler.class)
     private String conversationState;
 
     @TableField("is_pinned")

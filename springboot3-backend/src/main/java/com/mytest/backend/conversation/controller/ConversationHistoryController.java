@@ -4,12 +4,14 @@ import com.mytest.backend.conversation.dto.ConversationRenameRequest;
 import com.mytest.backend.conversation.dto.ConversationSaveRequest;
 import com.mytest.backend.conversation.service.ConversationHistoryService;
 import com.mytest.backend.conversation.vo.ConversationHistoryResponse;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,10 +25,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-@Slf4j
 @RestController
 @RequestMapping("/conversations/histories")
 @RequiredArgsConstructor
+@Validated
 @CrossOrigin(origins = "*")
 public class ConversationHistoryController {
 
@@ -34,30 +36,32 @@ public class ConversationHistoryController {
 
     @GetMapping("/page")
     public Page<ConversationHistoryResponse> pageConversations(
-            @RequestParam String staffId,
+            @RequestParam @NotBlank String staffId,
             @RequestParam(required = false) String search,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "updatedAt"));
+            @PageableDefault(
+                    size = 20,
+                    sort = {"isPinned", "pinnedAt", "updatedAt"},
+                    direction = Sort.Direction.DESC
+            ) Pageable pageable) {
         return conversationHistoryService.pageConversations(staffId, search, pageable);
     }
 
     @GetMapping("/{id}")
     public ConversationHistoryResponse getConversationDetail(
-            @PathVariable String id,
-            @RequestParam String staffId) {
+            @PathVariable @NotBlank String id,
+            @RequestParam @NotBlank String staffId) {
         return conversationHistoryService.getConversationDetail(id, staffId);
     }
 
     @PostMapping
-    public ConversationHistoryResponse saveConversation(@RequestBody ConversationSaveRequest request) {
+    public ConversationHistoryResponse saveConversation(@Valid @RequestBody ConversationSaveRequest request) {
         return conversationHistoryService.saveConversation(request);
     }
 
     @PutMapping("/{id}/rename")
     public ConversationHistoryResponse renameConversation(
-            @PathVariable String id,
-            @RequestBody ConversationRenameRequest request) {
+            @PathVariable @NotBlank String id,
+            @Valid @RequestBody ConversationRenameRequest request) {
         return conversationHistoryService.renameConversation(id, request.getTitle());
     }
 

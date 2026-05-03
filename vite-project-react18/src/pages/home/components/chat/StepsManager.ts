@@ -1,22 +1,32 @@
-import { ProcessStep, StepStatus } from './types';
+import type { ProcessStep, ProcessStepDetail, StepStatus } from './types';
 
 interface AddStepOptions {
   key?: string;
   status?: StepStatus;
+  details?: ProcessStepDetail[];
 }
 
 interface UpdateStepOptions {
   status?: StepStatus;
   content?: string;
   tooltip?: string;
+  details?: ProcessStepDetail[];
 }
+
+const cloneDetails = (details?: ProcessStepDetail[]) =>
+  details?.map((detail) => ({ ...detail }));
+
+const cloneStep = (step: ProcessStep): ProcessStep => ({
+  ...step,
+  details: cloneDetails(step.details)
+});
 
 export class StepsManager {
   private steps: ProcessStep[] = [];
   private callback: (steps: ProcessStep[]) => void;
   private stepKeys = new Map<string, string>();
 
-  constructor(callback: (steps: ProcessStep[]) => void) {
+  constructor(callback: (steps: ProcessStep[]) => void = () => {}) {
     this.callback = callback;
   }
 
@@ -30,7 +40,8 @@ export class StepsManager {
       content,
       tooltip,
       status: options.status ?? 'waiting',
-      timestamp: new Date()
+      timestamp: new Date(),
+      ...(options.details ? { details: cloneDetails(options.details) } : {})
     };
 
     this.steps.push(step);
@@ -41,6 +52,21 @@ export class StepsManager {
 
     this.emit();
     return step.id;
+  }
+
+  upsertStep(content: string, tooltip: string = '', options: AddStepOptions = {}): string {
+    const existingStepId = options.key ? this.stepKeys.get(options.key) : undefined;
+
+    if (existingStepId) {
+      this.updateStep(existingStepId, {
+        content,
+        tooltip,
+        ...(options.status ? { status: options.status } : {})
+      });
+      return existingStepId;
+    }
+
+    return this.addStep(content, tooltip, options);
   }
 
   updateStep(stepIdOrKey: string, options: UpdateStepOptions): void {
@@ -56,6 +82,7 @@ export class StepsManager {
           ...(options.status ? { status: options.status } : {}),
           ...(options.content !== undefined ? { content: options.content } : {}),
           ...(options.tooltip !== undefined ? { tooltip: options.tooltip } : {}),
+          ...(options.details !== undefined ? { details: cloneDetails(options.details) } : {}),
           timestamp: new Date()
         };
       }
@@ -72,7 +99,7 @@ export class StepsManager {
   }
 
   getSteps(): ProcessStep[] {
-    return this.steps.map(step => ({ ...step }));
+    return this.steps.map(cloneStep);
   }
 
   getStep(stepIdOrKey: string): ProcessStep | undefined {
@@ -82,7 +109,7 @@ export class StepsManager {
     }
 
     const step = this.steps.find(item => item.id === stepId);
-    return step ? { ...step } : undefined;
+    return step ? cloneStep(step) : undefined;
   }
 
   settleUnfinishedSteps(status: Extract<StepStatus, 'completed' | 'error'>, tooltip?: string): void {

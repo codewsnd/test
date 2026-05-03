@@ -5,10 +5,8 @@ import com.mytest.backend.conversation.dto.ConversationHtmlShareResponse;
 import com.mytest.backend.conversation.entity.ConversationHtmlPreviewDO;
 import com.mytest.backend.conversation.entity.ConversationHtmlShareDO;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ConversationHtmlShareBizService {

@@ -2,16 +2,18 @@ export interface ConversationTurn {
   id: string; // 对话会话的唯一Id
   turnIndex: number; // 在对话中的位置索引（从0开始）
   timestamp: Date; // 对话开始时间
+  conversationHistoryId?: string; // 所属会话Id
 
-  // 用户输入部分
+  // 输入内容
   userInput: {
     content: string;
   }
 
-  // AI回复部分
+  // 回复内容
   aiResponse: {
     content: string;
     status: AiResponseStatus;
+    errorMessage?: string;
     timestamp: Date; // AI回复完成时间
   }
 
@@ -25,11 +27,45 @@ export interface ConversationState {
 
 export type StepStatus = 'waiting' | 'processing' | 'completed' | 'error';
 export type AiResponseStatus = 'pending' | 'streaming' | 'completed' | 'error';
+export type SseStatusStage =
+  | 'accepted'
+  | 'session-ready'
+  | 'generating'
+  | 'responding'
+  | 'tool-running'
+  | 'tool-completed'
+  | 'finalizing'
+  | 'completed'
+  | 'failed';
+
+export interface ProcessStepDetail {
+  label: string;
+  value: string;
+}
 
 export interface ProcessStep {
   id: string;
   content: string;
   tooltip: string;
-  status: StepStatus
+  status: StepStatus;
   timestamp: Date;
+  details?: ProcessStepDetail[];
+}
+
+export interface SessionEventPayload {
+  sessionId?: string;
+  requestId?: string;
+  conversationId?: string;
+  modelName?: string;
+  startedAt?: string;
+  resumed?: boolean;
+}
+
+export interface StatusEventPayload {
+  stage?: SseStatusStage;
+  state?: StepStatus;
+  label?: string;
+  detail?: string;
+  sessionId?: string;
+  timestamp?: string;
 }

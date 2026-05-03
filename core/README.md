@@ -58,11 +58,23 @@ curl -N -X POST http://127.0.0.1:8000/api/v1/stream-chat \
   -d '{"message":"用三句话介绍 Google ADK"}'
 ```
 
-Defaults target:
+Configuration is read from `.env`. Preferred keys are:
 
-- base URL: `http://127.0.0.1:22001/v1`
-- API key: `root1234`
-- model: `Qwen3.5-35B-A3B-4bit`
+- `spring.ai.openai.base-url`
+- `spring.ai.openai.api-key`
+- `spring.ai.openai.chat.options.model`
+- `MCP_ENABLED`
+- `MCP_SERVER_URL`
+- `MCP_TOOL_NAMES`
+
+If the configured OpenAI-compatible `base-url` has no path, the service will
+automatically normalize it to include `/v1`.
+
+Legacy `OMLX_*` aliases are still supported for backward compatibility.
+
+When `MCP_ENABLED=true`, the ADK agent will load tools from the
+`springboot3-backend` MCP endpoint, which defaults to
+`http://127.0.0.1:8082/mcp`.
 
 ## CORS
 

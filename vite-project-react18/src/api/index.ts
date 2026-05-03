@@ -28,7 +28,6 @@ export interface ApiResponse<T> {
 export interface  AiChatResponse {
   content: string;
   modelName: string;
-  agentName?: string;
   timestamp: string;
   characterCount: number;
 }

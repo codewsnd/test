@@ -28,7 +28,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.UUID;
 
 @Slf4j
 @Service
@@ -74,7 +73,7 @@ public class ConversationHtmlPreviewService {
 
     public ConversationHtmlPreviewDO getHtmlPreviewById(String id) {
         try {
-            ConversationHtmlPreviewDO preview = conversationHtmlPreviewMapper.selectById(id);
+            ConversationHtmlPreviewDO preview = conversationHtmlPreviewMapper.selectById(id.trim());
             if (preview == null) {
                 throw new CustomException(HttpStatus.NOT_FOUND.value(), "HTML preview not found");
             }
@@ -111,7 +110,7 @@ public class ConversationHtmlPreviewService {
                         .eq(ConversationHtmlPreviewDO::getTurnId, turnId)
                         .last("LIMIT 1")
         );
-        return previews.isEmpty() ? null : previews.get(0);
+        return previews.stream().findFirst().orElse(null);
     }
 
     private ConversationHtmlPreviewDO updateExistingPreview(
@@ -129,8 +128,8 @@ public class ConversationHtmlPreviewService {
 
         SecurityCheckResult securityCheckResult = checkSecurityContent(htmlContent);
         String existingS3Path = existingPreview.getS3Path();
-        UUID uuid7 = Generators.timeBasedEpochGenerator().generate();
-        String s3Path = generateS3Path(existingPreview.getStaffId(), uuid7.toString());
+        String nextPreviewId = Generators.timeBasedEpochGenerator().generate().toString();
+        String s3Path = generateS3Path(existingPreview.getStaffId(), nextPreviewId);
 
         existingPreview.setS3Path(s3Path);
         applySecurityMeta(existingPreview, securityCheckResult);
@@ -154,11 +153,11 @@ public class ConversationHtmlPreviewService {
             LocalDateTime now
     ) {
         SecurityCheckResult securityCheckResult = checkSecurityContent(htmlContent);
-        UUID uuid7 = Generators.timeBasedEpochGenerator().generate();
-        String s3Path = generateS3Path(staffId, uuid7.toString());
+        String previewId = Generators.timeBasedEpochGenerator().generate().toString();
+        String s3Path = generateS3Path(staffId, previewId);
 
         ConversationHtmlPreviewDO preview = ConversationHtmlPreviewDO.builder()
-                .id(uuid7.toString())
+                .id(previewId)
                 .staffId(staffId)
                 .conversationId(conversationId)
                 .turnId(turnId)

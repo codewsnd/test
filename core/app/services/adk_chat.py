@@ -1,22 +1,30 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from google.adk.agents import Agent
 from google.adk.agents.run_config import RunConfig, StreamingMode
+from google.adk.events import Event
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+from google.adk.tools import McpToolset
+from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
 from google.genai import types
+from pydantic import BaseModel
 
 from app.core.settings import Settings
 from app.schemas.chat import (
+    ChatDoneEvent,
     ChatMessage,
     ChatRequest,
     ChatResponse,
+    ChatSessionEvent,
+    ChatStatusEvent,
     ChatStreamCompatRequest,
 )
 
@@ -43,7 +51,7 @@ class AdkChatService:
 
     def _build_agent(self, settings: Settings) -> Agent:
         return LocalChatAgent(
-            name="local_chat_agent",
+            name="chat_agent",
             model=LiteLlm(
                 model=f"openai/{settings.oml_model}",
                 api_base=settings.oml_base_url,
@@ -52,10 +60,28 @@ class AdkChatService:
                 drop_params=True,
             ),
             instruction=DEFAULT_INSTRUCTION,
+            tools=self._build_tools(settings),
         )
 
+    @staticmethod
+    def _build_tools(settings: Settings) -> list[McpToolset]:
+        if not settings.mcp_enabled:
+            return []
+
+        return [
+            McpToolset(
+                connection_params=StreamableHTTPConnectionParams(
+                    url=settings.mcp_server_url,
+                    timeout=settings.mcp_timeout_seconds,
+                    sse_read_timeout=settings.mcp_sse_read_timeout_seconds,
+                    terminate_on_close=False,
+                ),
+                tool_filter=settings.mcp_tool_names or None,
+            )
+        ]
+
     async def chat(self, request: ChatRequest) -> ChatResponse:
-        session_id = await self._ensure_session(request.user_id, request.session_id)
+        session_id, _ = await self._ensure_session(request.user_id, request.session_id)
         content = self._content_from_text(request.message)
         answer_parts: list[str] = []
 
@@ -73,63 +99,49 @@ class AdkChatService:
         )
 
     async def stream_chat(self, request: ChatRequest) -> AsyncIterator[str]:
-        session_id = await self._ensure_session(request.user_id, request.session_id)
-        content = self._content_from_text(request.message)
-        sent_partial = False
-
-        async for event in self._runner.run_async(
+        async for chunk in self._stream_response(
             user_id=request.user_id,
-            session_id=session_id,
-            new_message=content,
-            run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+            session_id_hint=request.session_id,
+            request_id=request.session_id,
+            prompt=request.message,
+            message_payload_builder=self._plain_text_chunk,
         ):
-            text = self._text_from_event(event)
-            if not text or not text.strip():
-                continue
-
-            if event.partial:
-                sent_partial = True
-                yield self._sse("message", {"session_id": session_id, "delta": text})
-            elif event.is_final_response() and not sent_partial:
-                yield self._sse("message", {"session_id": session_id, "delta": text})
-
-        yield self._sse("done", {"session_id": session_id, "done": True})
+            yield chunk
 
     async def stream_chat_compat(self, request: ChatStreamCompatRequest) -> AsyncIterator[str]:
-        prompt = self._messages_to_prompt(request.messages)
-        session_id = await self._ensure_session(request.user_id, f"compat-{uuid4()}")
-        content = self._content_from_text(prompt)
-        sent_partial = False
+        session_id_hint = request.conversation_id or request.request_id or f"compat-{uuid4()}"
+        session_id, is_new_session = await self._ensure_session(request.user_id, session_id_hint)
+        prompt = (
+            self._messages_to_prompt(request.messages)
+            if is_new_session
+            else self._latest_user_message(request.messages)
+        )
 
-        try:
-            async for event in self._runner.run_async(
-                user_id=request.user_id,
-                session_id=session_id,
-                new_message=content,
-                run_config=RunConfig(streaming_mode=StreamingMode.SSE),
-            ):
-                text = self._text_from_event(event)
-                if not text or not text.strip():
-                    continue
-
-                payload = self._spring_ai_chunk(text)
-                if event.partial:
-                    sent_partial = True
-                    yield self._sse("message", payload)
-                elif event.is_final_response() and not sent_partial:
-                    yield self._sse("message", payload)
-        except Exception as exc:
-            yield self._sse("error-message", {"error": f"LLM request failed: {exc}"})
-            return
-
-        yield self._sse("done", {"done": True})
+        async for chunk in self._stream_response(
+            user_id=request.user_id,
+            session_id_hint=session_id,
+            request_id=request.request_id,
+            conversation_id=request.conversation_id,
+            prompt=prompt,
+            message_payload_builder=self._spring_ai_chunk,
+            session_resumed=not is_new_session,
+            bootstrap_mode="client-transcript" if is_new_session else "session-memory",
+            prepared_session=(session_id, is_new_session),
+        ):
+            yield chunk
 
     async def chat_compat(self, request: ChatStreamCompatRequest) -> dict[str, object]:
-        prompt = self._messages_to_prompt(request.messages)
+        session_id_hint = request.conversation_id or request.request_id
+        session_id, is_new_session = await self._ensure_session(request.user_id, session_id_hint)
+        prompt = (
+            self._messages_to_prompt(request.messages)
+            if is_new_session
+            else self._latest_user_message(request.messages)
+        )
         response = await self.chat(
             ChatRequest(
                 message=prompt,
-                session_id=request.request_id,
+                session_id=session_id,
                 user_id=request.user_id,
             )
         )
@@ -141,13 +153,12 @@ class AdkChatService:
             "data": {
                 "content": content,
                 "modelName": model_name,
-                "agentName": "local_chat_agent",
                 "timestamp": datetime.now(UTC).isoformat(),
                 "characterCount": len(content),
             },
         }
 
-    async def _ensure_session(self, user_id: str, session_id: str | None) -> str:
+    async def _ensure_session(self, user_id: str, session_id: str | None) -> tuple[str, bool]:
         if not session_id:
             session_id = str(uuid4())
 
@@ -162,7 +173,204 @@ class AdkChatService:
                 user_id=user_id,
                 session_id=session_id,
             )
-        return session_id
+            return session_id, True
+        return session_id, False
+
+    async def _stream_response(
+        self,
+        *,
+        user_id: str,
+        session_id_hint: str | None,
+        prompt: str,
+        message_payload_builder: Callable[[str, str, int, bool], dict[str, object]],
+        request_id: str | None = None,
+        conversation_id: str | None = None,
+        session_resumed: bool = False,
+        bootstrap_mode: str = "direct-message",
+        prepared_session: tuple[str, bool] | None = None,
+    ) -> AsyncIterator[str]:
+        session_id, created_session = (
+            prepared_session
+            if prepared_session is not None
+            else await self._ensure_session(user_id, session_id_hint)
+        )
+        started_at = self._iso_now()
+        session_was_resumed = session_resumed or not created_session
+
+        yield self._sse(
+            "session",
+            ChatSessionEvent(
+                sessionId=session_id,
+                requestId=request_id,
+                conversationId=conversation_id,
+                modelName=self._settings.oml_model,
+                startedAt=started_at,
+                resumed=session_was_resumed,
+            ),
+        )
+        yield self._sse(
+            "status",
+            self._status_event(
+                stage="accepted",
+                state="processing",
+                label="Request accepted",
+                detail="The chat request has been accepted and is preparing execution.",
+                session_id=session_id,
+            ),
+        )
+        yield self._sse(
+            "status",
+            self._status_event(
+                stage="session-ready",
+                state="completed",
+                label="Session ready",
+                detail=(
+                    "Resumed in-memory session context."
+                    if session_was_resumed
+                    else f"Started a new session using {bootstrap_mode}."
+                ),
+                session_id=session_id,
+            ),
+        )
+        yield self._sse(
+            "status",
+            self._status_event(
+                stage="generating",
+                state="processing",
+                label="Model running",
+                detail=f"Dispatching request to model {self._settings.oml_model}.",
+                session_id=session_id,
+            ),
+        )
+
+        content = self._content_from_text(prompt)
+        sent_partial = False
+        first_chunk_sent = False
+        chunk_count = 0
+        character_count = 0
+
+        try:
+            async for event in self._runner.run_async(
+                user_id=user_id,
+                session_id=session_id,
+                new_message=content,
+                run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+            ):
+                for function_call in event.get_function_calls():
+                    yield self._sse("tool-call", self._tool_call_payload(function_call))
+                    yield self._sse(
+                        "status",
+                        self._status_event(
+                            stage="tool-running",
+                            state="processing",
+                            label="Tool running",
+                            detail=f"Calling tool {function_call.name or 'unknown-tool'}.",
+                            session_id=session_id,
+                        ),
+                    )
+
+                for function_response in event.get_function_responses():
+                    yield self._sse("tool-result", self._tool_result_payload(function_response))
+                    yield self._sse(
+                        "status",
+                        self._status_event(
+                            stage="tool-completed",
+                            state="processing",
+                            label="Tool completed",
+                            detail=f"Tool {function_response.name or 'unknown-tool'} returned a result.",
+                            session_id=session_id,
+                        ),
+                    )
+
+                text = self._text_from_event(event)
+                if not text or not text.strip():
+                    continue
+
+                if not first_chunk_sent:
+                    first_chunk_sent = True
+                    yield self._sse(
+                        "status",
+                        self._status_event(
+                            stage="responding",
+                            state="processing",
+                            label="Streaming response",
+                            detail="The assistant has started returning content.",
+                            session_id=session_id,
+                        ),
+                    )
+
+                chunk_count += 1
+                character_count += len(text)
+
+                payload = message_payload_builder(
+                    text,
+                    session_id,
+                    chunk_count,
+                    event.partial,
+                )
+                if event.partial:
+                    sent_partial = True
+                    yield self._sse("message", payload)
+                elif event.is_final_response() and not sent_partial:
+                    yield self._sse("message", payload)
+        except Exception as exc:
+            error_message = f"LLM request failed: {exc}"
+            yield self._sse(
+                "status",
+                self._status_event(
+                    stage="failed",
+                    state="error",
+                    label="Request failed",
+                    detail=error_message,
+                    session_id=session_id,
+                ),
+            )
+            yield self._sse(
+                "error-message",
+                {
+                    "error": error_message,
+                    "sessionId": session_id,
+                    "requestId": request_id,
+                    "conversationId": conversation_id,
+                    "timestamp": self._iso_now(),
+                },
+            )
+            return
+
+        yield self._sse(
+            "status",
+            self._status_event(
+                stage="finalizing",
+                state="processing",
+                label="Finalizing response",
+                detail="The assistant is closing the stream and preparing completion metadata.",
+                session_id=session_id,
+            ),
+        )
+
+        completed_at = self._iso_now()
+        yield self._sse(
+            "status",
+            self._status_event(
+                stage="completed",
+                state="completed",
+                label="Response completed",
+                detail=f"Generated {character_count} characters across {chunk_count} chunks.",
+                session_id=session_id,
+            ),
+        )
+        yield self._sse(
+            "done",
+            ChatDoneEvent(
+                sessionId=session_id,
+                requestId=request_id,
+                conversationId=conversation_id,
+                done=True,
+                chunkCount=chunk_count,
+                characterCount=character_count,
+                completedAt=completed_at,
+            ),
+        )
 
     @staticmethod
     def _content_from_text(text: str) -> types.Content:
@@ -204,7 +412,16 @@ class AdkChatService:
         return "\n\n".join(prompt_sections)
 
     @staticmethod
-    def _text_from_event(event: object) -> str:
+    def _latest_user_message(messages: list[ChatMessage]) -> str:
+        for message in reversed(messages):
+            content = message.content.strip()
+            if content and message.role.strip().lower() == "user":
+                return content
+
+        raise ValueError("At least one user message is required")
+
+    @staticmethod
+    def _text_from_event(event: Event | object) -> str:
         content = getattr(event, "content", None)
         parts = getattr(content, "parts", None)
         if not parts:
@@ -212,15 +429,101 @@ class AdkChatService:
         return "".join(part.text or "" for part in parts)
 
     @staticmethod
-    def _spring_ai_chunk(text: str) -> dict[str, object]:
+    def _spring_ai_chunk(
+        text: str,
+        session_id: str,
+        chunk_index: int,
+        partial: bool,
+    ) -> dict[str, object]:
         return {
             "output": {
                 "text": text,
                 "messageType": "ASSISTANT",
             },
-            "metadata": {},
+            "metadata": {
+                "sessionId": session_id,
+                "chunkIndex": chunk_index,
+                "partial": partial,
+                "createdAt": AdkChatService._iso_now(),
+            },
         }
 
     @staticmethod
+    def _plain_text_chunk(
+        text: str,
+        session_id: str,
+        chunk_index: int,
+        partial: bool,
+    ) -> dict[str, object]:
+        return {
+            "sessionId": session_id,
+            "delta": text,
+            "chunkIndex": chunk_index,
+            "partial": partial,
+            "createdAt": AdkChatService._iso_now(),
+        }
+
+    @staticmethod
+    def _status_event(
+        *,
+        stage: str,
+        state: str,
+        label: str,
+        detail: str,
+        session_id: str,
+    ) -> ChatStatusEvent:
+        return ChatStatusEvent(
+            stage=stage,
+            state=state,
+            label=label,
+            detail=detail,
+            sessionId=session_id,
+            timestamp=AdkChatService._iso_now(),
+        )
+
+    @staticmethod
+    def _tool_call_payload(function_call: types.FunctionCall) -> dict[str, object]:
+        tool_name = function_call.name or "unknown-tool"
+        params = AdkChatService._stringify_payload(function_call.args or function_call.partial_args or {})
+        return {
+            "toolName": tool_name,
+            "toolCallId": function_call.id,
+            "params": params,
+            "toolname": tool_name,
+            "timestamp": AdkChatService._iso_now(),
+        }
+
+    @staticmethod
+    def _tool_result_payload(function_response: types.FunctionResponse) -> dict[str, object]:
+        tool_name = function_response.name or "unknown-tool"
+        result = AdkChatService._stringify_payload(function_response.response or function_response.parts or {})
+        return {
+            "toolName": tool_name,
+            "toolCallId": function_response.id,
+            "result": result,
+            "tool-result": result,
+            "timestamp": AdkChatService._iso_now(),
+        }
+
+    @staticmethod
+    def _stringify_payload(value: Any) -> str:
+        if isinstance(value, str):
+            return value
+
+        try:
+            return json.dumps(value, ensure_ascii=False, default=str)
+        except TypeError:
+            return str(value)
+
+    @staticmethod
+    def _iso_now() -> str:
+        return datetime.now(UTC).isoformat()
+
+    @staticmethod
     def _sse(event: str, data: object) -> str:
-        return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+        payload = (
+            data.model_dump(by_alias=True, exclude_none=True)
+            if isinstance(data, BaseModel)
+            else data
+        )
+        return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"

@@ -5,8 +5,9 @@ import com.mytest.backend.conversation.dto.ConversationHtmlShareResponse;
 import com.mytest.backend.conversation.dto.ConversationHtmlShareStatusUpdateRequest;
 import com.mytest.backend.conversation.service.ConversationHtmlShareBizService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,10 +18,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-@Slf4j
 @RestController
 @RequestMapping("/conversation/html/preview/share")
 @RequiredArgsConstructor
+@Validated
 @CrossOrigin(origins = "*", allowedHeaders = "*", methods = {
         RequestMethod.GET,
         RequestMethod.POST,
@@ -40,18 +41,18 @@ public class ConversationHtmlShareController {
 
     @PutMapping("/{id}/status")
     public ConversationHtmlShareResponse updateHtmlShareStatus(
-            @PathVariable String id,
+            @PathVariable @NotBlank String id,
             @Valid @RequestBody ConversationHtmlShareStatusUpdateRequest request) {
         return conversationHtmlShareBizService.updateHtmlShareStatus(id, request.getEnabled());
     }
 
     @GetMapping("/{id}")
-    public ConversationHtmlShareResponse getHtmlShare(@PathVariable String id) {
+    public ConversationHtmlShareResponse getHtmlShare(@PathVariable @NotBlank String id) {
         return conversationHtmlShareBizService.getHtmlShare(id);
     }
 
     @GetMapping("/preview/{previewId}")
-    public ConversationHtmlShareResponse getHtmlShareByPreviewId(@PathVariable String previewId) {
+    public ConversationHtmlShareResponse getHtmlShareByPreviewId(@PathVariable @NotBlank String previewId) {
         return conversationHtmlShareBizService.getHtmlShareByPreviewId(previewId);
     }
 }
