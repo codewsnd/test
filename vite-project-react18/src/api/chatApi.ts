@@ -100,7 +100,7 @@ export const chatStream = (
   const baseURL = API_BASE_URLS.core;
 
   // 使用 fetchEventSource 处理 SSE 流
-  fetchEventSource(`${baseURL}/deepseek/chat/stream`, {
+  fetchEventSource(`${baseURL}/chat/stream`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

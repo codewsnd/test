@@ -1,5 +1,5 @@
 import { springboot3BackendApi } from './axios';
-import type { ConversationState } from "../pages/home/components/chat/types";
+import type { ConversationState, ConversationTurn } from "../pages/home/components/chat/types";
 import { getEmployeeId } from '@/utils/userUtils';
 
 // 分页响应类型（Spring Data Page）
@@ -23,6 +23,19 @@ export type ConversationHistory = {
   pinnedAt?: string; // 置顶时间，用于排序
   staffId: string;
   titleGenerating?: boolean; // 标题是否正在生成中
+};
+
+export type ConversationStatePatch = {
+  turns?: ConversationTurn[];
+  agentId?: string | null;
+  agentName?: string | null;
+  currentTurnId?: string | null;
+};
+
+export type ConversationStatePatchRequest = {
+  staffId: string;
+  conversationState: ConversationStatePatch;
+  updatedAt?: string;
 };
 
 
@@ -60,6 +73,18 @@ export const saveConversationApi = async (conversation: ConversationHistory): Pr
     return await springboot3BackendApi.post('/conversations/histories', conversation);
   } catch (error) {
     console.error('Error saving conversation:', error);
+    throw error;
+  }
+};
+
+export const patchConversationStateApi = async (
+  id: string,
+  payload: ConversationStatePatchRequest
+): Promise<ConversationHistory> => {
+  try {
+    return await springboot3BackendApi.patch(`/conversations/histories/${id}/state`, payload);
+  } catch (error) {
+    console.error('Error patching conversation state:', error);
     throw error;
   }
 };

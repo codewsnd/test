@@ -2,8 +2,12 @@ package com.mytest.backend.conversation.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mytest.backend.conversation.dto.ConversationSaveRequest;
+import com.mytest.backend.conversation.dto.ConversationStatePatchRequest;
 import com.mytest.backend.conversation.entity.ConversationHistoryDO;
 import com.mytest.backend.conversation.mapper.ConversationHistoryMapper;
 import com.mytest.backend.conversation.vo.ConversationHistoryResponse;
@@ -20,7 +24,9 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 @Slf4j
@@ -105,10 +111,36 @@ public class ConversationHistoryService {
     }
 
     @Transactional
+    public ConversationHistoryResponse patchConversationState(String id, ConversationStatePatchRequest request) {
+        try {
+            Instant now = Instant.now();
+            ConversationHistoryDO conversation = requireAccessibleConversation(id, request.getStaffId());
+            ObjectNode mergedConversationState = mergeConversationState(
+                    conversation.getConversationState(),
+                    request.getConversationState()
+            );
+            conversation.setConversationState(serializeConversationState(mergedConversationState));
+            conversation.setUpdatedAt(Objects.requireNonNullElse(request.getUpdatedAt(), now));
+            conversationHistoryMapper.updateById(conversation);
+            return ConversationHistoryResponse.from(
+                    conversation,
+                    objectMapper.convertValue(mergedConversationState, Object.class)
+            );
+        } catch (CustomException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            log.error("Failed to patch conversation state", e);
+            throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to patch conversation state");
+        }
+    }
+
+    @Transactional
     public ConversationHistoryResponse renameConversation(String id, String newTitle) {
         try {
             ConversationHistoryDO conversation = requireExistingConversation(id);
-            conversation.setTitle(newTitle);
+            conversation.setTitle(newTitle.trim());
+            conversation.setTitleGenerating(Boolean.FALSE);
+            conversation.setUpdatedAt(Instant.now());
             conversationHistoryMapper.updateById(conversation);
             return ConversationHistoryResponse.from(
                     conversation,
@@ -210,6 +242,74 @@ public class ConversationHistoryService {
         conversation.setIsDeleted(Boolean.FALSE);
     }
 
+    private ObjectNode mergeConversationState(String currentConversationState, Object conversationStatePatch) {
+        ObjectNode mergedState = deserializeConversationStateNode(currentConversationState);
+        JsonNode patchNode = objectMapper.valueToTree(conversationStatePatch);
+        if (!(patchNode instanceof ObjectNode patchObject)) {
+            throw new CustomException(HttpStatus.BAD_REQUEST.value(), "Invalid conversation state patch");
+        }
+
+        patchObject.fields().forEachRemaining(entry -> {
+            if ("turns".equals(entry.getKey())) {
+                mergeTurns(mergedState, entry.getValue());
+                return;
+            }
+            mergedState.set(entry.getKey(), entry.getValue().deepCopy());
+        });
+        return mergedState;
+    }
+
+    private void mergeTurns(ObjectNode mergedState, JsonNode turnsPatchNode) {
+        if (turnsPatchNode == null || turnsPatchNode.isNull()) {
+            mergedState.set("turns", objectMapper.createArrayNode());
+            return;
+        }
+        if (!(turnsPatchNode instanceof ArrayNode turnsPatchArray)) {
+            throw new CustomException(HttpStatus.BAD_REQUEST.value(), "Invalid conversation turns patch");
+        }
+
+        ArrayNode mergedTurns = objectMapper.createArrayNode();
+        JsonNode existingTurnsNode = mergedState.get("turns");
+        if (existingTurnsNode instanceof ArrayNode existingTurnsArray) {
+            existingTurnsArray.forEach(item -> mergedTurns.add(item.deepCopy()));
+        }
+
+        Map<String, Integer> turnIndexes = new LinkedHashMap<>();
+        for (int index = 0; index < mergedTurns.size(); index++) {
+            JsonNode turnNode = mergedTurns.get(index);
+            String turnId = extractTurnId(turnNode);
+            if (StringUtils.hasText(turnId)) {
+                turnIndexes.put(turnId, index);
+            }
+        }
+
+        for (JsonNode turnPatchNode : turnsPatchArray) {
+            String turnId = extractTurnId(turnPatchNode);
+            if (!StringUtils.hasText(turnId)) {
+                throw new CustomException(HttpStatus.BAD_REQUEST.value(), "Conversation turn id is required");
+            }
+
+            JsonNode copiedTurn = turnPatchNode.deepCopy();
+            Integer existingIndex = turnIndexes.get(turnId);
+            if (existingIndex == null) {
+                turnIndexes.put(turnId, mergedTurns.size());
+                mergedTurns.add(copiedTurn);
+                continue;
+            }
+            mergedTurns.set(existingIndex, copiedTurn);
+        }
+
+        mergedState.set("turns", mergedTurns);
+    }
+
+    private String extractTurnId(JsonNode turnNode) {
+        if (turnNode == null || !turnNode.isObject()) {
+            return null;
+        }
+        JsonNode idNode = turnNode.get("id");
+        return idNode != null ? idNode.asText(null) : null;
+    }
+
     private String serializeConversationState(Object conversationState) {
         if (conversationState == null) {
             return null;
@@ -219,6 +319,24 @@ public class ConversationHistoryService {
         }
         try {
             return objectMapper.writeValueAsString(conversationState);
+        } catch (JsonProcessingException e) {
+            throw new CustomException(HttpStatus.BAD_REQUEST.value(), "Invalid conversation state");
+        }
+    }
+
+    private ObjectNode deserializeConversationStateNode(String conversationState) {
+        if (!StringUtils.hasText(conversationState)) {
+            return objectMapper.createObjectNode();
+        }
+        try {
+            JsonNode conversationStateNode = objectMapper.readTree(conversationState);
+            if (conversationStateNode == null || conversationStateNode.isNull()) {
+                return objectMapper.createObjectNode();
+            }
+            if (conversationStateNode instanceof ObjectNode objectNode) {
+                return objectNode.deepCopy();
+            }
+            throw new CustomException(HttpStatus.BAD_REQUEST.value(), "Invalid conversation state");
         } catch (JsonProcessingException e) {
             throw new CustomException(HttpStatus.BAD_REQUEST.value(), "Invalid conversation state");
         }

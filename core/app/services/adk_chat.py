@@ -15,6 +15,7 @@ from google.adk.sessions import InMemorySessionService
 from google.adk.tools import McpToolset
 from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
 from google.genai import types
+from pydantic import BaseModel
 
 from app.core.settings import Settings
 from app.schemas.agent import ResolvedAgentConfig

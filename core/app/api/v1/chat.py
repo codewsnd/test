@@ -77,11 +77,16 @@ async def stream_chat(request: ChatRequest) -> StreamingResponse:
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-@router.post("/deepseek/chat/stream")
 @router.post("/chat/stream")
 async def compat_stream_chat(request: ChatStreamCompatRequest) -> StreamingResponse:
     async def event_stream():
-        async for chunk in chat_service.stream_chat_compat(request):
-            yield chunk
+        try:
+            async for chunk in chat_service.stream_chat_compat(request):
+                yield chunk
+        except Exception as exc:
+            yield chat_service._sse(
+                "error-message",
+                {"error": f"LLM request failed: {exc}"},
+            )
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

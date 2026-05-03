@@ -250,6 +250,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(undefined);
   const [input, setInput] = useState('');
   const [isRepositoryVisible, setIsRepositoryVisible] = useState(false);
+  const [isSending, setIsSending] = useState(false);
 
   const activeConversationId = conversationId ?? localConversationId;
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -742,7 +743,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
         ),
         currentTurnId: undefined
       }),
-      false
+      true
     );
 
     eventSourceRef.current = null;
@@ -855,7 +856,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
         messages: buildHistoryMessages(historyTurns, userMessage)
       };
 
-      void fetchEventSource(`${API_BASE_URLS.core}/deepseek/chat/stream`, {
+      void fetchEventSource(`${API_BASE_URLS.core}/chat/stream`, {
         method: 'POST',
         headers: {
           Accept: 'text/event-stream',
@@ -1048,6 +1049,10 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       return false;
     }
 
+    if (isSending) {
+      return false;
+    }
+
     if (!selectedAgentId) {
       message.warning('Please select an agent first.');
       return false;
@@ -1062,6 +1067,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
     let targetConversationId: string | null = null;
 
     try {
+      setIsSending(true);
       let targetConversation = conversationHistory;
       let historyTurns = conversationState.turns;
 
@@ -1125,11 +1131,13 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       }
 
       return false;
+    } finally {
+      setIsSending(false);
     }
   };
 
   const handleSendMessage = async () => {
-    if (conversationState.currentTurnId) {
+    if (conversationState.currentTurnId || isSending) {
       return;
     }
 
@@ -1201,13 +1209,14 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
             value: String(agent.id)
           }))}
           className="chat-area__agent-select"
-          disabled={loadingAgents || !!conversationState.currentTurnId}
+          disabled={loadingAgents || isSending || !!conversationState.currentTurnId}
         />
         <Button
           type="text"
           icon={<PlusOutlined />}
           onClick={() => setIsRepositoryVisible(true)}
           className="chat-area__attach-button"
+          disabled={isSending || !!conversationState.currentTurnId}
         />
         <Input
           value={input}
@@ -1216,15 +1225,16 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
             void handleSendMessage();
           }}
           placeholder={isAgentSelected ? 'Type your message here...' : 'Select an agent first'}
-          disabled={!isAgentSelected || !!conversationState.currentTurnId}
+          disabled={!isAgentSelected || isSending || !!conversationState.currentTurnId}
           style={{ flex: 1 }}
         />
         <Button
           type="primary"
+          loading={isSending}
           onClick={() => {
             void handleSendMessage();
           }}
-          disabled={!isAgentSelected || !input.trim() || !!conversationState.currentTurnId}
+          disabled={!isAgentSelected || !input.trim() || isSending || !!conversationState.currentTurnId}
           className="chat-area__send-button"
         >
           Send

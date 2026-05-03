@@ -1,19 +1,17 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
-class BackendAgentPayload(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
+class StoredAgentPayload(BaseModel):
     id: int
     name: str
-    model_name: str | None = Field(default=None, alias="modelName")
-    system_prompt: str | None = Field(default=None, alias="systemPrompt")
+    model_name: str | None = None
+    system_prompt: str | None = None
     temperature: float | None = None
-    max_tokens: int | None = Field(default=None, alias="maxTokens")
-    top_p: float | None = Field(default=None, alias="topP")
-    frequency_penalty: float | None = Field(default=None, alias="frequencyPenalty")
-    presence_penalty: float | None = Field(default=None, alias="presencePenalty")
-    output_type: str | None = Field(default=None, alias="outputType")
+    max_tokens: int | None = None
+    top_p: float | None = None
+    frequency_penalty: float | None = None
+    presence_penalty: float | None = None
+    output_type: str | None = None
     tools: str | None = None
 
 

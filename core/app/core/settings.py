@@ -79,18 +79,37 @@ class Settings(BaseSettings):
         ),
     )
     request_timeout_seconds: float = 120.0
-    agent_service_base_url: str = Field(
-        default="http://127.0.0.1:8081",
+    agent_db_jdbc_url: str = Field(
+        default=(
+            "jdbc:postgresql://192.168.2.6:20003/chat"
+            "?sslmode=disable&connectTimeout=5&socketTimeout=30&tcpKeepAlive=true"
+        ),
         validation_alias=AliasChoices(
-            "AGENT_SERVICE_BASE_URL",
-            "SPRINGBOOT3_BACKEND_BASE_URL",
+            "AGENT_DB_JDBC_URL",
+            "SPRING_DATASOURCE_URL",
+            "spring.datasource.url",
         ),
     )
-    agent_service_timeout_seconds: float = Field(
-        default=10.0,
+    agent_db_username: str = Field(
+        default="root",
         validation_alias=AliasChoices(
-            "AGENT_SERVICE_TIMEOUT_SECONDS",
-            "SPRINGBOOT3_BACKEND_TIMEOUT_SECONDS",
+            "AGENT_DB_USERNAME",
+            "SPRING_DATASOURCE_USERNAME",
+            "spring.datasource.username",
+        ),
+    )
+    agent_db_password: str = Field(
+        default="root1234",
+        validation_alias=AliasChoices(
+            "AGENT_DB_PASSWORD",
+            "SPRING_DATASOURCE_PASSWORD",
+            "spring.datasource.password",
+        ),
+    )
+    agent_db_connect_timeout_seconds: float = Field(
+        default=5.0,
+        validation_alias=AliasChoices(
+            "AGENT_DB_CONNECT_TIMEOUT_SECONDS",
         ),
     )
     cors_allow_origins: Annotated[list[str], NoDecode] = Field(

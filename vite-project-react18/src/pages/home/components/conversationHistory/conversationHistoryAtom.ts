@@ -4,13 +4,19 @@ import { getEmployeeId } from '@/utils/userUtils';
 import type {ConversationHistory} from "@/api/conversationHistoryApi";
 import {
   pageConversationsApi,
-  saveConversationApi,
   batchDeleteConversationsApi,
   batchPinConversationsApi,
-  batchUnpinConversationsApi
+  batchUnpinConversationsApi,
+  type ConversationStatePatch
 } from "@/api/conversationHistoryApi";
 import {v7} from 'uuid';
 import {aiChat} from "@/api";
+import {
+  persistConversationCreationAtom,
+  persistConversationRenameAtom,
+  persistConversationSnapshotAtom,
+  persistConversationStatePatchAtom
+} from './conversationHistoryPersistenceAtom';
 
 // 分页大小配置
 const PAGE_SIZE = 50;
@@ -23,12 +29,52 @@ export const searchQueryAtom = atom<string>('');
 export const currentPageAtom = atom<number>(0);
 export const hasMoreAtom = atom<boolean>(true);
 
+const EMPTY_CONVERSATION_STATE: ConversationState = { turns: [] };
+
+const areEqual = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+
+const buildConversationStatePatch = (
+  previousState: ConversationState | undefined,
+  nextState: ConversationState
+): ConversationStatePatch | null => {
+  const patch: ConversationStatePatch = {};
+  let changed = false;
+
+  const previousTurns = previousState?.turns ?? [];
+  const previousTurnMap = new Map(previousTurns.map((turn) => [turn.id, turn]));
+  const changedTurns = nextState.turns.filter((turn) => {
+    const previousTurn = previousTurnMap.get(turn.id);
+    return !previousTurn || !areEqual(previousTurn, turn);
+  });
+
+  if (changedTurns.length > 0) {
+    patch.turns = changedTurns;
+    changed = true;
+  }
+
+  if (previousState?.agentId !== nextState.agentId) {
+    patch.agentId = nextState.agentId ?? null;
+    changed = true;
+  }
+
+  if (previousState?.agentName !== nextState.agentName) {
+    patch.agentName = nextState.agentName ?? null;
+    changed = true;
+  }
+
+  if (previousState?.currentTurnId !== nextState.currentTurnId) {
+    patch.currentTurnId = nextState.currentTurnId ?? null;
+    changed = true;
+  }
+
+  return changed ? patch : null;
+};
+
 
 // 创建会话历史
 export const createConversationHistoryAtom = atom(
   null,
   async (_get, set, { title, initialState }: { title: string; initialState?: Partial<ConversationHistory> }) => {
-
     const newId = v7();
 
     const newConversationHistory: ConversationHistory = {
@@ -48,15 +94,25 @@ export const createConversationHistoryAtom = atom(
       set(conversationHistoriesAtom, prev => [newConversationHistory, ...prev]);
       set(activeConversationIdAtom, newId);
 
-      // 持久化到数据库
-      setTimeout(()=> {
-        saveConversationApi(newConversationHistory);
-      }, 1)
+      const persistedConversation = await set(persistConversationCreationAtom, newConversationHistory);
 
-      return { conversation: newConversationHistory};
+      set(conversationHistoriesAtom, prev =>
+        prev.map((conversation) =>
+          conversation.id === newId
+            ? {
+                ...conversation,
+                ...persistedConversation,
+                conversationState: persistedConversation.conversationState ?? conversation.conversationState
+              }
+            : conversation
+        )
+      );
+
+      return { conversation: persistedConversation };
     } catch (error) {
       // 失败时回滚
       set(conversationHistoriesAtom, prev => prev.filter(c => c.id !== newId));
+      set(activeConversationIdAtom, currentActiveId => (currentActiveId === newId ? null : currentActiveId));
       console.error('Failed to create conversation history', error);
       throw error;
     }
@@ -88,7 +144,7 @@ export const setConversationHistoryAtom = atom(
       : { ...targetConvHistory, ...updater };
 
     // 是否有更新
-    if (JSON.stringify(targetConvHistory) === JSON.stringify(updatedConvHistory)) {
+    if (areEqual(targetConvHistory, updatedConvHistory)) {
       return;
     }
 
@@ -98,10 +154,10 @@ export const setConversationHistoryAtom = atom(
 
     set(conversationHistoriesAtom, newConvs);
 
-    // 自动异步持久化到数据库
+    // 用于非会话状态类的完整持久化回退
     if (isDone) {
       try {
-        await saveConversationApi(updatedConvHistory);
+        await set(persistConversationSnapshotAtom, updatedConvHistory);
       } catch (error) {
         console.error('Failed to persist conversation history', error);
       }
@@ -211,7 +267,7 @@ export const searchConversationsAtom = atom(
 // 设置会话状态
 export const setConversationStateAtom = atom(
   null,
-  (_get, set,
+  async (get, set,
     newState: ConversationState | ((prevState: ConversationState) => ConversationState),
     conversationHistoryId: string | null,
     isDone: boolean = false
@@ -221,21 +277,108 @@ export const setConversationStateAtom = atom(
       return;
     }
 
-    set(setConversationHistoryAtom, {
-      conversationHistoryId,
-      updater: (convHistory: ConversationHistory) => {
-        const currentState = convHistory.conversationState || { turns: [] };
-        const updatedState = typeof newState === 'function'
-          ? newState(currentState)
-          : newState;
+    const conversations = get(conversationHistoriesAtom);
+    const targetConvHistory = conversations.find((conversation) => conversation.id === conversationHistoryId);
 
-        return {
-          ...convHistory,
-          conversationState: updatedState
-        };
-      },
-      isDone
-    });
+    if (!targetConvHistory) {
+      console.warn(`Conversation history not found: ${conversationHistoryId}`);
+      return;
+    }
+
+    const currentState = targetConvHistory.conversationState || EMPTY_CONVERSATION_STATE;
+    const updatedState = typeof newState === 'function'
+      ? newState(currentState)
+      : newState;
+
+    if (areEqual(currentState, updatedState)) {
+      return;
+    }
+
+    const nextUpdatedAt = isDone ? new Date().toISOString() : targetConvHistory.updatedAt;
+    const updatedConvHistory: ConversationHistory = {
+      ...targetConvHistory,
+      conversationState: updatedState,
+      updatedAt: nextUpdatedAt
+    };
+
+    set(conversationHistoriesAtom, conversations.map((conversation) =>
+      conversation.id === conversationHistoryId ? updatedConvHistory : conversation
+    ));
+
+    if (!isDone) {
+      return;
+    }
+
+    const patch = buildConversationStatePatch(currentState, updatedState);
+    if (!patch) {
+      return;
+    }
+
+    try {
+      await set(persistConversationStatePatchAtom, {
+        conversationHistoryId,
+        staffId: targetConvHistory.staffId,
+        conversationState: patch,
+        updatedAt: nextUpdatedAt
+      });
+    } catch (error) {
+      console.error('Failed to persist conversation state patch', error);
+    }
+  }
+);
+
+export const renameConversationHistoryAtom = atom(
+  null,
+  async (get, set, {
+    conversationHistoryId,
+    title,
+    titleGenerating
+  }: {
+    conversationHistoryId: string;
+    title: string;
+    titleGenerating?: boolean;
+  }) => {
+    const normalizedTitle = title.trim().substring(0, 100);
+    if (!normalizedTitle) {
+      return;
+    }
+
+    const conversations = get(conversationHistoriesAtom);
+    const targetConversation = conversations.find((conversation) => conversation.id === conversationHistoryId);
+
+    if (!targetConversation) {
+      console.warn(`Conversation history not found: ${conversationHistoryId}`);
+      return;
+    }
+
+    const nextTitleGenerating = titleGenerating ?? targetConversation.titleGenerating;
+    if (
+      targetConversation.title === normalizedTitle &&
+      targetConversation.titleGenerating === nextTitleGenerating
+    ) {
+      return;
+    }
+
+    const nextUpdatedAt = new Date().toISOString();
+    set(conversationHistoriesAtom, conversations.map((conversation) =>
+      conversation.id === conversationHistoryId
+        ? {
+            ...conversation,
+            title: normalizedTitle,
+            titleGenerating: nextTitleGenerating,
+            updatedAt: nextUpdatedAt
+          }
+        : conversation
+    ));
+
+    try {
+      await set(persistConversationRenameAtom, {
+        conversationHistoryId,
+        title: normalizedTitle
+      });
+    } catch (error) {
+      console.error('Failed to persist conversation rename', error);
+    }
   }
 );
 
@@ -289,33 +432,21 @@ Please provide only the title, no additional text or explanation.`;
 
       const finalTitle = (response.data?.content || '').trim().substring(0, 20) || fallbackTitle;
 
-      setTimeout(()=> {
-        // 更新标题
-        set(setConversationHistoryAtom, {
-          conversationHistoryId: conversationId,
-          updater: { title: finalTitle, titleGenerating: false },
-          isDone: true
-        });
-      }, 100);
+      await set(renameConversationHistoryAtom, {
+        conversationHistoryId: conversationId,
+        title: finalTitle,
+        titleGenerating: false
+      });
 
       return finalTitle;
     } catch (error) {
       console.error('Failed to generate title:', error);
 
-      // 添加延迟
-      // await new Promise(resolve => setTimeout(resolve, 100));
-
-      setTimeout(()=> {
-        // 更新标题
-        set(setConversationHistoryAtom, {
-          conversationHistoryId: conversationId,
-          updater: { title: fallbackTitle, titleGenerating: false },
-          isDone: true
-        });
-      }, 100);
-
-      // 失败时使用fallback标题
-
+      await set(renameConversationHistoryAtom, {
+        conversationHistoryId: conversationId,
+        title: fallbackTitle,
+        titleGenerating: false
+      });
 
       return fallbackTitle;
     }

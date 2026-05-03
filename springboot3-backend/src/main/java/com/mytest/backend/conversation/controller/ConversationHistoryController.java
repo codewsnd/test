@@ -2,6 +2,7 @@ package com.mytest.backend.conversation.controller;
 
 import com.mytest.backend.conversation.dto.ConversationRenameRequest;
 import com.mytest.backend.conversation.dto.ConversationSaveRequest;
+import com.mytest.backend.conversation.dto.ConversationStatePatchRequest;
 import com.mytest.backend.conversation.service.ConversationHistoryService;
 import com.mytest.backend.conversation.vo.ConversationHistoryResponse;
 import jakarta.validation.Valid;
@@ -15,6 +16,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -56,6 +58,13 @@ public class ConversationHistoryController {
     @PostMapping
     public ConversationHistoryResponse saveConversation(@Valid @RequestBody ConversationSaveRequest request) {
         return conversationHistoryService.saveConversation(request);
+    }
+
+    @PatchMapping("/{id}/state")
+    public ConversationHistoryResponse patchConversationState(
+            @PathVariable @NotBlank String id,
+            @Valid @RequestBody ConversationStatePatchRequest request) {
+        return conversationHistoryService.patchConversationState(id, request);
     }
 
     @PutMapping("/{id}/rename")
