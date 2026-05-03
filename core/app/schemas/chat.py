@@ -38,6 +38,21 @@ class ChatStreamCompatRequest(BaseModel):
     user_id: str = Field(default="local-user", alias="userId", min_length=1)
 
 
+class CompatAiChatResponse(BaseModel):
+    content: str
+    model_name: str = Field(..., alias="modelName")
+    agent_name: str = Field(..., alias="agentName")
+    timestamp: str
+    character_count: int = Field(..., alias="characterCount")
+
+
+class CompatApiResponse(BaseModel):
+    success: bool
+    data: CompatAiChatResponse | None = None
+    error: str | None = None
+    code: int | None = None
+
+
 class HealthResponse(BaseModel):
     status: str
     app: str

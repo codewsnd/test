@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app.core.settings import get_settings
 from app.schemas.chat import (
+    CompatApiResponse,
     ChatRequest,
     ChatResponse,
     ChatStreamCompatRequest,
@@ -29,6 +30,31 @@ async def health() -> HealthResponse:
 async def chat(request: ChatRequest) -> ChatResponse:
     try:
         return await chat_service.chat(request)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"LLM request failed: {exc}",
+        ) from exc
+
+
+@router.post("/chat", response_class=PlainTextResponse)
+async def compat_chat(request: ChatRequest) -> str:
+    try:
+        response = await chat_service.chat(request)
+        return response.message
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"LLM request failed: {exc}",
+        ) from exc
+
+
+@router.post("/chat/completions", response_model=CompatApiResponse)
+@router.post("/deepseek/chat/completions", response_model=CompatApiResponse)
+async def compat_chat_completions(request: ChatStreamCompatRequest) -> CompatApiResponse:
+    try:
+        payload = await chat_service.chat_compat(request)
+        return CompatApiResponse.model_validate(payload)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

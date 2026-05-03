@@ -9,8 +9,8 @@ import {
   batchPinConversationsApi,
   batchUnpinConversationsApi
 } from "@/api/conversationHistoryApi";
-import { springboot3Api } from "../../../../api/axios";
 import {v7} from 'uuid';
+import {aiChat} from "@/api";
 
 // 分页大小配置
 const PAGE_SIZE = 50;
@@ -276,8 +276,18 @@ AI Response: ${aiResponse}
 
 Please provide only the title, no additional text or explanation.`;
 
-      const response = await springboot3Api.post('/chat', { message: summaryContent });
-      const finalTitle = (response || '').toString().trim().substring(0, 20) || fallbackTitle;
+
+      const response = await aiChat({
+        modelName: 'gpt-5-mini',
+        messages: [
+          {
+            role: 'user',
+            content: summaryContent,
+          },
+        ],
+      });
+
+      const finalTitle = (response.data?.content || '').trim().substring(0, 20) || fallbackTitle;
 
       setTimeout(()=> {
         // 更新标题

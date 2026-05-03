@@ -1,5 +1,5 @@
 import type {FormResponse} from "../models/formResponse";
-import { springboot2Api, springboot3BackendApi } from "./axios";
+import { coreApi, springboot2Api } from "./axios";
 
 export const getMyFormResponseApi = async (formId: string): Promise<FormResponse> => {
     return springboot2Api.get(`/forms/responses/${formId}`);
@@ -44,7 +44,7 @@ export const callChatCompletions = async (requestBody: ChatCompletionsRequest): 
     });
     console.log('请求体总大小:', (JSON.stringify(requestBody).length / 1024).toFixed(2), 'KB');
 
-    const result = await springboot3BackendApi.post('/chat/completions', requestBody);
+    const result = await coreApi.post('/chat/completions', requestBody);
     console.log('Chat completions 响应:', result);
     return result;
 }

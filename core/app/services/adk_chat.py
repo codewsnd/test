@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from google.adk.agents import Agent
@@ -12,7 +13,12 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from app.core.settings import Settings
-from app.schemas.chat import ChatMessage, ChatRequest, ChatResponse, ChatStreamCompatRequest
+from app.schemas.chat import (
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    ChatStreamCompatRequest,
+)
 
 
 DEFAULT_INSTRUCTION = (
@@ -117,6 +123,29 @@ class AdkChatService:
             return
 
         yield self._sse("done", {"done": True})
+
+    async def chat_compat(self, request: ChatStreamCompatRequest) -> dict[str, object]:
+        prompt = self._messages_to_prompt(request.messages)
+        response = await self.chat(
+            ChatRequest(
+                message=prompt,
+                session_id=request.request_id,
+                user_id=request.user_id,
+            )
+        )
+
+        content = response.message.strip()
+        model_name = request.model_name or self._settings.oml_model
+        return {
+            "success": True,
+            "data": {
+                "content": content,
+                "modelName": model_name,
+                "agentName": "local_chat_agent",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "characterCount": len(content),
+            },
+        }
 
     async def _ensure_session(self, user_id: str, session_id: str | None) -> str:
         if not session_id:
