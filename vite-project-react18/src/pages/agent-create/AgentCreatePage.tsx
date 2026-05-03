@@ -124,7 +124,7 @@ const AgentCreatePage = () => {
   const { data: toolList = [], loading: loadingTools } = useRequest(getAllToolsApi)
 
   const watchedModelName = Form.useWatch('modelName', form) || DEFAULT_AGENT_MODEL
-  const watchedTools = Form.useWatch('tools', form) || []
+  const watchedTools = Form.useWatch('tools', { form, preserve: true }) || []
   const currentPreset = AGENT_MODEL_PRESET_MAP[watchedModelName]
   const selectedTools = useMemo(
     () =>
@@ -259,6 +259,9 @@ const AgentCreatePage = () => {
             </Form.Item>
             <Form.Item name="createUser" hidden>
               <Input />
+            </Form.Item>
+            <Form.Item name="tools" hidden>
+              <Select mode="multiple" />
             </Form.Item>
 
             <div className="agent-create-page__grid">
