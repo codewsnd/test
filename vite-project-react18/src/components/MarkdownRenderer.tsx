@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Card, message, Tooltip } from 'antd';
+import { Button, message, Tooltip } from 'antd';
 import {
   ExpandAltOutlined,
   DownloadOutlined,
@@ -14,7 +14,6 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import {useAtom, useSetAtom} from 'jotai';
 import { showTestCaseTableAtom } from '@/pages/home/components/testCase/testCaseAtom.ts';
-import { useCreateHtmlPreview } from '@/components/htmlPreview/HtmlPreview';
 import 'highlight.js/styles/github.css';
 import CopyDeckRenderer from "./CopyDeckRenderer.tsx";
 import PptGeneratorRenderer from "./PptGeneratorRenderer.tsx";
@@ -43,6 +42,35 @@ interface MarkdownRendererProps {
   showExpandButton?: boolean; // 是否显示展开按钮
   turn: ConversationTurn;
 }
+
+type MarkdownAstNode = {
+  children?: Array<MarkdownAstNode & { value?: string }>;
+  data?: {
+    value?: string;
+  };
+  position?: {
+    start?: {
+      offset?: number;
+    };
+  };
+};
+
+const FENCED_CODE_BLOCK_PATTERN = /^\s*```/;
+const HTML_DOCUMENT_PATTERN = /(?:<!doctype\s+html|<html[\s>])/i;
+const COMPLETE_HTML_TAG_PATTERN = /^<[a-z][\w:-]*(?:\s|>|\/>)[\s\S]*<\/[a-z][\w:-]*>\s*$/i;
+
+const isHtmlCodeContent = (value: string) => {
+  const trimmedValue = value.trim();
+  return HTML_DOCUMENT_PATTERN.test(trimmedValue) || COMPLETE_HTML_TAG_PATTERN.test(trimmedValue);
+};
+
+const normalizeMarkdownContent = (value: string) => {
+  if (!isHtmlCodeContent(value) || FENCED_CODE_BLOCK_PATTERN.test(value)) {
+    return value;
+  }
+
+  return `\`\`\`html\n${value.trimEnd()}\n\`\`\``;
+};
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                                                                     content,
@@ -93,7 +121,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   const [activeConversationId] = useAtom(activeConversationIdAtom);
   const setConversationState = useSetAtom(setConversationStateAtom);
 
-
+  const markdownContent = React.useMemo(() => normalizeMarkdownContent(content), [content]);
 
   // 手动解析和渲染表格
   const parseTable = (text: string) => {
@@ -132,7 +160,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     };
   };
 
-  const { hasTable, otherContent, headers = [], dataRows = [] } = parseTable(content);
+  const { hasTable, otherContent, headers = [], dataRows = [] } = parseTable(markdownContent);
   const normalizedHeaders = headers.map((header) => header.trim().toLowerCase());
   const shouldShowHelloButton = hasTable && ['test case id', 'test case description', 'preconditions']
     .every((requiredHeader) => normalizedHeaders.includes(requiredHeader));
@@ -231,31 +259,34 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             // 自定义代码块样式
             code: ({ node, inline, className, children, ...props }) => {
               const match = /language-(\w+)/.exec(className || '');
-              const language = match ? match[1] : '';
+              const explicitLanguage = match ? match[1] : '';
 
               // 尝试从 node 获取原始代码内容
               let codeContent = '';
-              const nodeAny = node as any;
+              const markdownNode = node as MarkdownAstNode | undefined;
 
               // 方法1: 尝试从 node.children[0].value 获取
-              if (nodeAny?.children?.[0]?.value) {
-                codeContent = nodeAny.children[0].value;
+              if (markdownNode?.children?.[0]?.value) {
+                codeContent = markdownNode.children[0].value;
               }
               // 方法2: 尝试从 node.data 获取
-              else if (nodeAny?.data?.value) {
-                codeContent = nodeAny.data.value;
+              else if (markdownNode?.data?.value) {
+                codeContent = markdownNode.data.value;
               }
               // 方法3: 从 children 中提取文本（递归处理）
               else if (children) {
-                const extractText = (item: any): string => {
+                const extractText = (item: unknown): string => {
                   if (typeof item === 'string') return item;
                   if (Array.isArray(item)) return item.map(extractText).join('');
-                  if (item?.props?.children) return extractText(item.props.children);
+                  if (React.isValidElement<{ children?: unknown }>(item) && item.props.children) {
+                    return extractText(item.props.children);
+                  }
                   return '';
                 };
                 codeContent = extractText(children);
               }
-              const blockKey = `${turn.id}-${nodeAny?.position?.start?.offset ?? 0}-${language}`;
+              const language = explicitLanguage || (isHtmlCodeContent(codeContent) ? 'html' : '');
+              const blockKey = `${turn.id}-${markdownNode?.position?.start?.offset ?? 0}-${language}`;
               const turnWithEditedCodeBlocks = turn as ConversationTurn & {
                 editedCodeBlocks?: Record<string, string>;
               };
@@ -265,7 +296,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
               const currentCodeContent = editedCodeBlocks[blockKey] ?? savedCodeContent ?? codeContent;
 
               console.log('language', language);
-              console.log('raw node', nodeAny);
+              console.log('raw node', markdownNode);
               console.log('codeContent', currentCodeContent);
 
               // 处理 copydeck 格式

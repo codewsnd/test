@@ -50,7 +50,7 @@ public class ConversationHistoryService {
             Page<ConversationHistoryDO> page = Page.of(
                     pageable.getPageNumber() + 1L,
                     pageable.getPageSize(),
-                    false
+                    true
             );
             Page<ConversationHistoryDO> result =
                     conversationHistoryMapper.selectPageByStaffIdAndSearch(page, staffId, searchTerm);

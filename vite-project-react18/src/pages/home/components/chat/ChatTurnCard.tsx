@@ -37,7 +37,12 @@ const ChatTurnCardComponent = ({ turn, onShowTestCase }: ChatTurnCardProps) => {
           <div className="chat-turn__body">
             {isStreaming ? (
               <div className="chat-turn__streaming">
-                {responseContent}
+                {responseContent && (
+                  <MarkdownRenderer
+                    turn={turn}
+                    content={responseContent}
+                  />
+                )}
                 <span className="chat-turn__cursor" />
               </div>
             ) : (

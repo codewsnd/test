@@ -15,7 +15,7 @@ import {
 } from './conversationHistoryPersistenceAtom';
 
 // 分页大小配置
-const PAGE_SIZE = 50;
+export const CONVERSATION_HISTORY_PAGE_SIZE = 50;
 
 installConversationHistoryPersistenceGuard();
 
@@ -135,7 +135,7 @@ export const initializeDbAtom = atom(
       let allInitialData: ConversationHistory[] = [];
 
       // 只加载第一页数据用于初始化（页码从0开始）
-      const result = await pageConversationsApi(0, PAGE_SIZE);
+      const result = await pageConversationsApi(0, CONVERSATION_HISTORY_PAGE_SIZE);
       allInitialData = result.content;
       set(hasMoreAtom, result.number + 1 < result.totalPages);
 
@@ -164,7 +164,10 @@ export const initializeDbAtom = atom(
 // 加载更多会话
 export const loadMoreConversationsAtom = atom(
   null,
-  async (get, set, { currentPage, pageSize = PAGE_SIZE }: { currentPage: number; pageSize?: number }) => {
+  async (get, set, {
+    currentPage,
+    pageSize = CONVERSATION_HISTORY_PAGE_SIZE
+  }: { currentPage: number; pageSize?: number }) => {
     try {
       const searchQuery = get(searchQueryAtom);
       const result = await pageConversationsApi(currentPage, pageSize, searchQuery);
@@ -200,7 +203,7 @@ export const searchConversationsAtom = atom(
       set(hasMoreAtom, true);
 
       // 获取搜索结果
-      const result = await pageConversationsApi(0, PAGE_SIZE, searchQuery);
+      const result = await pageConversationsApi(0, CONVERSATION_HISTORY_PAGE_SIZE, searchQuery);
 
       set(conversationHistoriesAtom, result.content);
       set(hasMoreAtom, result.number + 1 < result.totalPages);
