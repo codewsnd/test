@@ -2,13 +2,11 @@
  * HTML 预览 API 服务
  */
 import { springboot3BackendApi } from './axios';
-import {getEmployeeId} from "@/utils/userUtils";
 
 /**
  * 创建 HTML 预览请求
  */
 export interface CreateHtmlPreviewRequest {
-  staffId?: string;
   conversationId: string;
   turnId: string;
   htmlContent: string;
@@ -32,7 +30,6 @@ export interface HtmlPreviewResponse {
  */
 export interface CreateHtmlShareRequest {
   previewId?: string | null;
-  staffId?: string;
   conversationId?: string | null;
   turnId?: string | null;
   htmlContent?: string | null;
@@ -69,7 +66,7 @@ export interface HtmlShareResponse {
 export const createHtmlPreviewApi = async (
   request: CreateHtmlPreviewRequest
 ): Promise<HtmlPreviewResponse> => {
-  return springboot3BackendApi.post('/conversation/html/preview', {...request, staffId: getEmployeeId()});
+  return springboot3BackendApi.post('/conversation/html/preview', request);
 };
 
 /**
@@ -86,10 +83,7 @@ export const getHtmlPreviewContentApi = async (id: string): Promise<HtmlPreviewR
 export const createHtmlShareApi = async (
   request: CreateHtmlShareRequest
 ): Promise<HtmlShareResponse> => {
-  return springboot3BackendApi.post('/conversation/html/preview/share', {
-    ...request,
-    staffId: getEmployeeId(),
-  });
+  return springboot3BackendApi.post('/conversation/html/preview/share', request);
 };
 
 /**

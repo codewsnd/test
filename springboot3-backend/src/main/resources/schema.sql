@@ -28,18 +28,6 @@ CREATE TABLE IF NOT EXISTS conversation_html_preview (
     updated_at TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS conversation_html_share (
-    id varchar PRIMARY KEY,
-    preview_id varchar NOT NULL,
-    staff_id VARCHAR(255) NOT NULL,
-    conversation_id VARCHAR(255) NOT NULL,
-    turn_id VARCHAR(255) NOT NULL,
-    enabled BOOLEAN NOT NULL,
-    created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL,
-    expires_at TIMESTAMP NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS chat_agents_info (
     id BIGSERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,

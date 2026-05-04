@@ -14,7 +14,6 @@ public class ConversationSaveRequest {
     @NotBlank(message = "Title is required")
     private String title;
 
-    @NotBlank(message = "Staff ID is required")
     private String staffId;
 
     private Object conversationState;

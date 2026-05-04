@@ -28,6 +28,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 @Slf4j
 @Service
@@ -84,6 +85,14 @@ public class ConversationHtmlPreviewService {
             log.error("Failed to get HTML preview by id: {}", id, e);
             throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to get HTML preview");
         }
+    }
+
+    public ConversationHtmlPreviewDO getHtmlPreviewById(String id, String staffId) {
+        ConversationHtmlPreviewDO preview = getHtmlPreviewById(id);
+        if (!Objects.equals(staffId, preview.getStaffId())) {
+            throw new CustomException(HttpStatus.NOT_FOUND.value(), "HTML preview not found");
+        }
+        return preview;
     }
 
     public String getHtmlContent(String s3Path) {

@@ -1,20 +1,23 @@
 import { atom } from 'jotai';
-import type { ConversationState } from '../chat/types';
-import { getEmployeeId } from '@/utils/userUtils';
-import { autoMigrateIfNeeded } from './indexedDbMigration';
+import type { ConversationState, ConversationTurn } from '../chat/types';
 import type {ConversationHistory} from "@/api/conversationHistoryApi";
 import {
   pageConversationsApi,
-  saveConversationApi,
   batchDeleteConversationsApi,
   batchPinConversationsApi,
   batchUnpinConversationsApi
 } from "@/api/conversationHistoryApi";
-import axios from "../../../../api/axios";
+import { aiChat } from "@/api";
 import {v7} from 'uuid';
+import {
+  enqueueConversationHistoryPersistenceAtom,
+  installConversationHistoryPersistenceGuard
+} from './conversationHistoryPersistenceAtom';
 
 // 分页大小配置
 const PAGE_SIZE = 50;
+
+installConversationHistoryPersistenceGuard();
 
 // 基础状态
 export const conversationHistoriesAtom = atom<ConversationHistory[]>([]);
@@ -39,9 +42,10 @@ export const createConversationHistoryAtom = atom(
       isPinned: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      staffId: getEmployeeId(),
       titleGenerating: true,
-      ...initialState
+      ...initialState,
+      isCreating: true,
+      isUpdating: false
     };
 
     try {
@@ -50,7 +54,11 @@ export const createConversationHistoryAtom = atom(
       set(activeConversationIdAtom, newId);
 
       // 持久化到数据库
-      await saveConversationApi(newConversationHistory);
+      set(enqueueConversationHistoryPersistenceAtom, {
+        operation: 'create',
+        conversation: newConversationHistory,
+        conversationHistoriesAtom
+      });
 
       return { conversation: newConversationHistory, id: newId };
     } catch (error) {
@@ -91,19 +99,24 @@ export const setConversationHistoryAtom = atom(
       return;
     }
 
+    const localUpdatedConvHistory = isDone
+      ? { ...updatedConvHistory, isUpdating: true }
+      : updatedConvHistory;
+
     const newConvs = conversations.map(conv =>
-      conv.id === conversationHistoryId ? updatedConvHistory : conv
+      conv.id === conversationHistoryId ? localUpdatedConvHistory : conv
     );
 
     set(conversationHistoriesAtom, newConvs);
 
-    // 自动异步持久化到数据库
+    // 自动异步持久化到数据库，队列会保证创建完成后再执行更新
     if (isDone) {
-      try {
-        await saveConversationApi(updatedConvHistory);
-      } catch (error) {
-        console.error('Failed to persist conversation history', error);
-      }
+      set(enqueueConversationHistoryPersistenceAtom, {
+        operation: 'update',
+        previousConversation: targetConvHistory,
+        conversation: localUpdatedConvHistory,
+        conversationHistoriesAtom
+      });
     }
   }
 );
@@ -114,24 +127,6 @@ export const initializeDbAtom = atom(
   null,
   async (_get, set) => {
     try {
-      const staffId = getEmployeeId();
-
-      // // 首先自动检查并处理 IndexedDB 迁移
-      try {
-        const migrationResult = await autoMigrateIfNeeded(staffId);
-        if (migrationResult.migrated && migrationResult.result) {
-          // 记录迁移结果，但不影响用户体验
-          if (migrationResult.result.success) {
-            console.log('IndexedDB migration completed:', migrationResult.result.message);
-          } else {
-            console.error('IndexedDB migration failed:', migrationResult.result.message);
-          }
-        }
-      } catch (error) {
-        console.warn('IndexedDB migration check failed:', error);
-        // 迁移失败不影响正常初始化
-      }
-
       // 重置搜索和分页状态
       set(searchQueryAtom, '');
       set(currentPageAtom, 0);
@@ -140,11 +135,9 @@ export const initializeDbAtom = atom(
       let allInitialData: ConversationHistory[] = [];
 
       // 只加载第一页数据用于初始化（页码从0开始）
-      const result = await pageConversationsApi(staffId, 0, PAGE_SIZE);
+      const result = await pageConversationsApi(0, PAGE_SIZE);
       allInitialData = result.content;
       set(hasMoreAtom, result.number + 1 < result.totalPages);
-
-
 
       // 清理所有可能残留的titleGenerating状态（页面刷新时）
       const cleanedData = allInitialData.map(conv => {
@@ -173,9 +166,8 @@ export const loadMoreConversationsAtom = atom(
   null,
   async (get, set, { currentPage, pageSize = PAGE_SIZE }: { currentPage: number; pageSize?: number }) => {
     try {
-      const staffId = getEmployeeId();
       const searchQuery = get(searchQueryAtom);
-      const result = await pageConversationsApi(staffId, currentPage, pageSize, searchQuery);
+      const result = await pageConversationsApi(currentPage, pageSize, searchQuery);
 
       if (result.content.length > 0) {
         set(conversationHistoriesAtom, prev => {
@@ -202,15 +194,13 @@ export const searchConversationsAtom = atom(
   null,
   async (_get, set, searchQuery: string) => {
     try {
-      const staffId = getEmployeeId();
-
       // 更新搜索状态
       set(searchQueryAtom, searchQuery);
       set(currentPageAtom, 0);
       set(hasMoreAtom, true);
 
       // 获取搜索结果
-      const result = await pageConversationsApi(staffId, 0, PAGE_SIZE, searchQuery);
+      const result = await pageConversationsApi(0, PAGE_SIZE, searchQuery);
 
       set(conversationHistoriesAtom, result.content);
       set(hasMoreAtom, result.number + 1 < result.totalPages);
@@ -262,13 +252,13 @@ export const generateConversationTitleAtom = atom(
     turnId
   }: {
     conversationId: string;
-    turns: any[];
+    turns: ConversationTurn[];
     turnId: string;
   }) => {
     // 只在第一次对话且有AI回复内容时生成标题
     if (turns.length !== 1 || !conversationId) return;
 
-    const turn = turns.find((turn: any) => turn.id === turnId);
+    const turn = turns.find((turn) => turn.id === turnId);
     if (!turn?.aiResponse.content) return;
 
     const conversations = get(conversationHistoriesAtom);
@@ -278,9 +268,17 @@ export const generateConversationTitleAtom = atom(
     const userInput = turn.userInput.content;
     const aiResponse = turn.aiResponse.content.replace(/<think>[\s\S]*?<\/think>/g, '') || '';
     const fallbackTitle = userInput.trim().substring(0, 20);
+    const updateTitle = (title: string) => {
+      setTimeout(()=> {
+        set(setConversationHistoryAtom, {
+          conversationHistoryId: conversationId,
+          updater: { title, titleGenerating: false },
+          isDone: true
+        });
+      }, 100);
+    };
 
-    try {
-      const summaryContent = `Generate a concise conversation title (maximum 20 characters) based on the following conversation. The title should:
+    const summaryContent = `Generate a concise conversation title (maximum 20 characters) based on the following conversation. The title should:
 1. Be in the same language as the user's input
 2. Capture the main topic or question
 3. Be specific and descriptive
@@ -291,42 +289,21 @@ AI Response: ${aiResponse}
 
 Please provide only the title, no additional text or explanation.`;
 
-      const response = await axios.post('/chat', { message: summaryContent });
-      const finalTitle = (response || '').toString().trim().substring(0, 20) || fallbackTitle;
+    try {
+      const response = await aiChat({
+        messages: [{
+          role: 'user',
+          content: summaryContent
+        }]
+      });
+      const finalTitle = response.data?.content?.toString().trim().substring(0, 20) || fallbackTitle;
 
-      // 添加小延迟以避免与创建操作的竞态条件
-      // await new Promise(resolve => setTimeout(resolve, 100));
-
-      setTimeout(()=> {
-        // 更新标题
-        set(setConversationHistoryAtom, {
-          conversationHistoryId: conversationId,
-          updater: { title: finalTitle, titleGenerating: false },
-          isDone: true
-        });
-      }, 100);
-
-
-
+      updateTitle(finalTitle);
       return finalTitle;
     } catch (error) {
       console.error('Failed to generate title:', error);
 
-      // 添加延迟
-      // await new Promise(resolve => setTimeout(resolve, 100));
-
-      setTimeout(()=> {
-        // 更新标题
-        set(setConversationHistoryAtom, {
-          conversationHistoryId: conversationId,
-          updater: { title: fallbackTitle, titleGenerating: false },
-          isDone: true
-        });
-      }, 100);
-
-      // 失败时使用fallback标题
-
-
+      updateTitle(fallbackTitle);
       return fallbackTitle;
     }
   }
@@ -400,4 +377,3 @@ export const batchUnpinConversationsAtom = atom(
     }
   }
 );
-

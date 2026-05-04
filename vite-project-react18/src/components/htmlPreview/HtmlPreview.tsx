@@ -54,7 +54,6 @@ export const HtmlPreview: React.FC = () => {
   const { loading: creatingLoading, data: createResponse } = useRequest(
     async () => {
       return await createHtmlPreviewApi({
-        staffId: '',
         conversationId: activeConversationId!,
         turnId: htmlPreviewTurnId!,
         htmlContent: htmlPreviewContent!,

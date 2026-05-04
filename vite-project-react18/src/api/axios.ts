@@ -18,6 +18,7 @@ const createApiClient = (baseURL: string): AxiosInstance => {
   api.interceptors.request.use(
     (config) => {
       config.headers.uid = '123456';
+      config.headers['X-E2E-Trust-Token'] = '123456';
       return config;
     },
   );

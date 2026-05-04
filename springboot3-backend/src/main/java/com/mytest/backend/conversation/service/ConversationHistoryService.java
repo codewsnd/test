@@ -1,6 +1,7 @@
 package com.mytest.backend.conversation.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,7 +15,6 @@ import com.mytest.backend.conversation.vo.ConversationHistoryResponse;
 import com.mytest.backend.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.support.PageableExecutionUtils;
 import org.springframework.http.HttpStatus;
@@ -24,6 +24,9 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,20 +40,19 @@ public class ConversationHistoryService {
     private final ConversationHistoryMapper conversationHistoryMapper;
     private final ObjectMapper objectMapper;
 
-    public Page<ConversationHistoryResponse> pageConversations(
+    public org.springframework.data.domain.Page<ConversationHistoryResponse> pageConversations(
             String staffId,
             String search,
             Pageable pageable
     ) {
         try {
             String searchTerm = StringUtils.hasText(search) ? search.trim() : "";
-            com.baomidou.mybatisplus.extension.plugins.pagination.Page<ConversationHistoryDO> page =
-                    com.baomidou.mybatisplus.extension.plugins.pagination.Page.of(
-                            pageable.getPageNumber() + 1L,
-                            pageable.getPageSize(),
-                            false
-                    );
-            com.baomidou.mybatisplus.extension.plugins.pagination.Page<ConversationHistoryDO> result =
+            Page<ConversationHistoryDO> page = Page.of(
+                    pageable.getPageNumber() + 1L,
+                    pageable.getPageSize(),
+                    false
+            );
+            Page<ConversationHistoryDO> result =
                     conversationHistoryMapper.selectPageByStaffIdAndSearch(page, staffId, searchTerm);
             List<ConversationHistoryResponse> content = result.getRecords().stream()
                     .map(item -> ConversationHistoryResponse.from(item, null))
@@ -140,7 +142,6 @@ public class ConversationHistoryService {
             ConversationHistoryDO conversation = requireExistingConversation(id);
             conversation.setTitle(newTitle.trim());
             conversation.setTitleGenerating(Boolean.FALSE);
-            conversation.setUpdatedAt(Instant.now());
             conversationHistoryMapper.updateById(conversation);
             return ConversationHistoryResponse.from(
                     conversation,
@@ -299,6 +300,7 @@ public class ConversationHistoryService {
             mergedTurns.set(existingIndex, copiedTurn);
         }
 
+        sortTurnsByTimestamp(mergedTurns);
         mergedState.set("turns", mergedTurns);
     }
 
@@ -308,6 +310,43 @@ public class ConversationHistoryService {
         }
         JsonNode idNode = turnNode.get("id");
         return idNode != null ? idNode.asText(null) : null;
+    }
+
+    private void sortTurnsByTimestamp(ArrayNode turns) {
+        List<JsonNode> sortedTurns = new ArrayList<>();
+        turns.forEach(item -> sortedTurns.add(item.deepCopy()));
+        sortedTurns.sort(Comparator.comparing(
+                this::extractTurnTimestamp,
+                Comparator.nullsLast(Comparator.naturalOrder())
+        ));
+
+        turns.removeAll();
+        sortedTurns.forEach(turns::add);
+    }
+
+    private Instant extractTurnTimestamp(JsonNode turnNode) {
+        if (turnNode == null || !turnNode.isObject()) {
+            return null;
+        }
+
+        JsonNode timestampNode = turnNode.get("timestamp");
+        if (timestampNode == null || timestampNode.isNull()) {
+            return null;
+        }
+        if (timestampNode.isNumber()) {
+            return Instant.ofEpochMilli(timestampNode.asLong());
+        }
+
+        String timestamp = timestampNode.asText(null);
+        if (!StringUtils.hasText(timestamp)) {
+            return null;
+        }
+
+        try {
+            return Instant.parse(timestamp.trim());
+        } catch (DateTimeParseException e) {
+            return null;
+        }
     }
 
     private String serializeConversationState(Object conversationState) {

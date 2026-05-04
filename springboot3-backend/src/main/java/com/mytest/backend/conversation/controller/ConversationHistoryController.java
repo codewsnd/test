@@ -4,6 +4,7 @@ import com.mytest.backend.conversation.dto.ConversationRenameRequest;
 import com.mytest.backend.conversation.dto.ConversationSaveRequest;
 import com.mytest.backend.conversation.dto.ConversationStatePatchRequest;
 import com.mytest.backend.conversation.service.ConversationHistoryService;
+import com.mytest.backend.conversation.util.JwtTokenUtil;
 import com.mytest.backend.conversation.vo.ConversationHistoryResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -13,19 +14,11 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+
+import static com.mytest.backend.constants.CommonConstants.X_E2E_TRUST_TOKEN;
 
 @RestController
 @RequestMapping("/conversations/histories")
@@ -36,34 +29,38 @@ public class ConversationHistoryController {
 
     private final ConversationHistoryService conversationHistoryService;
 
-    @GetMapping("/page")
+    @GetMapping
     public Page<ConversationHistoryResponse> pageConversations(
-            @RequestParam @NotBlank String staffId,
+            @RequestHeader(X_E2E_TRUST_TOKEN) String jwtToken,
             @RequestParam(required = false) String search,
             @PageableDefault(
-                    size = 20,
                     sort = {"isPinned", "pinnedAt", "updatedAt"},
                     direction = Sort.Direction.DESC
             ) Pageable pageable) {
-        return conversationHistoryService.pageConversations(staffId, search, pageable);
+        return conversationHistoryService.pageConversations(JwtTokenUtil.getStaffId(jwtToken), search, pageable);
     }
 
     @GetMapping("/{id}")
     public ConversationHistoryResponse getConversationDetail(
             @PathVariable @NotBlank String id,
-            @RequestParam @NotBlank String staffId) {
-        return conversationHistoryService.getConversationDetail(id, staffId);
+            @RequestHeader(X_E2E_TRUST_TOKEN) String jwtToken) {
+        return conversationHistoryService.getConversationDetail(id, JwtTokenUtil.getStaffId(jwtToken));
     }
 
     @PostMapping
-    public ConversationHistoryResponse saveConversation(@Valid @RequestBody ConversationSaveRequest request) {
+    public ConversationHistoryResponse saveConversation(
+            @RequestHeader(X_E2E_TRUST_TOKEN) String jwtToken,
+            @Valid @RequestBody ConversationSaveRequest request) {
+        request.setStaffId(JwtTokenUtil.getStaffId(jwtToken));
         return conversationHistoryService.saveConversation(request);
     }
 
     @PatchMapping("/{id}/state")
     public ConversationHistoryResponse patchConversationState(
             @PathVariable @NotBlank String id,
+            @RequestHeader(X_E2E_TRUST_TOKEN) String jwtToken,
             @Valid @RequestBody ConversationStatePatchRequest request) {
+        request.setStaffId(JwtTokenUtil.getStaffId(jwtToken));
         return conversationHistoryService.patchConversationState(id, request);
     }
 
