@@ -8,8 +8,6 @@ import java.time.Instant;
 @Data
 public class ConversationStatePatchRequest {
 
-    private String staffId;
-
     @NotNull(message = "Conversation state patch is required")
     private Object conversationState;
 

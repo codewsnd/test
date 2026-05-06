@@ -18,7 +18,7 @@ import java.time.Instant;
 @AllArgsConstructor
 @Builder
 @TableName(value = "conversation_history", autoResultMap = true)
-public class ConversationHistoryDO {
+public class ConversationHistory {
 
     @TableId(value = "id", type = IdType.INPUT)
     private String id;

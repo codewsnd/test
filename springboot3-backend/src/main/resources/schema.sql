@@ -12,22 +12,6 @@ CREATE TABLE IF NOT EXISTS conversation_history (
     is_deleted BOOLEAN NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS conversation_html_preview (
-    id varchar PRIMARY KEY,
-    staff_id TEXT NOT NULL,
-    conversation_id TEXT NOT NULL,
-    turn_id TEXT NOT NULL,
-    s3_path TEXT NOT NULL,
-    created_at TIMESTAMP NOT NULL,
-    has_xss BOOLEAN,
-    xss_content TEXT,
-    has_external_references BOOLEAN,
-    external_references_content TEXT,
-    html_content_length INTEGER,
-    html_content_hash TEXT,
-    updated_at TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS chat_agents_info (
     id BIGSERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,

@@ -1,7 +1,7 @@
 package com.mytest.backend.conversation.controller;
 
 import com.mytest.backend.conversation.dto.ConversationRenameRequest;
-import com.mytest.backend.conversation.dto.ConversationSaveRequest;
+import com.mytest.backend.conversation.dto.ConversationCreateRequest;
 import com.mytest.backend.conversation.dto.ConversationStatePatchRequest;
 import com.mytest.backend.conversation.service.ConversationHistoryService;
 import com.mytest.backend.conversation.util.JwtTokenUtil;
@@ -48,11 +48,10 @@ public class ConversationHistoryController {
     }
 
     @PostMapping
-    public ConversationHistoryResponse saveConversation(
+    public ConversationHistoryResponse createConversation(
             @RequestHeader(X_E2E_TRUST_TOKEN) String jwtToken,
-            @Valid @RequestBody ConversationSaveRequest request) {
-        request.setStaffId(JwtTokenUtil.getStaffId(jwtToken));
-        return conversationHistoryService.saveConversation(request);
+            @Valid @RequestBody ConversationCreateRequest request) {
+        return conversationHistoryService.createConversation(JwtTokenUtil.getStaffId(jwtToken), request);
     }
 
     @PatchMapping("/{id}/state")
@@ -60,29 +59,35 @@ public class ConversationHistoryController {
             @PathVariable @NotBlank String id,
             @RequestHeader(X_E2E_TRUST_TOKEN) String jwtToken,
             @Valid @RequestBody ConversationStatePatchRequest request) {
-        request.setStaffId(JwtTokenUtil.getStaffId(jwtToken));
-        return conversationHistoryService.patchConversationState(id, request);
+        return conversationHistoryService.patchConversationState(id, JwtTokenUtil.getStaffId(jwtToken), request);
     }
 
     @PutMapping("/{id}/rename")
     public ConversationHistoryResponse renameConversation(
             @PathVariable @NotBlank String id,
+            @RequestHeader(X_E2E_TRUST_TOKEN) String jwtToken,
             @Valid @RequestBody ConversationRenameRequest request) {
-        return conversationHistoryService.renameConversation(id, request.getTitle());
+        return conversationHistoryService.renameConversation(id, JwtTokenUtil.getStaffId(jwtToken), request.getTitle());
     }
 
     @DeleteMapping("/batch")
-    public void batchDeleteConversations(@RequestBody List<String> conversationIds) {
-        conversationHistoryService.batchDeleteConversations(conversationIds);
+    public void batchDeleteConversations(
+            @RequestHeader(X_E2E_TRUST_TOKEN) String jwtToken,
+            @RequestBody List<String> conversationIds) {
+        conversationHistoryService.batchDeleteConversations(conversationIds, JwtTokenUtil.getStaffId(jwtToken));
     }
 
     @PutMapping("/batch/pin")
-    public void batchPinConversations(@RequestBody List<String> conversationIds) {
-        conversationHistoryService.batchPinConversations(conversationIds);
+    public void batchPinConversations(
+            @RequestHeader(X_E2E_TRUST_TOKEN) String jwtToken,
+            @RequestBody List<String> conversationIds) {
+        conversationHistoryService.batchPinConversations(conversationIds, JwtTokenUtil.getStaffId(jwtToken));
     }
 
     @PutMapping("/batch/unpin")
-    public void batchUnpinConversations(@RequestBody List<String> conversationIds) {
-        conversationHistoryService.batchUnpinConversations(conversationIds);
+    public void batchUnpinConversations(
+            @RequestHeader(X_E2E_TRUST_TOKEN) String jwtToken,
+            @RequestBody List<String> conversationIds) {
+        conversationHistoryService.batchUnpinConversations(conversationIds, JwtTokenUtil.getStaffId(jwtToken));
     }
 }
