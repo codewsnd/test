@@ -35,43 +35,29 @@ public class ConversationHistoryService {
             Pageable pageable
     ) {
         try {
+            String searchTerm = StringUtils.hasText(search) ? search.trim() : "";
             Page<ConversationHistory> result = conversationHistoryMapper.selectPageByStaffIdAndSearch(
                     Page.of(pageable.getPageNumber() + 1L, pageable.getPageSize(), true),
                     staffId,
-                    StringUtils.hasText(search) ? search.trim() : ""
+                    searchTerm
             );
             List<ConversationHistoryResponse> content = result.getRecords().stream()
                     .map(ConversationHistoryResponse::from)
                     .toList();
-            log.info(
-                    "[ConversationHistory] Page conversations, staffId: {}, search: {}, page: {}, size: {}, total: {}",
-                    staffId,
-                    StringUtils.hasText(search) ? search.trim() : "",
-                    pageable.getPageNumber(),
-                    pageable.getPageSize(),
-                    result.getTotal()
-            );
             return PageableExecutionUtils.getPage(content, pageable, result::getTotal);
         } catch (CustomException e) {
-            log.error("[ConversationHistory:Failed] Failed to page conversations, staffId: {}", staffId, e);
+            log.error("[ConversationHistory:Failed] action=page staffId={} page={} size={}", staffId, pageable.getPageNumber(), pageable.getPageSize(), e);
             throw e;
-        } catch (RuntimeException e) {
-            log.error("[ConversationHistory:Failed] Failed to page conversations, staffId: {}", staffId, e);
-            throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to page conversations");
         }
     }
 
     public ConversationHistoryResponse getConversationDetail(String id, String staffId) {
         try {
             ConversationHistory conversation = requireAccessibleConversation(id, staffId);
-            log.info("[ConversationHistory] Get conversation detail, staffId: {}, id: {}", staffId, id);
             return ConversationHistoryResponse.from(conversation);
         } catch (CustomException e) {
-            log.error("[ConversationHistory:Failed] Failed to get conversation detail, staffId: {}, id: {}", staffId, id, e);
+            log.error("[ConversationHistory:Failed] action=detail staffId={} conversationId={}", staffId, id, e);
             throw e;
-        } catch (RuntimeException e) {
-            log.error("[ConversationHistory:Failed] Failed to get conversation detail, staffId: {}, id: {}", staffId, id, e);
-            throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to get conversation detail");
         }
     }
 
@@ -84,17 +70,14 @@ public class ConversationHistoryService {
             conversation.setStaffId(staffId);
             conversation.setIsDeleted(Boolean.FALSE);
             conversationHistoryMapper.insert(conversation);
-            log.info("[ConversationHistory] Create conversation, staffId: {}, id: {}", staffId, conversation.getId());
+            log.info("[ConversationHistory] action=create staffId={} conversationId={}", staffId, conversation.getId());
             return ConversationHistoryResponse.from(conversation);
         } catch (CustomException e) {
-            log.error("[ConversationHistory:Failed] Failed to create conversation, staffId: {}, id: {}", staffId, request.getId(), e);
+            log.error("[ConversationHistory:Failed] action=create staffId={} conversationId={}", staffId, request.getId(), e);
             throw e;
         } catch (DuplicateKeyException e) {
-            log.error("[ConversationHistory:Failed] Conversation already exists, staffId: {}, id: {}", staffId, request.getId(), e);
+            log.error("[ConversationHistory:Failed] action=create staffId={} conversationId={} reason=duplicate", staffId, request.getId(), e);
             throw new CustomException(HttpStatus.CONFLICT.value(), "Conversation already exists");
-        } catch (RuntimeException e) {
-            log.error("[ConversationHistory:Failed] Failed to create conversation, staffId: {}, id: {}", staffId, request.getId(), e);
-            throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to create conversation");
         }
     }
 
@@ -112,14 +95,11 @@ public class ConversationHistoryService {
                     request.getUpdatedAt()
             );
             ConversationHistory conversation = requireAccessibleConversation(id, staffId);
-            log.info("[ConversationHistory] Update conversation state, staffId: {}, id: {}", staffId, id);
+            log.info("[ConversationHistory] action=updateState staffId={} conversationId={}", staffId, id);
             return ConversationHistoryResponse.from(conversation);
         } catch (CustomException e) {
-            log.error("[ConversationHistory:Failed] Failed to update conversation state, staffId: {}, id: {}", staffId, id, e);
+            log.error("[ConversationHistory:Failed] action=updateState staffId={} conversationId={}", staffId, id, e);
             throw e;
-        } catch (RuntimeException e) {
-            log.error("[ConversationHistory:Failed] Failed to update conversation state, staffId: {}, id: {}", staffId, id, e);
-            throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to patch conversation state");
         }
     }
 
@@ -133,14 +113,11 @@ public class ConversationHistoryService {
                     .set(ConversationHistory::getTitleGenerating, Boolean.FALSE)
                     .set(ConversationHistory::getUpdatedAt, Instant.now()));
             ConversationHistory conversation = requireAccessibleConversation(id, staffId);
-            log.info("[ConversationHistory] Rename conversation, staffId: {}, id: {}", staffId, id);
+            log.info("[ConversationHistory] action=rename staffId={} conversationId={}", staffId, id);
             return ConversationHistoryResponse.from(conversation);
         } catch (CustomException e) {
-            log.error("[ConversationHistory:Failed] Failed to rename conversation, staffId: {}, id: {}", staffId, id, e);
+            log.error("[ConversationHistory:Failed] action=rename staffId={} conversationId={}", staffId, id, e);
             throw e;
-        } catch (RuntimeException e) {
-            log.error("[ConversationHistory:Failed] Failed to rename conversation, staffId: {}, id: {}", staffId, id, e);
-            throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to rename conversation");
         }
     }
 
@@ -149,19 +126,17 @@ public class ConversationHistoryService {
         try {
             List<String> ids = normalizeIds(conversationIds);
             if (ids.isEmpty()) {
-                log.info("[ConversationHistory] Skip batch delete conversations, staffId: {}, count: 0", staffId);
+                log.info("[ConversationHistory] action=batchDelete staffId={} count=0 result=skip", staffId);
                 return;
             }
-            conversationHistoryMapper.delete(Wrappers.<ConversationHistory>lambdaQuery()
+            conversationHistoryMapper.update(null, Wrappers.<ConversationHistory>lambdaUpdate()
                     .eq(ConversationHistory::getStaffId, staffId)
-                    .in(ConversationHistory::getId, ids));
-            log.info("[ConversationHistory] Batch delete conversations, staffId: {}, count: {}", staffId, ids.size());
+                    .in(ConversationHistory::getId, ids)
+                    .set(ConversationHistory::getIsDeleted, Boolean.TRUE));
+            log.info("[ConversationHistory] action=batchDelete staffId={} count={}", staffId, ids.size());
         } catch (CustomException e) {
-            log.error("[ConversationHistory:Failed] Failed to delete conversations, staffId: {}", staffId, e);
+            log.error("[ConversationHistory:Failed] action=batchDelete staffId={}", staffId, e);
             throw e;
-        } catch (RuntimeException e) {
-            log.error("[ConversationHistory:Failed] Failed to delete conversations, staffId: {}", staffId, e);
-            throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to delete conversations");
         }
     }
 
@@ -170,7 +145,7 @@ public class ConversationHistoryService {
         try {
             List<String> ids = normalizeIds(conversationIds);
             if (ids.isEmpty()) {
-                log.info("[ConversationHistory] Skip batch pin conversations, staffId: {}, count: 0", staffId);
+                log.info("[ConversationHistory] action=batchPin staffId={} count=0 result=skip", staffId);
                 return;
             }
             conversationHistoryMapper.update(null, Wrappers.<ConversationHistory>lambdaUpdate()
@@ -178,13 +153,10 @@ public class ConversationHistoryService {
                     .in(ConversationHistory::getId, ids)
                     .set(ConversationHistory::getIsPinned, Boolean.TRUE)
                     .set(ConversationHistory::getPinnedAt, Instant.now()));
-            log.info("[ConversationHistory] Batch pin conversations, staffId: {}, count: {}", staffId, ids.size());
+            log.info("[ConversationHistory] action=batchPin staffId={} count={}", staffId, ids.size());
         } catch (CustomException e) {
-            log.error("[ConversationHistory:Failed] Failed to pin conversations, staffId: {}", staffId, e);
+            log.error("[ConversationHistory:Failed] action=batchPin staffId={}", staffId, e);
             throw e;
-        } catch (RuntimeException e) {
-            log.error("[ConversationHistory:Failed] Failed to pin conversations, staffId: {}", staffId, e);
-            throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to pin conversations");
         }
     }
 
@@ -193,7 +165,7 @@ public class ConversationHistoryService {
         try {
             List<String> ids = normalizeIds(conversationIds);
             if (ids.isEmpty()) {
-                log.info("[ConversationHistory] Skip batch unpin conversations, staffId: {}, count: 0", staffId);
+                log.info("[ConversationHistory] action=batchUnpin staffId={} count=0 result=skip", staffId);
                 return;
             }
             conversationHistoryMapper.update(null, Wrappers.<ConversationHistory>lambdaUpdate()
@@ -201,13 +173,10 @@ public class ConversationHistoryService {
                     .in(ConversationHistory::getId, ids)
                     .set(ConversationHistory::getIsPinned, Boolean.FALSE)
                     .set(ConversationHistory::getPinnedAt, null));
-            log.info("[ConversationHistory] Batch unpin conversations, staffId: {}, count: {}", staffId, ids.size());
+            log.info("[ConversationHistory] action=batchUnpin staffId={} count={}", staffId, ids.size());
         } catch (CustomException e) {
-            log.error("[ConversationHistory:Failed] Failed to unpin conversations, staffId: {}", staffId, e);
+            log.error("[ConversationHistory:Failed] action=batchUnpin staffId={}", staffId, e);
             throw e;
-        } catch (RuntimeException e) {
-            log.error("[ConversationHistory:Failed] Failed to unpin conversations, staffId: {}", staffId, e);
-            throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to unpin conversations");
         }
     }
 
