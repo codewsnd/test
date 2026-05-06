@@ -59,7 +59,7 @@ public class ConversationHistoryController {
             @PathVariable @NotBlank String id,
             @RequestHeader(X_E2E_TRUST_TOKEN) String jwtToken,
             @Valid @RequestBody ConversationStatePatchRequest request) {
-        return conversationHistoryService.patchConversationState(id, JwtTokenUtil.getStaffId(jwtToken), request);
+        return conversationHistoryService.updateConversationState(id, JwtTokenUtil.getStaffId(jwtToken), request);
     }
 
     @PutMapping("/{id}/rename")

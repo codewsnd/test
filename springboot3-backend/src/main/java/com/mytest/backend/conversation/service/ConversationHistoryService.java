@@ -1,9 +1,10 @@
 package com.mytest.backend.conversation.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mytest.backend.conversation.dto.ConversationCreateRequest;
 import com.mytest.backend.conversation.dto.ConversationStatePatchRequest;
@@ -14,6 +15,7 @@ import com.mytest.backend.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.support.PageableExecutionUtils;
 import org.springframework.http.HttpStatus;
@@ -31,7 +33,6 @@ import java.util.List;
 public class ConversationHistoryService {
 
     private final ConversationHistoryMapper conversationHistoryMapper;
-    private final ObjectMapper objectMapper;
 
     public org.springframework.data.domain.Page<ConversationHistoryResponse> pageConversations(
             String staffId,
@@ -42,9 +43,12 @@ public class ConversationHistoryService {
             Page<ConversationHistory> result = conversationHistoryMapper.selectPageByStaffIdAndSearch(
                     Page.of(pageable.getPageNumber() + 1L, pageable.getPageSize(), true),
                     staffId,
-                    trimOrEmpty(search)
+                    StringUtils.hasText(search) ? search.trim() : ""
             );
-            return PageableExecutionUtils.getPage(toSummaryResponses(result), pageable, result::getTotal);
+            List<ConversationHistoryResponse> content = result.getRecords().stream()
+                    .map(ConversationHistoryResponse::from)
+                    .toList();
+            return PageableExecutionUtils.getPage(content, pageable, result::getTotal);
         } catch (CustomException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -55,7 +59,8 @@ public class ConversationHistoryService {
 
     public ConversationHistoryResponse getConversationDetail(String id, String staffId) {
         try {
-            return toDetailResponse(requireAccessibleConversation(id, staffId));
+            ConversationHistory conversation = requireAccessibleConversation(id, staffId);
+            return ConversationHistoryResponse.from(conversation);
         } catch (CustomException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -67,21 +72,17 @@ public class ConversationHistoryService {
     @Transactional
     public ConversationHistoryResponse createConversation(String staffId, ConversationCreateRequest request) {
         try {
-            String conversationId = request.getId().trim();
-            if (conversationHistoryMapper.countById(conversationId) > 0) {
-                throw new CustomException(HttpStatus.CONFLICT.value(), "Conversation already exists");
-            }
-
             ConversationHistory conversation = new ConversationHistory();
             BeanUtils.copyProperties(request, conversation);
-            conversation.setId(conversationId);
+            conversation.setId(request.getId());
             conversation.setStaffId(staffId);
-            conversation.setConversationState(serializeConversationState(request.getConversationState()));
             conversation.setIsDeleted(Boolean.FALSE);
             conversationHistoryMapper.insert(conversation);
-            return toDetailResponse(conversation);
+            return ConversationHistoryResponse.from(conversation);
         } catch (CustomException e) {
             throw e;
+        } catch (DuplicateKeyException e) {
+            throw new CustomException(HttpStatus.CONFLICT.value(), "Conversation already exists");
         } catch (RuntimeException e) {
             log.error("Failed to create conversation", e);
             throw new CustomException(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to create conversation");
@@ -89,22 +90,20 @@ public class ConversationHistoryService {
     }
 
     @Transactional
-    public ConversationHistoryResponse patchConversationState(
+    public ConversationHistoryResponse updateConversationState(
             String id,
             String staffId,
             ConversationStatePatchRequest request
     ) {
         try {
-            String conversationId = id.trim();
-            int updatedRows = conversationHistoryMapper.patchConversationState(
-                    conversationId,
+            conversationHistoryMapper.updateConversationState(
+                    id,
                     staffId,
-                    serializeConversationStatePatch(request.getConversationState()),
+                    request.getConversationState(),
                     request.getUpdatedAt()
             );
-
-            ensureUpdated(updatedRows);
-            return toDetailResponse(requireAccessibleConversation(conversationId, staffId));
+            ConversationHistory conversation = requireAccessibleConversation(id, staffId);
+            return ConversationHistoryResponse.from(conversation);
         } catch (CustomException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -116,16 +115,12 @@ public class ConversationHistoryService {
     @Transactional
     public ConversationHistoryResponse renameConversation(String id, String staffId, String newTitle) {
         try {
-            String conversationId = id.trim();
-            int updatedRows = conversationHistoryMapper.renameConversation(
-                    conversationId,
-                    staffId,
-                    newTitle.trim(),
-                    Instant.now()
-            );
-
-            ensureUpdated(updatedRows);
-            return toDetailResponse(requireAccessibleConversation(conversationId, staffId));
+            conversationHistoryMapper.update(null, updateByStaffAndId(id, staffId)
+                    .set(ConversationHistory::getTitle, newTitle.trim())
+                    .set(ConversationHistory::getTitleGenerating, Boolean.FALSE)
+                    .set(ConversationHistory::getUpdatedAt, Instant.now()));
+            ConversationHistory conversation = requireAccessibleConversation(id, staffId);
+            return ConversationHistoryResponse.from(conversation);
         } catch (CustomException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -136,19 +131,13 @@ public class ConversationHistoryService {
 
     @Transactional
     public void batchDeleteConversations(List<String> conversationIds, String staffId) {
-        if (CollectionUtils.isEmpty(conversationIds)) {
+        List<String> ids = normalizeIds(conversationIds);
+        if (ids.isEmpty()) {
             return;
         }
 
         try {
-            List<String> ids = normalizeIds(conversationIds);
-            if (ids.isEmpty()) {
-                return;
-            }
-
-            requireAccessibleConversations(ids, staffId);
-            int updatedRows = conversationHistoryMapper.softDeleteByStaffIdAndIds(staffId, ids);
-            ensureAllRowsUpdated(updatedRows, ids.size());
+            conversationHistoryMapper.delete(queryByStaffAndIds(staffId, ids));
         } catch (CustomException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -159,19 +148,15 @@ public class ConversationHistoryService {
 
     @Transactional
     public void batchPinConversations(List<String> conversationIds, String staffId) {
-        if (CollectionUtils.isEmpty(conversationIds)) {
+        List<String> ids = normalizeIds(conversationIds);
+        if (ids.isEmpty()) {
             return;
         }
 
         try {
-            List<String> ids = normalizeIds(conversationIds);
-            if (ids.isEmpty()) {
-                return;
-            }
-
-            requireAccessibleConversations(ids, staffId);
-            int updatedRows = conversationHistoryMapper.pinByStaffIdAndIds(staffId, ids, Instant.now());
-            ensureAllRowsUpdated(updatedRows, ids.size());
+            conversationHistoryMapper.update(null, updateByStaffAndIds(staffId, ids)
+                    .set(ConversationHistory::getIsPinned, Boolean.TRUE)
+                    .set(ConversationHistory::getPinnedAt, Instant.now()));
         } catch (CustomException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -182,19 +167,15 @@ public class ConversationHistoryService {
 
     @Transactional
     public void batchUnpinConversations(List<String> conversationIds, String staffId) {
-        if (CollectionUtils.isEmpty(conversationIds)) {
+        List<String> ids = normalizeIds(conversationIds);
+        if (ids.isEmpty()) {
             return;
         }
 
         try {
-            List<String> ids = normalizeIds(conversationIds);
-            if (ids.isEmpty()) {
-                return;
-            }
-
-            requireAccessibleConversations(ids, staffId);
-            int updatedRows = conversationHistoryMapper.unpinByStaffIdAndIds(staffId, ids);
-            ensureAllRowsUpdated(updatedRows, ids.size());
+            conversationHistoryMapper.update(null, updateByStaffAndIds(staffId, ids)
+                    .set(ConversationHistory::getIsPinned, Boolean.FALSE)
+                    .set(ConversationHistory::getPinnedAt, null));
         } catch (CustomException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -203,100 +184,14 @@ public class ConversationHistoryService {
         }
     }
 
-    private List<ConversationHistoryResponse> toSummaryResponses(Page<ConversationHistory> page) {
-        return page.getRecords().stream()
-                .map(item -> ConversationHistoryResponse.from(item, null))
-                .toList();
-    }
-
-    private ConversationHistoryResponse toDetailResponse(ConversationHistory conversation) {
-        return ConversationHistoryResponse.from(
-                conversation,
-                deserializeConversationState(conversation.getConversationState())
-        );
-    }
-
     private ConversationHistory requireAccessibleConversation(String id, String staffId) {
-        ConversationHistory conversation = conversationHistoryMapper.selectAccessibleById(id.trim(), staffId);
+        ConversationHistory conversation = conversationHistoryMapper.selectOne(queryByStaffAndId(staffId, id));
         if (conversation == null) {
             throw new CustomException(HttpStatus.NOT_FOUND.value(), "Conversation not found");
         }
         return conversation;
     }
 
-    private void requireAccessibleConversations(List<String> ids, String staffId) {
-        int accessibleCount = conversationHistoryMapper.countAccessibleByIds(staffId, ids);
-        if (accessibleCount != ids.size()) {
-            throw new CustomException(HttpStatus.NOT_FOUND.value(), "Conversation not found");
-        }
-    }
-
-    private void ensureUpdated(int updatedRows) {
-        if (updatedRows == 0) {
-            throw new CustomException(HttpStatus.NOT_FOUND.value(), "Conversation not found");
-        }
-    }
-
-    private void ensureAllRowsUpdated(int updatedRows, int expectedRows) {
-        if (updatedRows != expectedRows) {
-            throw new CustomException(HttpStatus.NOT_FOUND.value(), "Conversation not found");
-        }
-    }
-
-    private String serializeConversationStatePatch(Object conversationStatePatch) {
-        JsonNode patchNode = objectMapper.valueToTree(conversationStatePatch);
-        if (!(patchNode instanceof ObjectNode patchObject)) {
-            throw new CustomException(HttpStatus.BAD_REQUEST.value(), "Invalid conversation state patch");
-        }
-
-        JsonNode turnsNode = patchObject.get("turns");
-        if (turnsNode != null && !turnsNode.isNull()) {
-            validateTurnsPatch(turnsNode);
-        }
-
-        try {
-            return objectMapper.writeValueAsString(patchObject);
-        } catch (JsonProcessingException e) {
-            throw new CustomException(HttpStatus.BAD_REQUEST.value(), "Invalid conversation state patch");
-        }
-    }
-
-    private void validateTurnsPatch(JsonNode turnsNode) {
-        if (!turnsNode.isArray()) {
-            throw new CustomException(HttpStatus.BAD_REQUEST.value(), "Invalid conversation turns patch");
-        }
-
-        for (JsonNode turnNode : turnsNode) {
-            if (!turnNode.isObject() || !StringUtils.hasText(turnNode.path("id").asText(null))) {
-                throw new CustomException(HttpStatus.BAD_REQUEST.value(), "Conversation turn id is required");
-            }
-        }
-    }
-
-    private String serializeConversationState(Object conversationState) {
-        if (conversationState == null) {
-            return null;
-        }
-        if (conversationState instanceof String text) {
-            return text;
-        }
-        try {
-            return objectMapper.writeValueAsString(conversationState);
-        } catch (JsonProcessingException e) {
-            throw new CustomException(HttpStatus.BAD_REQUEST.value(), "Invalid conversation state");
-        }
-    }
-
-    private Object deserializeConversationState(String conversationState) {
-        if (!StringUtils.hasText(conversationState)) {
-            return null;
-        }
-        try {
-            return objectMapper.readValue(conversationState, Object.class);
-        } catch (JsonProcessingException e) {
-            return conversationState;
-        }
-    }
 
     private List<String> normalizeIds(List<String> conversationIds) {
         return conversationIds.stream()
@@ -306,7 +201,28 @@ public class ConversationHistoryService {
                 .toList();
     }
 
-    private String trimOrEmpty(String text) {
-        return StringUtils.hasText(text) ? text.trim() : "";
+    private LambdaQueryWrapper<ConversationHistory> queryByStaffAndId(String staffId, String id) {
+        return Wrappers.<ConversationHistory>lambdaQuery()
+                .eq(ConversationHistory::getStaffId, staffId)
+                .eq(ConversationHistory::getId, id);
     }
+
+    private LambdaQueryWrapper<ConversationHistory> queryByStaffAndIds(String staffId, List<String> ids) {
+        return Wrappers.<ConversationHistory>lambdaQuery()
+                .eq(ConversationHistory::getStaffId, staffId)
+                .in(ConversationHistory::getId, ids);
+    }
+
+    private LambdaUpdateWrapper<ConversationHistory> updateByStaffAndId(String id, String staffId) {
+        return Wrappers.<ConversationHistory>lambdaUpdate()
+                .eq(ConversationHistory::getId, id)
+                .eq(ConversationHistory::getStaffId, staffId);
+    }
+
+    private LambdaUpdateWrapper<ConversationHistory> updateByStaffAndIds(String staffId, List<String> ids) {
+        return Wrappers.<ConversationHistory>lambdaUpdate()
+                .eq(ConversationHistory::getStaffId, staffId)
+                .in(ConversationHistory::getId, ids);
+    }
+
 }

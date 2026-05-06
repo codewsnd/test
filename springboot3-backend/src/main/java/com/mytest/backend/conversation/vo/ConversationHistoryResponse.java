@@ -1,5 +1,6 @@
 package com.mytest.backend.conversation.vo;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.mytest.backend.conversation.entity.ConversationHistory;
 import lombok.Builder;
 import lombok.Data;
@@ -12,7 +13,7 @@ public class ConversationHistoryResponse {
 
     private String id;
     private String title;
-    private Object conversationState;
+    private JsonNode conversationState;
     private Boolean isPinned;
     private Instant createdAt;
     private Instant updatedAt;
@@ -20,11 +21,11 @@ public class ConversationHistoryResponse {
     private String staffId;
     private Boolean titleGenerating;
 
-    public static ConversationHistoryResponse from(ConversationHistory entity, Object conversationState) {
+    public static ConversationHistoryResponse from(ConversationHistory entity) {
         return ConversationHistoryResponse.builder()
                 .id(entity.getId())
                 .title(entity.getTitle())
-                .conversationState(conversationState)
+                .conversationState(entity.getConversationState())
                 .isPinned(entity.getIsPinned())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())

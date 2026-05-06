@@ -5,7 +5,8 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.mytest.backend.conversation.typehandler.JsonbStringTypeHandler;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.mytest.backend.conversation.typehandler.JsonbJsonNodeTypeHandler;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -26,8 +27,8 @@ public class ConversationHistory {
     @TableField("title")
     private String title;
 
-    @TableField(value = "conversation_state", typeHandler = JsonbStringTypeHandler.class)
-    private String conversationState;
+    @TableField(value = "conversation_state", typeHandler = JsonbJsonNodeTypeHandler.class)
+    private JsonNode conversationState;
 
     @TableField("is_pinned")
     private Boolean isPinned;

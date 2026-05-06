@@ -1,5 +1,8 @@
 package com.mytest.backend.conversation.typehandler;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.ibatis.type.BaseTypeHandler;
 import org.apache.ibatis.type.JdbcType;
 import org.apache.ibatis.type.MappedJdbcTypes;
@@ -11,36 +14,48 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
 
-@MappedTypes(String.class)
+@MappedTypes(JsonNode.class)
 @MappedJdbcTypes(JdbcType.OTHER)
-public class JsonbStringTypeHandler extends BaseTypeHandler<String> {
+public class JsonbJsonNodeTypeHandler extends BaseTypeHandler<JsonNode> {
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String PG_OBJECT_CLASS_NAME = "org.postgresql.util.PGobject";
 
     @Override
-    public void setNonNullParameter(PreparedStatement ps, int i, String parameter, JdbcType jdbcType)
+    public void setNonNullParameter(PreparedStatement ps, int i, JsonNode parameter, JdbcType jdbcType)
             throws SQLException {
-        Object jsonbObject = createJsonbObject(parameter);
+        Object jsonbObject = createJsonbObject(parameter.toString());
         if (jsonbObject != null) {
             ps.setObject(i, jsonbObject);
             return;
         }
-        ps.setObject(i, parameter, Types.OTHER);
+        ps.setObject(i, parameter.toString(), Types.OTHER);
     }
 
     @Override
-    public String getNullableResult(ResultSet rs, String columnName) throws SQLException {
-        return rs.getString(columnName);
+    public JsonNode getNullableResult(ResultSet rs, String columnName) throws SQLException {
+        return parseJson(rs.getString(columnName));
     }
 
     @Override
-    public String getNullableResult(ResultSet rs, int columnIndex) throws SQLException {
-        return rs.getString(columnIndex);
+    public JsonNode getNullableResult(ResultSet rs, int columnIndex) throws SQLException {
+        return parseJson(rs.getString(columnIndex));
     }
 
     @Override
-    public String getNullableResult(CallableStatement cs, int columnIndex) throws SQLException {
-        return cs.getString(columnIndex);
+    public JsonNode getNullableResult(CallableStatement cs, int columnIndex) throws SQLException {
+        return parseJson(cs.getString(columnIndex));
+    }
+
+    private JsonNode parseJson(String value) throws SQLException {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return OBJECT_MAPPER.readTree(value);
+        } catch (JsonProcessingException e) {
+            throw new SQLException("Failed to parse PostgreSQL jsonb value", e);
+        }
     }
 
     private Object createJsonbObject(String value) throws SQLException {

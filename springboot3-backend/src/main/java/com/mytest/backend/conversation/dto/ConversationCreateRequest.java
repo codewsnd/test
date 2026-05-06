@@ -1,5 +1,6 @@
 package com.mytest.backend.conversation.dto;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -14,7 +15,7 @@ public class ConversationCreateRequest {
     @NotBlank(message = "Title is required")
     private String title;
 
-    private Object conversationState;
+    private JsonNode conversationState;
     private Boolean isPinned;
     private Instant createdAt;
     private Instant updatedAt;
