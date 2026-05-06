@@ -18,6 +18,7 @@ public interface ConversationHistoryMapper extends BaseMapper<ConversationHistor
             SELECT
                 id,
                 title,
+                conversation_state,
                 is_pinned,
                 created_at,
                 updated_at,
