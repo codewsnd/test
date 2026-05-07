@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { List, Button, Dropdown, Input, Modal, Checkbox, Spin } from "antd";
 import {
   PushpinOutlined, PushpinFilled,
@@ -47,43 +47,36 @@ export default function ConversationItem({
 
   // 计算状态
   const isActive = activeConversationId === item.id;
-
-  useEffect(() => {
-    if (!item.titleGenerating || !isRenaming) {
-      return;
-    }
-
-    setIsRenaming(false);
-    setRenameValue("");
-  }, [item.titleGenerating, isRenaming]);
+  const isMoreButtonDisabled = Boolean(item.titleGenerating);
 
   const handleStartRename = () => {
-    if (item.titleGenerating) {
-      return;
-    }
-
     setIsRenaming(true);
     setRenameValue(item.title);
   };
 
   const handleConfirmRename = async () => {
-    if (item.titleGenerating) {
-      setIsRenaming(false);
-      setRenameValue("");
-      return;
-    }
+    const nextTitle = renameValue.trim();
 
-    if (renameValue.trim()) {
+    if (nextTitle) {
       // 更新本地状态
       updateConversationHistory({
         conversationHistoryId: item.id,
-        updater: { title: renameValue.trim() },
+        updater: { title: nextTitle },
         isDone: false
       });
 
       // 持久化到数据库
       try {
-        await renameConversationApi(item.id, renameValue.trim());
+        const renamedConversation = await renameConversationApi(item.id, nextTitle);
+        updateConversationHistory({
+          conversationHistoryId: item.id,
+          updater: {
+            title: renamedConversation.title,
+            updatedAt: renamedConversation.updatedAt,
+            titleGenerating: renamedConversation.titleGenerating
+          },
+          isDone: false
+        });
       } catch (error) {
         console.error('Failed to persist rename', error);
         // 如果API调用失败，可以考虑回滚本地状态
@@ -151,10 +144,10 @@ export default function ConversationItem({
         key: 'rename',
         label: 'Rename',
         icon: <EditOutlined />,
-        disabled: isMultiSelectMode || item.titleGenerating,
+        disabled: isMultiSelectMode,
         onClick: (e) => {
           e?.domEvent?.stopPropagation();
-          if (!isMultiSelectMode && !item.titleGenerating) {
+          if (!isMultiSelectMode) {
             handleStartRename();
           }
         },
@@ -281,6 +274,7 @@ export default function ConversationItem({
               type="text"
               icon={<MoreOutlined />}
               size="small"
+              disabled={isMoreButtonDisabled}
               style={{ color: "#666", flexShrink: 0 }}
               onClick={(e) => e.stopPropagation()}
             />
