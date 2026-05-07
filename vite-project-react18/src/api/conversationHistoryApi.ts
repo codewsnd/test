@@ -27,7 +27,7 @@ export type ConversationHistory = {
 };
 
 export type ConversationStatePatch = {
-  turns?: ConversationTurn[];
+  turns?: [ConversationTurn];
   agentId?: string | null;
   agentName?: string | null;
   currentTurnId?: string | null;

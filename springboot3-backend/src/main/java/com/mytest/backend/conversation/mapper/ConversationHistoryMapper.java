@@ -62,15 +62,11 @@ public interface ConversationHistoryMapper extends BaseMapper<ConversationHistor
                             COALESCE(ch.conversation_state, '{}'::jsonb) || (patch.patch_data - 'turns'),
                             '{turns}',
                             COALESCE((
-                                SELECT jsonb_agg(merged_turn ORDER BY merged_turn_index, merged_turn_id)
+                                SELECT jsonb_agg(merged_turn ORDER BY merged_turn_timestamp NULLS LAST, merged_turn_id NULLS LAST)
                                 FROM (
                                     SELECT
                                         merged_turn,
-                                        CASE
-                                            WHEN (merged_turn ->> 'turnIndex') ~ '^[0-9]+$'
-                                                THEN (merged_turn ->> 'turnIndex')::integer
-                                            ELSE 2147483647
-                                        END AS merged_turn_index,
+                                        merged_turn ->> 'timestamp' AS merged_turn_timestamp,
                                         merged_turn ->> 'id' AS merged_turn_id
                                     FROM (
                                         SELECT existing_turn AS merged_turn

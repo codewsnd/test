@@ -185,8 +185,8 @@ const toPersistableConversation = (conversation: ConversationHistory) => {
   return persistableConversation;
 };
 
-// 找出新增或发生变化的 turn，后端会按 turn.id 追加或替换。
-const buildChangedTurnsPatch = (
+// 找出最后一条新增或发生变化的 turn，后端会按 turn.id 追加或替换。
+const buildChangedTurnPatch = (
   previousTurns: ConversationTurn[] = [],
   nextTurns: ConversationTurn[] = []
 ) => {
@@ -194,9 +194,11 @@ const buildChangedTurnsPatch = (
     previousTurns.map((turn) => [turn.id, turn])
   );
 
-  return nextTurns.filter(
+  const changedTurns = nextTurns.filter(
     (turn) => !isSameValue(previousTurnsById.get(turn.id), turn)
   );
+
+  return changedTurns[changedTurns.length - 1];
 };
 
 // 根据前后会话状态生成最小 conversationState patch。
@@ -209,13 +211,13 @@ const buildConversationStatePatch = (
   }
 
   const patch: ConversationStatePatch = {};
-  const changedTurns = buildChangedTurnsPatch(
+  const changedTurn = buildChangedTurnPatch(
     previousState?.turns,
     nextState.turns
   );
 
-  if (changedTurns.length > 0) {
-    patch.turns = changedTurns;
+  if (changedTurn) {
+    patch.turns = [changedTurn];
   }
 
   if (!isSameValue(previousState?.agentId, nextState.agentId)) {
