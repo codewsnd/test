@@ -3,7 +3,7 @@ package com.mytest.backend.conversation.service;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.mytest.backend.conversation.dto.ConversationCreateRequest;
-import com.mytest.backend.conversation.dto.ConversationStatePatchRequest;
+import com.mytest.backend.conversation.dto.ConversationUpdateStateRequest;
 import com.mytest.backend.conversation.entity.ConversationHistory;
 import com.mytest.backend.conversation.mapper.ConversationHistoryMapper;
 import com.mytest.backend.conversation.vo.ConversationHistoryResponse;
@@ -85,7 +85,7 @@ public class ConversationHistoryService {
     public ConversationHistoryResponse updateConversationState(
             String id,
             String staffId,
-            ConversationStatePatchRequest request
+            ConversationUpdateStateRequest request
     ) {
         try {
             conversationHistoryMapper.updateConversationState(

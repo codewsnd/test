@@ -2,7 +2,7 @@ package com.mytest.backend.conversation.controller;
 
 import com.mytest.backend.conversation.dto.ConversationRenameRequest;
 import com.mytest.backend.conversation.dto.ConversationCreateRequest;
-import com.mytest.backend.conversation.dto.ConversationStatePatchRequest;
+import com.mytest.backend.conversation.dto.ConversationUpdateStateRequest;
 import com.mytest.backend.conversation.service.ConversationHistoryService;
 import com.mytest.backend.conversation.util.JwtTokenUtil;
 import com.mytest.backend.conversation.vo.ConversationHistoryResponse;
@@ -58,7 +58,7 @@ public class ConversationHistoryController {
     public ConversationHistoryResponse patchConversationState(
             @PathVariable @NotBlank String id,
             @RequestHeader(X_E2E_TRUST_TOKEN) String jwtToken,
-            @Valid @RequestBody ConversationStatePatchRequest request) {
+            @Valid @RequestBody ConversationUpdateStateRequest request) {
         return conversationHistoryService.updateConversationState(id, JwtTokenUtil.getStaffId(jwtToken), request);
     }
 

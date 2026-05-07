@@ -7,7 +7,7 @@ import lombok.Data;
 import java.time.Instant;
 
 @Data
-public class ConversationStatePatchRequest {
+public class ConversationUpdateStateRequest {
 
     @NotNull(message = "Conversation state patch is required")
     private JsonNode conversationState;
