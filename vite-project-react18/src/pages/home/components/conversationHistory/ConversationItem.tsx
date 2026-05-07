@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { List, Button, Dropdown, Input, Modal, Checkbox, Spin } from "antd";
 import {
   PushpinOutlined, PushpinFilled,
@@ -48,12 +48,31 @@ export default function ConversationItem({
   // 计算状态
   const isActive = activeConversationId === item.id;
 
+  useEffect(() => {
+    if (!item.titleGenerating || !isRenaming) {
+      return;
+    }
+
+    setIsRenaming(false);
+    setRenameValue("");
+  }, [item.titleGenerating, isRenaming]);
+
   const handleStartRename = () => {
+    if (item.titleGenerating) {
+      return;
+    }
+
     setIsRenaming(true);
     setRenameValue(item.title);
   };
 
   const handleConfirmRename = async () => {
+    if (item.titleGenerating) {
+      setIsRenaming(false);
+      setRenameValue("");
+      return;
+    }
+
     if (renameValue.trim()) {
       // 更新本地状态
       updateConversationHistory({
@@ -132,10 +151,10 @@ export default function ConversationItem({
         key: 'rename',
         label: 'Rename',
         icon: <EditOutlined />,
-        disabled: isMultiSelectMode,
+        disabled: isMultiSelectMode || item.titleGenerating,
         onClick: (e) => {
           e?.domEvent?.stopPropagation();
-          if (!isMultiSelectMode) {
+          if (!isMultiSelectMode && !item.titleGenerating) {
             handleStartRename();
           }
         },

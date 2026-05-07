@@ -1,5 +1,5 @@
 import { atom } from 'jotai';
-import type { ConversationState, ConversationTurn } from '../chat/types';
+import type { ConversationState } from '../chat/types';
 import type {ConversationHistory} from "@/api/conversationHistoryApi";
 import {
   pageConversationsApi,
@@ -7,7 +7,6 @@ import {
   batchPinConversationsApi,
   batchUnpinConversationsApi
 } from "@/api/conversationHistoryApi";
-import { aiChat } from "@/api";
 import {v7} from 'uuid';
 import {
   enqueueConversationHistoryPersistenceAtom,
@@ -240,71 +239,6 @@ export const setConversationStateAtom = atom(
       },
       isDone
     });
-  }
-);
-
-export const generateConversationTitleAtom = atom(
-  null,
-  async (get, set, {
-    conversationId,
-    turns,
-    turnId
-  }: {
-    conversationId: string;
-    turns: ConversationTurn[];
-    turnId: string;
-  }) => {
-    // 只在第一次对话且有AI回复内容时生成标题
-    if (turns.length !== 1 || !conversationId) return;
-
-    const turn = turns.find((turn) => turn.id === turnId);
-    if (!turn?.aiResponse.content) return;
-
-    const conversations = get(conversationHistoriesAtom);
-    const conversation = conversations.find(c => c.id === conversationId);
-    if (!conversation) return;
-
-    const userInput = turn.userInput.content;
-    const aiResponse = turn.aiResponse.content.replace(/<think>[\s\S]*?<\/think>/g, '') || '';
-    const fallbackTitle = userInput.trim().substring(0, 20);
-    const updateTitle = (title: string) => {
-      setTimeout(()=> {
-        set(setConversationHistoryAtom, {
-          conversationHistoryId: conversationId,
-          updater: { title, titleGenerating: false },
-          isDone: true
-        });
-      }, 100);
-    };
-
-    const summaryContent = `Generate a concise conversation title (maximum 20 characters) based on the following conversation. The title should:
-1. Be in the same language as the user's input
-2. Capture the main topic or question
-3. Be specific and descriptive
-4. Use clear, natural language
-
-User Input: ${userInput}
-AI Response: ${aiResponse}
-
-Please provide only the title, no additional text or explanation.`;
-
-    try {
-      const response = await aiChat({
-        messages: [{
-          role: 'user',
-          content: summaryContent
-        }]
-      });
-      const finalTitle = response.data?.content?.toString().trim().substring(0, 20) || fallbackTitle;
-
-      updateTitle(finalTitle);
-      return finalTitle;
-    } catch (error) {
-      console.error('Failed to generate title:', error);
-
-      updateTitle(fallbackTitle);
-      return fallbackTitle;
-    }
   }
 );
 
