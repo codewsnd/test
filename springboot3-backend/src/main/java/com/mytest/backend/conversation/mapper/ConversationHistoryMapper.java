@@ -43,7 +43,10 @@ public interface ConversationHistoryMapper extends BaseMapper<ConversationHistor
 
     @Update("""
             WITH patch AS (
-                SELECT #{conversationStatePatch,jdbcType=OTHER,typeHandler=com.mytest.backend.conversation.typehandler.JsonbJsonNodeTypeHandler} AS patch_data
+                SELECT CAST(
+                    #{conversationStatePatch,jdbcType=OTHER,typeHandler=com.mytest.backend.conversation.typehandler.JsonbJsonNodeTypeHandler}
+                    AS jsonb
+                ) AS patch_data
             )
             UPDATE conversation_history AS ch
             SET conversation_state = CASE

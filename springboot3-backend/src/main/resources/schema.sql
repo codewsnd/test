@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS conversation_history (
     id varchar PRIMARY KEY,
     title VARCHAR(500) NOT NULL,
-    conversation_state jsonb, -- JSON string to store conversation state
+    conversation_state jsonb, -- JSONB conversation state
     is_pinned BOOLEAN NOT NULL,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,

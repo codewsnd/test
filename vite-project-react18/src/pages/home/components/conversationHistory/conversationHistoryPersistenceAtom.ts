@@ -233,15 +233,37 @@ const setLocalTitleGenerating = (
   titleGenerating: boolean
 ) => {
   task.setConversationHistories((prev) =>
-    prev.map((conversation) =>
-      conversation.id === task.conversation.id
-        ? {
-            ...conversation,
-            titleGenerating
-          }
-        : conversation
-    )
+    prev.map((conversation) => {
+      if (conversation.id !== task.conversation.id) {
+        return conversation;
+      }
+
+      // 当前仍有 turn 在生成时，失败兜底不能把标题加载态提前关掉。
+      if (!titleGenerating && conversation.conversationState?.currentTurnId) {
+        return conversation;
+      }
+
+      return {
+        ...conversation,
+        titleGenerating
+      };
+    })
   );
+};
+
+// 当本次更新不会进入 rename 时，清理本地标题加载态，并避免后端旧值再次覆盖为 true。
+const clearTitleGeneratingWhenRenameSkipped = (
+  task: QueuedPersistenceTask,
+  persistedConversation?: ConversationHistory
+) => {
+  setLocalTitleGenerating(task, false);
+
+  return persistedConversation
+    ? {
+        ...persistedConversation,
+        titleGenerating: false
+      }
+    : undefined;
 };
 
 // 构造 AI 生成会话标题所需的提示词，只使用当前 turn 的用户输入和 AI 回复。
@@ -294,13 +316,8 @@ const getTitleSourceTurn = (
 // 生成标题并通过 rename 接口持久化，返回后端确认后的会话数据用于回写本地元信息。
 const persistGeneratedTitle = async (
   task: QueuedPersistenceTask,
-  conversationStatePatch: ConversationStatePatch | null
+  titleSourceTurn: ConversationTurn
 ) => {
-  const titleSourceTurn = getTitleSourceTurn(conversationStatePatch);
-  if (!titleSourceTurn) {
-    return undefined;
-  }
-
   setLocalTitleGenerating(task, true);
   try {
     const title = await generateConversationTitle(titleSourceTurn);
@@ -378,7 +395,13 @@ const buildConversationStatePatchRequest = (
 
 // 执行创建请求，创建仍然需要使用完整会话数据。
 const persistConversationCreate = async (task: QueuedPersistenceTask) => {
-  return await saveConversationApi(toPersistableConversation(task.conversation));
+  const persistedConversation = await saveConversationApi(toPersistableConversation(task.conversation));
+
+  // 创建接口本身不会 rename；如果本地没有正在生成的 turn，不能让后端旧值把 loading 卡住。
+  return {
+    ...persistedConversation,
+    titleGenerating: false
+  };
 };
 
 // 执行会话增量更新：先保存 state patch，再通过 rename 接口更新生成标题。
@@ -397,7 +420,12 @@ const persistConversationUpdate = async (task: QueuedPersistenceTask) => {
     );
   }
 
-  return await persistGeneratedTitle(task, conversationStatePatch) ?? patchedConversation;
+  const titleSourceTurn = getTitleSourceTurn(conversationStatePatch);
+  if (!titleSourceTurn) {
+    return clearTitleGeneratingWhenRenameSkipped(task, patchedConversation);
+  }
+
+  return await persistGeneratedTitle(task, titleSourceTurn) ?? patchedConversation;
 };
 
 // 根据任务类型分发到创建或增量更新接口。
@@ -440,6 +468,7 @@ const runPersistenceTask = async (task: QueuedPersistenceTask) => {
         notifyBackendUnavailable(OPERATION_UPDATE);
         createBlockedUpdateNotifiedIds.add(task.conversation.id);
       }
+      clearTitleGeneratingWhenRenameSkipped(task);
       return;
     }
 
@@ -454,6 +483,8 @@ const runPersistenceTask = async (task: QueuedPersistenceTask) => {
     if (task.operation === OPERATION_CREATE) {
       createFailedConversationIds.add(task.conversation.id);
     }
+
+    clearTitleGeneratingWhenRenameSkipped(task);
 
     console.error(
       `Failed to ${task.operation} conversation history after retries`,

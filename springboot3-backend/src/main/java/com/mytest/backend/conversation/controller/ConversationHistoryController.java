@@ -54,7 +54,7 @@ public class ConversationHistoryController {
         return conversationHistoryService.createConversation(JwtTokenUtil.getStaffId(jwtToken), request);
     }
 
-    @PatchMapping("/state/{id}")
+    @PostMapping("/state/{id}")
     public ConversationHistoryResponse saveConversationState(
             @PathVariable @NotBlank String id,
             @RequestHeader(X_E2E_TRUST_TOKEN) String jwtToken,

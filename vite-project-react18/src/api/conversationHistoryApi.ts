@@ -92,7 +92,7 @@ export const saveConversationStateApi = async (
   payload: ConversationStatePatchRequest
 ): Promise<ConversationHistory> => {
   try {
-    return await springboot3BackendApi.patch(`/conversations/histories/state/${id}`, payload);
+    return await springboot3BackendApi.post(`/conversations/histories/state/${id}`, payload);
   } catch (error) {
     console.error('Error saving conversation state:', error);
     throw error;
