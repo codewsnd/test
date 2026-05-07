@@ -217,7 +217,9 @@ const syncPersistedConversationMetadata = (
         ? {
             ...conversation,
             title: persistedConversation.title,
-            // titleGenerating: persistedConversation.titleGenerating,
+            titleGenerating: conversation.conversationState?.currentTurnId
+              ? true
+              : persistedConversation.titleGenerating,
             updatedAt: persistedConversation.updatedAt
           }
         : conversation
@@ -277,22 +279,13 @@ const generateConversationTitle = async (turn: ConversationTurn) => {
   }
 };
 
-// 选择用于生成标题的 turn，优先使用本次增量 patch 的 turn，否则取当前会话最近一条有回复的 turn。
+// 选择用于生成标题的 turn，只允许使用本次增量 patch 中已完成且有回复内容的 turn。
 const getTitleSourceTurn = (
-  task: QueuedPersistenceTask,
   conversationStatePatch: ConversationStatePatch | null
 ) => {
   const changedTurn = conversationStatePatch?.turns?.[0];
-  if (changedTurn?.aiResponse.content) {
+  if (changedTurn?.aiResponse.status === 'completed' && changedTurn.aiResponse.content) {
     return changedTurn;
-  }
-
-  const turns = task.conversation.conversationState?.turns ?? [];
-  for (let index = turns.length - 1; index >= 0; index -= 1) {
-    const turn = turns[index];
-    if (turn.aiResponse.content) {
-      return turn;
-    }
   }
 
   return undefined;
@@ -303,7 +296,7 @@ const persistGeneratedTitle = async (
   task: QueuedPersistenceTask,
   conversationStatePatch: ConversationStatePatch | null
 ) => {
-  const titleSourceTurn = getTitleSourceTurn(task, conversationStatePatch);
+  const titleSourceTurn = getTitleSourceTurn(conversationStatePatch);
   if (!titleSourceTurn) {
     return undefined;
   }

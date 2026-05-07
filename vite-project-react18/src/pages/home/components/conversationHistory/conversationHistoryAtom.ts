@@ -234,6 +234,7 @@ export const setConversationStateAtom = atom(
 
         return {
           ...convHistory,
+          titleGenerating: updatedState.currentTurnId ? true : convHistory.titleGenerating,
           conversationState: updatedState
         };
       },
