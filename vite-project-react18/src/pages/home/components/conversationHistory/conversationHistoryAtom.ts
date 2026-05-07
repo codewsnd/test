@@ -94,13 +94,8 @@ export const setConversationHistoryAtom = atom(
       ? updater(targetConvHistory)
       : { ...targetConvHistory, ...updater };
 
-    // 是否有更新
-    if (JSON.stringify(targetConvHistory) === JSON.stringify(updatedConvHistory)) {
-      return;
-    }
-
     const localUpdatedConvHistory = isDone
-      ? { ...updatedConvHistory, isUpdating: true }
+      ? { ...updatedConvHistory, isUpdating: true}
       : updatedConvHistory;
 
     const newConvs = conversations.map(conv =>

@@ -686,13 +686,13 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       true
     );
 
-    if (turnsForTitle) {
-      void generateConversationTitle({
-        conversationId: conversationHistoryId,
-        turns: turnsForTitle,
-        turnId
-      }).catch(console.error);
-    }
+    // if (turnsForTitle) {
+      // void generateConversationTitle({
+      //   conversationId: conversationHistoryId,
+      //   turns: turnsForTitle,
+      //   turnId
+      // }).catch(console.error);
+    // }
 
     eventSourceRef.current = null;
     releaseTurnResources(turnId);

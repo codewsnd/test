@@ -1,6 +1,7 @@
 import { message, Modal } from 'antd';
 import { atom } from 'jotai';
 import type { PrimitiveAtom } from 'jotai';
+import { aiChat } from '@/api';
 import {
   patchConversationStateApi,
   renameConversationApi,
@@ -36,20 +37,35 @@ type QueuedPersistenceTask = Omit<
 
 type PendingCounters = Record<PersistenceOperation, number>;
 
+// 每个持久化任务最多重试次数。
 const MAX_PERSISTENCE_ATTEMPTS = 3;
+// 持久化失败后的基础退避等待时间，实际等待会按重试次数递增。
 const RETRY_DELAY_MS = 1000;
+// 后端不可用时展示给用户的统一错误文案。
 const BACKEND_UNAVAILABLE_MESSAGE = 'Backend service is unavailable';
+// AI 生成会话标题的最大字符数。
+const GENERATED_TITLE_MAX_LENGTH = 20;
 
+// 全局串行持久化队列，确保创建和更新按入队顺序执行。
 let persistenceQueue = Promise.resolve();
+// 标记 beforeunload 防护是否已安装，避免重复绑定浏览器事件。
 let unloadGuardInstalled = false;
+// 当前所有未完成持久化任务数量，用于关闭页提示和弹窗关闭判断。
 let pendingPersistenceCount = 0;
+// 当前未完成创建任务数量，用于生成关闭页提示文案。
 let pendingCreateCount = 0;
+// 当前未完成更新任务数量，用于生成关闭页提示文案。
 let pendingUpdateCount = 0;
+// 标记等待保存完成的提示弹窗是否已经展示。
 let pendingPersistenceModalVisible = false;
+// 保存当前等待弹窗的销毁函数，所有任务完成后主动关闭弹窗。
 let pendingPersistenceModalDestroy: (() => void) | undefined;
 
+// 按会话维度记录创建和更新任务数量，避免同一会话多个任务互相误清状态。
 const pendingCountersByConversationId = new Map<string, PendingCounters>();
+// 记录创建失败的会话 ID，阻止后续更新继续打到不存在的后端记录。
 const createFailedConversationIds = new Set<string>();
+// 记录已提示过“创建失败导致更新阻塞”的会话 ID，避免重复弹错误提示。
 const createBlockedUpdateNotifiedIds = new Set<string>();
 
 // 判断两个可序列化值是否相同，用于构造增量 patch。
@@ -185,6 +201,122 @@ const toPersistableConversation = (conversation: ConversationHistory) => {
   return persistableConversation;
 };
 
+// 同步后端保存成功后返回的标题、标题生成状态和更新时间到本地会话列表。
+const syncPersistedConversationMetadata = (
+  task: QueuedPersistenceTask,
+  persistedConversation?: ConversationHistory
+) => {
+  if (!persistedConversation) {
+    return;
+  }
+
+  // 保存成功后只回写后端确认的标题元数据，避免用接口响应覆盖本地仍在排队的会话内容。
+  task.setConversationHistories((prev) =>
+    prev.map((conversation) =>
+      conversation.id === task.conversation.id
+        ? {
+            ...conversation,
+            title: persistedConversation.title,
+            // titleGenerating: persistedConversation.titleGenerating,
+            updatedAt: persistedConversation.updatedAt
+          }
+        : conversation
+    )
+  );
+};
+
+// 更新本地标题生成状态，避免 rename 期间侧边栏标题加载态不准确。
+const setLocalTitleGenerating = (
+  task: QueuedPersistenceTask,
+  titleGenerating: boolean
+) => {
+  task.setConversationHistories((prev) =>
+    prev.map((conversation) =>
+      conversation.id === task.conversation.id
+        ? {
+            ...conversation,
+            titleGenerating
+          }
+        : conversation
+    )
+  );
+};
+
+// 构造 AI 生成会话标题所需的提示词，只使用当前 turn 的用户输入和 AI 回复。
+const buildGeneratedTitlePrompt = (turn: ConversationTurn) => {
+  const userInput = turn.userInput.content;
+  const aiResponse = turn.aiResponse.content.replace(/<think>[\s\S]*?<\/think>/g, '') || '';
+
+  return `Generate a concise conversation title (maximum 20 characters) based on the following conversation. The title should:
+1. Be in the same language as the user's input
+2. Capture the main topic or question
+3. Be specific and descriptive
+4. Use clear, natural language
+
+User Input: ${userInput}
+AI Response: ${aiResponse}
+
+Please provide only the title, no additional text or explanation.`;
+};
+
+// 调用 AI 生成会话标题，失败时使用用户输入的前 20 个字符作为兜底标题。
+const generateConversationTitle = async (turn: ConversationTurn) => {
+  const fallbackTitle = turn.userInput.content.trim().substring(0, GENERATED_TITLE_MAX_LENGTH);
+
+  try {
+    const response = await aiChat({
+      messages: [{
+        role: 'user',
+        content: buildGeneratedTitlePrompt(turn)
+      }]
+    });
+    return response.data?.content?.toString().trim().substring(0, GENERATED_TITLE_MAX_LENGTH) || fallbackTitle;
+  } catch (error) {
+    console.error('Failed to generate conversation title', error);
+    return fallbackTitle;
+  }
+};
+
+// 选择用于生成标题的 turn，优先使用本次增量 patch 的 turn，否则取当前会话最近一条有回复的 turn。
+const getTitleSourceTurn = (
+  task: QueuedPersistenceTask,
+  conversationStatePatch: ConversationStatePatch | null
+) => {
+  const changedTurn = conversationStatePatch?.turns?.[0];
+  if (changedTurn?.aiResponse.content) {
+    return changedTurn;
+  }
+
+  const turns = task.conversation.conversationState?.turns ?? [];
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (turn.aiResponse.content) {
+      return turn;
+    }
+  }
+
+  return undefined;
+};
+
+// 生成标题并通过 rename 接口持久化，返回后端确认后的会话数据用于回写本地元信息。
+const persistGeneratedTitle = async (
+  task: QueuedPersistenceTask,
+  conversationStatePatch: ConversationStatePatch | null
+) => {
+  const titleSourceTurn = getTitleSourceTurn(task, conversationStatePatch);
+  if (!titleSourceTurn) {
+    return undefined;
+  }
+
+  setLocalTitleGenerating(task, true);
+  try {
+    const title = await generateConversationTitle(titleSourceTurn);
+    return await renameConversationApi(task.conversation.id, title);
+  } finally {
+    setLocalTitleGenerating(task, false);
+  }
+};
+
 // 找出最后一条新增或发生变化的 turn，后端会按 turn.id 追加或替换。
 const buildChangedTurnPatch = (
   previousTurns: ConversationTurn[] = [],
@@ -235,12 +367,6 @@ const buildConversationStatePatch = (
   return Object.keys(patch).length > 0 ? patch : null;
 };
 
-// 判断当前更新是否需要调用重命名接口。
-const shouldRenameConversation = (task: QueuedPersistenceTask) =>
-  !task.previousConversation ||
-  task.previousConversation.title !== task.conversation.title ||
-  task.previousConversation.titleGenerating !== task.conversation.titleGenerating;
-
 // 构造增量更新会话状态所需的请求体。
 const buildConversationStatePatchRequest = (
   task: QueuedPersistenceTask,
@@ -259,38 +385,35 @@ const buildConversationStatePatchRequest = (
 
 // 执行创建请求，创建仍然需要使用完整会话数据。
 const persistConversationCreate = async (task: QueuedPersistenceTask) => {
-  await saveConversationApi(toPersistableConversation(task.conversation));
+  return await saveConversationApi(toPersistableConversation(task.conversation));
 };
 
-// 执行会话增量更新：标题走 rename，状态走 patch state。
+// 执行会话增量更新：先保存 state patch，再通过 rename 接口更新生成标题。
 const persistConversationUpdate = async (task: QueuedPersistenceTask) => {
-  if (shouldRenameConversation(task)) {
-    await renameConversationApi(task.conversation.id, task.conversation.title);
-  }
-
   const conversationStatePatch = buildConversationStatePatch(
     task.previousConversation?.conversationState,
     task.conversation.conversationState
   );
 
-  if (!conversationStatePatch) {
-    return;
+  let patchedConversation: ConversationHistory | undefined;
+
+  if (conversationStatePatch) {
+    patchedConversation = await patchConversationStateApi(
+      task.conversation.id,
+      buildConversationStatePatchRequest(task, conversationStatePatch)
+    );
   }
 
-  await patchConversationStateApi(
-    task.conversation.id,
-    buildConversationStatePatchRequest(task, conversationStatePatch)
-  );
+  return await persistGeneratedTitle(task, conversationStatePatch) ?? patchedConversation;
 };
 
 // 根据任务类型分发到创建或增量更新接口。
 const persistConversation = async (task: QueuedPersistenceTask) => {
   if (task.operation === OPERATION_CREATE) {
-    await persistConversationCreate(task);
-    return;
+    return await persistConversationCreate(task);
   }
 
-  await persistConversationUpdate(task);
+  return await persistConversationUpdate(task);
 };
 
 // 执行单次会话创建或增量更新，并在失败时最多重试三次。
@@ -299,8 +422,7 @@ const persistConversationWithRetry = async (task: QueuedPersistenceTask) => {
 
   for (let attempt = 1; attempt <= MAX_PERSISTENCE_ATTEMPTS; attempt += 1) {
     try {
-      await persistConversation(task);
-      return;
+      return await persistConversation(task);
     } catch (error) {
       lastError = error;
 
@@ -328,7 +450,8 @@ const runPersistenceTask = async (task: QueuedPersistenceTask) => {
       return;
     }
 
-    await persistConversationWithRetry(task);
+    const persistedConversation = await persistConversationWithRetry(task);
+    syncPersistedConversationMetadata(task, persistedConversation);
 
     if (task.operation === OPERATION_CREATE) {
       createFailedConversationIds.delete(task.conversation.id);
