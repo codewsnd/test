@@ -26,7 +26,6 @@ import type {
 import {
   conversationHistoriesAtom,
   createConversationHistoryAtom,
-  generateConversationTitleAtom,
   setConversationStateAtom
 } from '../conversationHistory/conversationHistoryAtom';
 import './chatArea.css';
@@ -243,7 +242,6 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
   const setConversationHistories = useSetAtom(conversationHistoriesAtom);
   const createConversationHistory = useSetAtom(createConversationHistoryAtom);
   const setConversationState = useSetAtom(setConversationStateAtom);
-  const generateConversationTitle = useSetAtom(generateConversationTitleAtom);
   const showTestCaseSidebar = useSetAtom(showTestCaseSidebarAtom);
 
   const [localConversationId, setLocalConversationId] = useState<string | null>(conversationId ?? null);
@@ -653,8 +651,6 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       manager.completeStep(STEP_KEYS.completion);
     }
 
-    let turnsForTitle: ConversationTurn[] | undefined;
-
     updateConversation(
       conversationHistoryId,
       (prevState) => {
@@ -677,23 +673,10 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
           currentTurnId: undefined
         };
 
-        if (nextState.turns.length === 1) {
-          turnsForTitle = nextState.turns;
-        }
-
         return nextState;
       },
       true
     );
-
-    // if (turnsForTitle) {
-      // void generateConversationTitle({
-      //   conversationId: conversationHistoryId,
-      //   turns: turnsForTitle,
-      //   turnId
-      // }).catch(console.error);
-    // }
-
     eventSourceRef.current = null;
     releaseTurnResources(turnId);
   };

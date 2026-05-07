@@ -54,12 +54,12 @@ public class ConversationHistoryController {
         return conversationHistoryService.createConversation(JwtTokenUtil.getStaffId(jwtToken), request);
     }
 
-    @PatchMapping("/{id}/state")
-    public ConversationHistoryResponse patchConversationState(
+    @PatchMapping("/state/{id}")
+    public ConversationHistoryResponse saveConversationState(
             @PathVariable @NotBlank String id,
             @RequestHeader(X_E2E_TRUST_TOKEN) String jwtToken,
             @Valid @RequestBody ConversationUpdateStateRequest request) {
-        return conversationHistoryService.updateConversationState(id, JwtTokenUtil.getStaffId(jwtToken), request);
+        return conversationHistoryService.saveConversationState(id, JwtTokenUtil.getStaffId(jwtToken), request);
     }
 
     @PutMapping("/{id}/rename")

@@ -77,7 +77,7 @@ const toConversationRequestPayload = (
   return payload as Omit<ConversationHistory, 'staffId'>;
 };
 
-// 创建会话；后续更新请使用 patchConversationStateApi / renameConversationApi 做增量更新
+// 创建会话；后续更新请使用 saveConversationStateApi / renameConversationApi 做增量更新
 export const saveConversationApi = async (conversation: ConversationHistory): Promise<ConversationHistory> => {
   try {
     return await springboot3BackendApi.post('/conversations/histories', toConversationRequestPayload(conversation));
@@ -87,14 +87,14 @@ export const saveConversationApi = async (conversation: ConversationHistory): Pr
   }
 };
 
-export const patchConversationStateApi = async (
+export const saveConversationStateApi = async (
   id: string,
   payload: ConversationStatePatchRequest
 ): Promise<ConversationHistory> => {
   try {
-    return await springboot3BackendApi.patch(`/conversations/histories/${id}/state`, payload);
+    return await springboot3BackendApi.patch(`/conversations/histories/state/${id}`, payload);
   } catch (error) {
-    console.error('Error patching conversation state:', error);
+    console.error('Error saving conversation state:', error);
     throw error;
   }
 };

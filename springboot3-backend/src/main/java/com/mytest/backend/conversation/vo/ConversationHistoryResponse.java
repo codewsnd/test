@@ -1,5 +1,6 @@
 package com.mytest.backend.conversation.vo;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mytest.backend.conversation.entity.ConversationHistory;
 import lombok.Builder;
@@ -13,6 +14,7 @@ public class ConversationHistoryResponse {
 
     private String id;
     private String title;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private JsonNode conversationState;
     private Boolean isPinned;
     private Instant createdAt;

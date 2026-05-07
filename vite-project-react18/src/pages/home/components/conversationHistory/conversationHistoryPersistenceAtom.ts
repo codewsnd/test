@@ -3,9 +3,9 @@ import { atom } from 'jotai';
 import type { PrimitiveAtom } from 'jotai';
 import { aiChat } from '@/api';
 import {
-  patchConversationStateApi,
   renameConversationApi,
   saveConversationApi,
+  saveConversationStateApi,
   type ConversationHistory,
   type ConversationStatePatch,
   type ConversationStatePatchRequest
@@ -391,7 +391,7 @@ const persistConversationUpdate = async (task: QueuedPersistenceTask) => {
   let patchedConversation: ConversationHistory | undefined;
 
   if (conversationStatePatch) {
-    patchedConversation = await patchConversationStateApi(
+    patchedConversation = await saveConversationStateApi(
       task.conversation.id,
       buildConversationStatePatchRequest(task, conversationStatePatch)
     );

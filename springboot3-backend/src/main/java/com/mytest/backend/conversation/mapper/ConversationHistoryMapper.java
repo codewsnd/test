@@ -18,7 +18,6 @@ public interface ConversationHistoryMapper extends BaseMapper<ConversationHistor
             SELECT
                 id,
                 title,
-                conversation_state,
                 is_pinned,
                 created_at,
                 updated_at,
@@ -36,7 +35,7 @@ public interface ConversationHistoryMapper extends BaseMapper<ConversationHistor
               )
             ORDER BY is_pinned DESC NULLS LAST, pinned_at DESC NULLS LAST, updated_at DESC
             """)
-    Page<ConversationHistory> selectPageByStaffIdAndSearch(
+    Page<ConversationHistory> pageConversations(
             Page<ConversationHistory> page,
             @Param("staffId") String staffId,
             @Param("search") String search
@@ -99,7 +98,7 @@ public interface ConversationHistoryMapper extends BaseMapper<ConversationHistor
               AND ch.user_id = #{staffId}
               AND COALESCE(ch.is_deleted, FALSE) = FALSE
             """)
-    int updateConversationState(
+    int saveConversationState(
             @Param("id") String id,
             @Param("staffId") String staffId,
             @Param("conversationStatePatch") JsonNode conversationStatePatch,

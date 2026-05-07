@@ -36,7 +36,7 @@ public class ConversationHistoryService {
     ) {
         try {
             String searchTerm = StringUtils.hasText(search) ? search.trim() : "";
-            Page<ConversationHistory> result = conversationHistoryMapper.selectPageByStaffIdAndSearch(
+            Page<ConversationHistory> result = conversationHistoryMapper.pageConversations(
                     Page.of(pageable.getPageNumber() + 1L, pageable.getPageSize(), true),
                     staffId,
                     searchTerm
@@ -82,23 +82,23 @@ public class ConversationHistoryService {
     }
 
     @Transactional
-    public ConversationHistoryResponse updateConversationState(
+    public ConversationHistoryResponse saveConversationState(
             String id,
             String staffId,
             ConversationUpdateStateRequest request
     ) {
         try {
-            conversationHistoryMapper.updateConversationState(
+            conversationHistoryMapper.saveConversationState(
                     id,
                     staffId,
                     request.getConversationState(),
                     request.getUpdatedAt()
             );
             ConversationHistory conversation = requireAccessibleConversation(id, staffId);
-            log.info("[ConversationHistory] action=updateState staffId={} conversationId={}", staffId, id);
+            log.info("[ConversationHistory] action=saveState staffId={} conversationId={}", staffId, id);
             return ConversationHistoryResponse.from(conversation);
         } catch (CustomException e) {
-            log.error("[ConversationHistory:Failed] action=updateState staffId={} conversationId={}", staffId, id, e);
+            log.error("[ConversationHistory:Failed] action=saveState staffId={} conversationId={}", staffId, id, e);
             throw e;
         }
     }
