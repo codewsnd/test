@@ -8,7 +8,7 @@ export const listSelectOptionApi = async (params?: SelectOption): Promise<Array<
   try {
     const queryString = buildQueryParams(params);
     const response = await axios.get<Array<SelectOption>>(`${SPRINGBOOT2_API_URL}/selectOptions?${queryString}`);
-    return response.data;
+    return response;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -23,7 +23,7 @@ export const saveSelectOptionApi = async (option: SelectOption): Promise<SelectO
     } else {
       response = await axios.post<SelectOption>(`${SPRINGBOOT2_API_URL}/selectOptions`, option);
     }
-    return response.data;
+    return response;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -42,7 +42,7 @@ export const deleteSelectOptionApi = async (id: string): Promise<void> => {
 export const getSelectOptionApi = async (id: string): Promise<SelectOption> => {
   try {
     const response = await axios.get<SelectOption>(`${SPRINGBOOT2_API_URL}/selectOptions/${id}`);
-    return response.data;
+    return response;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -54,7 +54,7 @@ export const getSelectOptionApi = async (id: string): Promise<SelectOption> => {
 export const addOptionApi = async (id: string, option: Option): Promise<SelectOption> => {
   try {
     const response = await axios.post<SelectOption>(`${SPRINGBOOT2_API_URL}/selectOptions/${id}/options`, option);
-    return response.data;
+    return response;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -65,7 +65,7 @@ export const addOptionApi = async (id: string, option: Option): Promise<SelectOp
 export const updateOptionApi = async (id: string, index: number, option: Option): Promise<SelectOption> => {
   try {
     const response = await axios.put<SelectOption>(`${SPRINGBOOT2_API_URL}/selectOptions/${id}/options/${index}`, option);
-    return response.data;
+    return response;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -76,7 +76,7 @@ export const updateOptionApi = async (id: string, index: number, option: Option)
 export const deleteOptionApi = async (id: string, index: number): Promise<SelectOption> => {
   try {
     const response = await axios.delete<SelectOption>(`${SPRINGBOOT2_API_URL}/selectOptions/${id}/options/${index}`);
-    return response.data;
+    return response;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -89,7 +89,7 @@ export const moveOptionApi = async (id: string, fromIndex: number, toIndex: numb
     const response = await axios.post<SelectOption>(`${SPRINGBOOT2_API_URL}/selectOptions/${id}/options/move`, null, {
       params: {fromIndex, toIndex}
     });
-    return response.data;
+    return response;
   } catch (error) {
     console.error('API Error', error);
     throw error;

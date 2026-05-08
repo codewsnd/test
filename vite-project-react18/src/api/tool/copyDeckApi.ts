@@ -27,7 +27,7 @@ export const copyDeckStorageApi = async (confluenceUrl: string): Promise<CopyDec
       staffId: getEmployeeId()
     }
   });
-  return response.data;
+  return response;
 };
 
 
@@ -55,8 +55,8 @@ const cleanAIResponse = (content: string): string => {
 /**
  * 解析 AI 返回的 JSON 数据
  */
-const parseAIResponse = <T>(response: unknown): T | null => {
-  const payload = response as { data?: { content?: string } };
+const parseAIResponse = <T>(apiResponse: unknown): T | null => {
+  const payload = apiResponse as { data?: { content?: string } };
   if (!payload.data || !payload.data.content) {
     console.error('Unexpected API response structure:', payload.data);
     return null;
@@ -218,7 +218,7 @@ export const uploadStorageApi = async (
     ...data,
     staffId: getEmployeeId()
   });
-  return response.data;
+  return response;
 };
 
 /**
@@ -243,7 +243,7 @@ export const getAttachmentsApi = async (
     ...data,
     staffId: getEmployeeId()
   });
-  return response.data;
+  return response;
 };
 
 /**
@@ -366,15 +366,15 @@ export const languageCompareApi = async (
     };
 
     // Call the AI API
-    const response = await aiChat(aiRequest);
+    const apiResponse = await aiChat(aiRequest);
 
     // Parse the response
-    if (!response.data || !response.data.content) {
-      console.error('Unexpected API response structure:', response.data);
+    if (!apiResponse.data || !apiResponse.data.content) {
+      console.error('Unexpected API response structure:', apiResponse.data);
       return null;
     }
 
-    const resultContent = response.data.content;
+    const resultContent = apiResponse.data.content;
     console.log('=== Language Compare AI Response ===');
     console.log('Raw response:', resultContent);
 

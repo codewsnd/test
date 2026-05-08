@@ -26,7 +26,7 @@ export interface PptGenerateResponse {
  */
 export const generatePptApi = async (request: PptGenerateRequest): Promise<PptGenerateResponse> => {
   const response = await axios.post<PptGenerateResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/api/ppt/generate`, request);
-  return response.data;
+  return response;
 };
 
 /**

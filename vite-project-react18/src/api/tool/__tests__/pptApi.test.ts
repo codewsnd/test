@@ -25,7 +25,7 @@ describe('pptApi', () => {
     const request = { font: 'Arial', pageCount: 3, title: 'Deck' };
     const response = { success: true, message: 'ok', fileName: 'deck.pptx' };
 
-    vi.mocked(axios.post).mockResolvedValueOnce({ data: response } as never);
+    vi.mocked(axios.post).mockResolvedValueOnce(response as never);
 
     return generatePptApi(request).then((result) => {
       expect(result).toBe(response);

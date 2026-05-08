@@ -19,7 +19,7 @@ describe('toolApi', () => {
   it('fetches tool list from core service', async () => {
     const response = [{ tool_full_name: 'server/tool' }]
 
-    vi.mocked(axios.get).mockResolvedValueOnce({ data: response } as never)
+    vi.mocked(axios.get).mockResolvedValueOnce(response as never)
 
     const result = await getAllToolsApi()
 
@@ -34,7 +34,7 @@ describe('toolApi', () => {
   it('delegates getAllToolsApi2 to getAllToolsApi', async () => {
     const response = [{ tool_full_name: 'server/tool' }]
 
-    vi.mocked(axios.get).mockResolvedValueOnce({ data: response } as never)
+    vi.mocked(axios.get).mockResolvedValueOnce(response as never)
 
     const result = await getAllToolsApi2()
 

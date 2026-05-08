@@ -65,7 +65,7 @@ export const pageConversationsApi = async (
 
   try {
     return await ApiRetryUtil.request(async () => {
-      return await axios.get(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`, {
+      return await axios.get<SpringDataPage<ConversationHistory>>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`, {
         params,
         skipError: true
       });
@@ -92,7 +92,7 @@ export const saveConversationApi = async (conversation: ConversationHistory): Pr
       `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`,
       toConversationRequestPayload(conversation)
     );
-    return response.data;
+    return response;
   } catch (error) {
     console.error('Error saving conversation:', error);
     throw error;
@@ -108,7 +108,7 @@ export const saveConversationStateApi = async (
       `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/state/${id}`,
       payload
     );
-    return response.data;
+    return response;
   } catch (error) {
     console.error('Error saving conversation state:', error);
     throw error;
@@ -117,7 +117,7 @@ export const saveConversationStateApi = async (
 
 export const getConversationDetailApi = async (id: string): Promise<ConversationHistory> => {
   const response = await axios.get<ConversationHistory>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}`);
-  return response.data;
+  return response;
 };
 
 // 重命名会话
@@ -127,7 +127,7 @@ export const renameConversationApi = async (id: string, title: string): Promise<
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}/rename`,
     payload
   );
-  return response.data;
+  return response;
 };
 
 // 批量删除会话

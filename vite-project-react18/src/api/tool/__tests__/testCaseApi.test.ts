@@ -59,7 +59,7 @@ describe('testCaseApi', () => {
     const postResponse = { ok: true };
 
     vi.useFakeTimers();
-    vi.mocked(axios.post).mockResolvedValueOnce({ data: postResponse } as never);
+    vi.mocked(axios.post).mockResolvedValueOnce(postResponse as never);
 
     return saveTestCaseStatistics(payload)
       .then((result) => {
@@ -85,8 +85,8 @@ describe('testCaseApi', () => {
 
   it('maps jira label results, handles non-array responses, and catches failures', () => {
     vi.mocked(axios.post)
-      .mockResolvedValueOnce({ data: ['bug', 'feature'] } as never)
-      .mockResolvedValueOnce({ data: { value: 'bug' } } as never)
+      .mockResolvedValueOnce(['bug', 'feature'] as never)
+      .mockResolvedValueOnce({ value: 'bug' } as never)
       .mockRejectedValueOnce(new Error('query-fail'));
 
     return listJiraIssueLabels('jira', 'bu')

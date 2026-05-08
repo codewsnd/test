@@ -69,7 +69,7 @@ export const createHtmlPreviewApi = async (
   request: CreateHtmlPreviewRequest
 ): Promise<HtmlPreviewResponse> => {
   const response = await axios.post<HtmlPreviewResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview`, request);
-  return response.data;
+  return response;
 };
 
 /**
@@ -78,7 +78,7 @@ export const createHtmlPreviewApi = async (
  */
 export const getHtmlPreviewContentApi = async (id: string): Promise<HtmlPreviewResponse> => {
   const response = await axios.get<HtmlPreviewResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview/${id}`);
-  return response.data;
+  return response;
 };
 
 /**
@@ -88,7 +88,7 @@ export const createHtmlShareApi = async (
   request: CreateHtmlShareRequest
 ): Promise<HtmlShareResponse> => {
   const response = await axios.post<HtmlShareResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview/share`, request);
-  return response.data;
+  return response;
 };
 
 /**
@@ -102,7 +102,7 @@ export const updateHtmlShareStatusApi = async (
     `${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview/share/${id}/status`,
     request
   );
-  return response.data;
+  return response;
 };
 
 /**
@@ -110,7 +110,7 @@ export const updateHtmlShareStatusApi = async (
  */
 export const getHtmlShareContentApi = async (id: string): Promise<HtmlShareResponse> => {
   const response = await axios.get<HtmlShareResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview/share/${id}`);
-  return response.data;
+  return response;
 };
 
 /**
@@ -118,5 +118,5 @@ export const getHtmlShareContentApi = async (id: string): Promise<HtmlShareRespo
  */
 export const getHtmlShareByPreviewApi = async (previewId: string): Promise<HtmlShareResponse> => {
   const response = await axios.get<HtmlShareResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview/share/preview/${previewId}`);
-  return response.data;
+  return response;
 };

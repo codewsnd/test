@@ -8,7 +8,7 @@ const SPRINGBOOT2_API_URL = import.meta.env.VITE_API_SPRINGBOOT2_URL || 'http://
 export const getMyFormResponseApi = async (formId: string): Promise<FormResponse> => {
   try {
     const response = await axios.get<FormResponse>(`${SPRINGBOOT2_API_URL}/forms/responses/${formId}`);
-    return response.data;
+    return response;
   } catch (error) {
     return Promise.reject(error);
   }
@@ -22,7 +22,7 @@ export const pageFormResponseApi = async (page: number, size: number, formRespon
       ...formResponse
     });
     const response = await axios.get<Page<FormResponse>>(`${SPRINGBOOT2_API_URL}/forms/responses/page?${queryString}`);
-    return response.data;
+    return response;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -38,7 +38,7 @@ export const saveFormResponseApi = async (formResponse: FormResponse): Promise<F
     } else {
       response = await axios.post<FormResponse>(`${SPRINGBOOT2_API_URL}/forms/responses`, formResponse);
     }
-    return response.data;
+    return response;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -48,12 +48,11 @@ export const saveFormResponseApi = async (formResponse: FormResponse): Promise<F
 export const deleteFormResponseApi = async (formResponseId: string): Promise<FormResponse> => {
   try {
     const response = await axios.delete<FormResponse>(`${SPRINGBOOT2_API_URL}/forms/responses/${formResponseId}`);
-    return response.data;
+    return response;
   } catch (error) {
     console.error('API Error', error);
     throw error;
   }
 }
-
 
 

@@ -29,7 +29,7 @@ export const getAllToolsApi = async (): Promise<GetAllToolsApiItem[]> => {
       usecache: false,
     },
   })
-  return response.data
+  return response
 }
 
 export const getAllToolsApi2 = async (): Promise<GetAllToolsApiItem[]> => {

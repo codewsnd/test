@@ -11,7 +11,7 @@ export const listFormApi = async (Form?: Form): Promise<Array<Form>> => {
       ...Form
     });
     const response = await axios.get<Array<Form>>(`${SPRINGBOOT2_API_URL}/forms?${queryString}`);
-    return response.data;
+    return response;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -26,7 +26,7 @@ export const pageFormApi = async (page: number, size: number = 10, Form?: Form):
       ...Form
     });
     const response = await axios.get<Page<Form>>(`${SPRINGBOOT2_API_URL}/forms/page?${queryString}`);
-    return response.data;
+    return response;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -41,7 +41,7 @@ export const saveFormApi = async (Form: Form): Promise<Form> => {
     } else {
       response = await axios.post<Form>(`${SPRINGBOOT2_API_URL}/forms`, Form);
     }
-    return response.data;
+    return response;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -52,7 +52,7 @@ export const saveFormApi = async (Form: Form): Promise<Form> => {
 export const deleteFormApi = async (Form: Form): Promise<Form> => {
   try {
     const response = await axios.delete<Form>(`${SPRINGBOOT2_API_URL}/forms/${Form.id}`);
-    return response.data;
+    return response;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -63,7 +63,7 @@ export const deleteFormApi = async (Form: Form): Promise<Form> => {
 export const getFormApi = async (id: string): Promise<Form> => {
   try {
     const response = await axios.get<Form>(`${SPRINGBOOT2_API_URL}/forms/${id}`);
-    return response.data;
+    return response;
   } catch (error) {
     console.error('API Error', error);
     throw error;

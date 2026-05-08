@@ -109,7 +109,7 @@ export const listJiraIssueLabels =
       staffId: getEmployeeId(),
       query
     })
-    const data = response.data;
+    const data = response;
 
     if(!Array.isArray(data)) {
       return [];

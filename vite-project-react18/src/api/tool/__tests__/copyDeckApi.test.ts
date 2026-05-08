@@ -65,10 +65,10 @@ describe('copyDeckApi', () => {
       fileNames: ['a.png'],
     };
 
-    vi.mocked(axios.get).mockResolvedValueOnce({ data: storageResponse } as never);
+    vi.mocked(axios.get).mockResolvedValueOnce(storageResponse as never);
     vi.mocked(axios.post)
-      .mockResolvedValueOnce({ data: uploadResponse } as never)
-      .mockResolvedValueOnce({ data: attachmentResponse } as never);
+      .mockResolvedValueOnce(uploadResponse as never)
+      .mockResolvedValueOnce(attachmentResponse as never);
 
     return copyDeckStorageApi('https://page')
       .then((storage) => {

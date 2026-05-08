@@ -37,19 +37,19 @@ export const getAgentsApi = async (
   params?: GetAgentsApiRequest,
 ): Promise<AgentApiItem[]> => {
   const response = await axios.get<AgentApiItem[]>(`${SPRINGBOOT3_BACKEND_API_URL}/agents`, { params })
-  return response.data
+  return response
 }
 
 export const createAgentApi = async (
   request: CreateAgentApiRequest,
 ): Promise<AgentApiItem> => {
   const response = await axios.post<AgentApiItem>(`${SPRINGBOOT3_BACKEND_API_URL}/agents`, request)
-  return response.data
+  return response
 }
 
 export const getAgentApi = async (id: number | string): Promise<AgentApiItem> => {
   const response = await axios.get<AgentApiItem>(`${SPRINGBOOT3_BACKEND_API_URL}/agents/${id}`)
-  return response.data
+  return response
 }
 
 export const updateAgentApi = async (
@@ -57,5 +57,5 @@ export const updateAgentApi = async (
   request: CreateAgentApiRequest,
 ): Promise<AgentApiItem> => {
   const response = await axios.put<AgentApiItem>(`${SPRINGBOOT3_BACKEND_API_URL}/agents/${id}`, request)
-  return response.data
+  return response
 }
