@@ -1,7 +1,7 @@
 import axios from './axios';
 import type {ConversationState, ConversationTurn} from "../pages/home/components/chat/types";
 import {message} from "antd";
-import {ApiRetryUtil} from './retryUtils';
+import {ApiRetryUtil} from "@/api/retryUtils";
 
 const SPRINGBOOT3_BACKEND_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
 
@@ -64,8 +64,8 @@ export const pageConversationsApi = async (
   }
 
   try {
-    return await ApiRetryUtil.request(() => {
-      return axios.get<SpringDataPage<ConversationHistory>>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`, {
+    return await ApiRetryUtil.request(async () => {
+       return await axios.get(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`, {
         params
       });
     });

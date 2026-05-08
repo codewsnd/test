@@ -130,6 +130,7 @@ export const initializeDbAtom = atom(
 
       // 只加载第一页数据用于初始化（页码从0开始）
       const result = await pageConversationsApi(0, CONVERSATION_HISTORY_PAGE_SIZE);
+      console.log('result', result);
       allInitialData = result.content;
       set(hasMoreAtom, result.number + 1 < result.totalPages);
 

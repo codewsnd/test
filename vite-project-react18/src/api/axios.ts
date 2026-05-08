@@ -24,14 +24,14 @@ instance.interceptors.request.use(
 
 // 响应拦截器
 
-axios.interceptors.response.use(
+instance.interceptors.response.use(
   (response) => {
     return response.data
   },
   (error) => {
     if (error?.response?.data) {
       if (typeof error?.response?.data === 'string') {
-        message.error(error?.reponse?.data);
+        message.error(error?.response?.data);
       }
     } else {
       message.error('Failed to fetch')
@@ -40,4 +40,4 @@ axios.interceptors.response.use(
   },
 )
 
-export default axios
+export default instance
