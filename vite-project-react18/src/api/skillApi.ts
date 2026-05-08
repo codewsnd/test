@@ -10,6 +10,12 @@ export interface SkillApiItem {
   triggerKeywords: string[]
   toolNames: string[]
   tags: string[]
+  source?: string
+  version?: string
+  author?: string
+  installCount?: number
+  trustLevel?: string
+  homepageUrl?: string | null
   enabled: boolean
 }
 

@@ -1,5 +1,6 @@
 import axios from './axios';
 import type { ConversationState, ConversationTurn } from "../pages/home/components/chat/types";
+import {message} from "antd";
 
 const SPRINGBOOT3_BACKEND_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
 
@@ -67,6 +68,7 @@ export const pageConversationsApi = async (
     });
     return response.data;
   } catch (error) {
+    message.error('errorsdfsdfsd');
     console.error('Error fetching conversations page:', error);
     throw error;
   }

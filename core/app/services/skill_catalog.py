@@ -32,6 +32,8 @@ _BUILTIN_SKILLS = [
         ],
         toolNames=["createTestCase"],
         tags=["QA", "Testing"],
+        installCount=1840,
+        trustLevel="reviewed",
     ),
     SkillItem(
         id="copy-deck-writer",
@@ -53,6 +55,8 @@ _BUILTIN_SKILLS = [
         ],
         toolNames=["createCopyDeck"],
         tags=["Content", "Marketing"],
+        installCount=1620,
+        trustLevel="reviewed",
     ),
     SkillItem(
         id="presentation-planner",
@@ -74,6 +78,8 @@ _BUILTIN_SKILLS = [
         ],
         toolNames=["createPpt"],
         tags=["Productivity", "Slides"],
+        installCount=1390,
+        trustLevel="reviewed",
     ),
     SkillItem(
         id="structured-output",
@@ -95,6 +101,8 @@ _BUILTIN_SKILLS = [
             "表格",
         ],
         tags=["Output"],
+        installCount=2120,
+        trustLevel="reviewed",
     ),
 ]
 

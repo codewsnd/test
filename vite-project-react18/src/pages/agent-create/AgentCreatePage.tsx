@@ -154,12 +154,12 @@ const findSkillById = (skills: SkillApiItem[], skillId: string) =>
 const getSkillCategory = (skill: SkillApiItem) => skill.tags[0] || 'General'
 
 const getSkillInstallLabel = (skill: SkillApiItem, index: number) => {
-  const baseline = 1200 + index * 347 + skill.id.length * 31
-  if (baseline >= 1000) {
-    return `${(baseline / 1000).toFixed(1)}k installs`
+  const installCount = skill.installCount ?? Math.max(0, index) * 100
+  if (installCount >= 1000) {
+    return `${(installCount / 1000).toFixed(1)}k installs`
   }
 
-  return `${baseline} installs`
+  return `${installCount} installs`
 }
 
 const buildFormValuesFromAgent = (agent: AgentApiItem): AgentFormData => ({
@@ -844,11 +844,11 @@ const AgentCreatePage = () => {
                   <div className="skill-hub__detail-grid">
                     <div className="skill-hub__metric">
                       <span>Source</span>
-                      <strong>Core registry</strong>
+                      <strong>{activeHubSkill.source || 'Core registry'}</strong>
                     </div>
                     <div className="skill-hub__metric">
                       <span>Trust</span>
-                      <strong>Reviewed</strong>
+                      <strong>{activeHubSkill.trustLevel || 'reviewed'}</strong>
                     </div>
                     <div className="skill-hub__metric">
                       <span>Installs</span>
@@ -858,6 +858,18 @@ const AgentCreatePage = () => {
                           skillList.findIndex((item) => item.id === activeHubSkill.id),
                         )}
                       </strong>
+                    </div>
+                    <div className="skill-hub__metric">
+                      <span>Version</span>
+                      <strong>{activeHubSkill.version || '1.0.0'}</strong>
+                    </div>
+                    <div className="skill-hub__metric">
+                      <span>Author</span>
+                      <strong>{activeHubSkill.author || 'Core Team'}</strong>
+                    </div>
+                    <div className="skill-hub__metric">
+                      <span>Status</span>
+                      <strong>{watchedSkills.includes(activeHubSkill.id) ? 'Bound' : 'Available'}</strong>
                     </div>
                   </div>
 
