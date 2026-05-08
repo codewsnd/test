@@ -1,21 +1,41 @@
 import axios from 'axios'
-import { message } from 'antd'
+import {message} from 'antd'
 
-axios.defaults.timeout = 60000
-
-axios.interceptors.request.use((config) => {
-  config.headers.uid = '123456'
-  config.headers['X-E2E-Trust-Token'] = '123456'
-  return config
+const baseURL = '/';
+const instance = axios.create({
+  baseURL,
+  headers: {
+    'Content-Type': 'application/json'
+  }
 })
 
+// 请求拦截器
+instance.interceptors.request.use(
+  async (config) => {
+    config.headers = config.headers || {};
+    config.headers.uid = '123456'
+    config.headers['X-E2E-Trust-Token'] = '123456'
+    return config;
+  },
+  error => {
+    return Promise.reject(error)
+  }
+)
+
+// 响应拦截器
+
 axios.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    return response.data
+  },
   (error) => {
-    if (error?.response?.data && typeof error.response.data === 'string') {
-      message.error(error.response.data)
+    if (error?.response?.data) {
+      if (typeof error?.response?.data === 'string') {
+        message.error(error?.reponse?.data);
+      }
+    } else {
+      message.error('Failed to fetch')
     }
-    console.error('API Request Failed:', error)
     return Promise.reject(error)
   },
 )

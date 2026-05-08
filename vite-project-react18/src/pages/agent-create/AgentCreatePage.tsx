@@ -162,6 +162,59 @@ const getSkillInstallLabel = (skill: SkillApiItem, index: number) => {
   return `${installCount} installs`
 }
 
+const getSkillCommand = (skill: SkillApiItem) => `/${skill.commandName || skill.id}`
+
+const getSkillInvocationLabel = (skill: SkillApiItem) => {
+  if (skill.disableModelInvocation) {
+    return 'Manual only'
+  }
+
+  if (skill.userInvocable === false) {
+    return 'Model only'
+  }
+
+  return 'Auto + slash'
+}
+
+const addFrontmatterLine = (lines: string[], key: string, value?: string | null) => {
+  if (value?.trim()) {
+    lines.push(`${key}: ${value.trim()}`)
+  }
+}
+
+const addFrontmatterList = (lines: string[], key: string, values?: string[]) => {
+  if (values?.length) {
+    lines.push(`${key}: ${values.join(' ')}`)
+  }
+}
+
+const buildSkillMarkdownPreview = (skill: SkillApiItem) => {
+  const lines = ['---']
+  addFrontmatterLine(lines, 'name', skill.commandName || skill.id)
+  addFrontmatterLine(lines, 'description', skill.description)
+  addFrontmatterLine(lines, 'when_to_use', skill.whenToUse)
+  addFrontmatterLine(lines, 'argument-hint', skill.argumentHint)
+  addFrontmatterList(lines, 'arguments', skill.arguments)
+  addFrontmatterList(lines, 'allowed-tools', skill.allowedTools)
+  addFrontmatterList(lines, 'paths', skill.paths)
+
+  if (skill.disableModelInvocation) {
+    lines.push('disable-model-invocation: true')
+  }
+
+  if (skill.userInvocable === false) {
+    lines.push('user-invocable: false')
+  }
+
+  addFrontmatterLine(lines, 'model', skill.model)
+  addFrontmatterLine(lines, 'effort', skill.effort)
+  addFrontmatterLine(lines, 'context', skill.context)
+  addFrontmatterLine(lines, 'agent', skill.agent)
+  lines.push('---', '', skill.content)
+
+  return lines.join('\n')
+}
+
 const buildFormValuesFromAgent = (agent: AgentApiItem): AgentFormData => ({
   name: agent.name || '',
   type: agent.type || AGENT_MODEL_PRESET_MAP[agent.modelName || DEFAULT_AGENT_MODEL]?.defaults.type,
@@ -242,11 +295,15 @@ const AgentCreatePage = () => {
       const searchableText = [
         skill.name,
         skill.id,
+        skill.commandName,
         skill.description,
+        skill.whenToUse,
         skill.content,
         ...skill.tags,
         ...skill.triggerKeywords,
         ...skill.toolNames,
+        ...(skill.allowedTools ?? []),
+        ...(skill.resourceFiles ?? []),
       ].join(' ').toLowerCase()
 
       return categoryMatches && (!normalizedSearch || searchableText.includes(normalizedSearch))
@@ -480,7 +537,7 @@ const AgentCreatePage = () => {
                         Skills
                       </Title>
                       <Text className="agent-create-page__inline-note">
-                        已绑定 {selectedSkills.length} 个 skill，运行时会按触发词自动注入
+                        已绑定 {selectedSkills.length} 个 skill，运行时按 Claude Code 的描述匹配或 /skill 调用注入
                       </Text>
                     </div>
                     <Button
@@ -518,12 +575,15 @@ const AgentCreatePage = () => {
                             <div key={skill.id} className="agent-skill-card">
                               <div className="agent-skill-card__header">
                                 <Text className="agent-skill-card__title">{skill.name}</Text>
-                                <Text className="agent-skill-card__id">{skill.id}</Text>
+                                <Text className="agent-skill-card__id">{getSkillCommand(skill)}</Text>
                               </div>
                               <Text className="agent-skill-card__description">
                                 {skill.description}
                               </Text>
                               <div className="agent-skill-card__tags">
+                                <Tag bordered={false} color="green">
+                                  {getSkillInvocationLabel(skill)}
+                                </Tag>
                                 {skill.triggerKeywords.slice(0, 4).map((keyword) => (
                                   <Tag key={keyword} bordered={false}>
                                     {keyword}
@@ -531,6 +591,11 @@ const AgentCreatePage = () => {
                                 ))}
                                 {skill.toolNames.map((toolName) => (
                                   <Tag key={toolName} bordered={false} color="red">
+                                    {toolName}
+                                  </Tag>
+                                ))}
+                                {(skill.allowedTools ?? []).map((toolName) => (
+                                  <Tag key={toolName} bordered={false} color="purple">
                                     {toolName}
                                   </Tag>
                                 ))}
@@ -808,6 +873,8 @@ const AgentCreatePage = () => {
                             <StarOutlined />
                             {installLabel}
                             <span>{getSkillCategory(skill)}</span>
+                            <span>{getSkillInvocationLabel(skill)}</span>
+                            <span>{getSkillCommand(skill)}</span>
                           </span>
                         </span>
                       </button>
@@ -824,12 +891,16 @@ const AgentCreatePage = () => {
                 <>
                   <div className="skill-hub__detail-head">
                     <div>
-                      <Text className="skill-hub__detail-eyebrow">OpenClaw-style SKILL.md package</Text>
+                      <Text className="skill-hub__detail-eyebrow">Claude Code style SKILL.md package</Text>
                       <Title level={3} className="skill-hub__detail-title">
                         {activeHubSkill.name}
                       </Title>
                       <Text className="skill-hub__detail-description">
                         {activeHubSkill.description}
+                      </Text>
+                      <Text className="skill-hub__code-chip">
+                        {getSkillCommand(activeHubSkill)}
+                        {activeHubSkill.argumentHint ? ` ${activeHubSkill.argumentHint}` : ''}
                       </Text>
                     </div>
                     <Button
@@ -847,21 +918,16 @@ const AgentCreatePage = () => {
                       <strong>{activeHubSkill.source || 'Core registry'}</strong>
                     </div>
                     <div className="skill-hub__metric">
-                      <span>Trust</span>
-                      <strong>{activeHubSkill.trustLevel || 'reviewed'}</strong>
+                      <span>Invocation</span>
+                      <strong>{getSkillInvocationLabel(activeHubSkill)}</strong>
                     </div>
                     <div className="skill-hub__metric">
-                      <span>Installs</span>
-                      <strong>
-                        {getSkillInstallLabel(
-                          activeHubSkill,
-                          skillList.findIndex((item) => item.id === activeHubSkill.id),
-                        )}
-                      </strong>
+                      <span>Command</span>
+                      <strong>{getSkillCommand(activeHubSkill)}</strong>
                     </div>
                     <div className="skill-hub__metric">
-                      <span>Version</span>
-                      <strong>{activeHubSkill.version || '1.0.0'}</strong>
+                      <span>Package</span>
+                      <strong>{activeHubSkill.sourcePath ? 'SKILL.md' : 'Built-in'}</strong>
                     </div>
                     <div className="skill-hub__metric">
                       <span>Author</span>
@@ -889,27 +955,47 @@ const AgentCreatePage = () => {
                         {toolName}
                       </Tag>
                     ))}
+                    {(activeHubSkill.allowedTools ?? []).map((toolName) => (
+                      <Tag key={toolName} bordered={false} color="purple">
+                        {toolName}
+                      </Tag>
+                    ))}
+                    {activeHubSkill.disableModelInvocation ? (
+                      <Tag bordered={false} color="gold">
+                        disable-model-invocation
+                      </Tag>
+                    ) : null}
+                    {activeHubSkill.userInvocable === false ? (
+                      <Tag bordered={false} color="gold">
+                        user-invocable: false
+                      </Tag>
+                    ) : null}
                   </Space>
 
                   <div className="skill-hub__section">
                     <Text className="skill-hub__section-title">Rendered SKILL.md</Text>
                     <pre className="skill-hub__skill-md">
-{`---
-name: ${activeHubSkill.name}
-description: ${activeHubSkill.description}
-tags: ${activeHubSkill.tags.join(', ') || 'General'}
----
-
-${activeHubSkill.content}`}
+{buildSkillMarkdownPreview(activeHubSkill)}
                     </pre>
                   </div>
+
+                  {activeHubSkill.resourceFiles?.length ? (
+                    <div className="skill-hub__section">
+                      <Text className="skill-hub__section-title">Supporting files</Text>
+                      <div className="skill-hub__resource-list">
+                        {activeHubSkill.resourceFiles.map((filePath) => (
+                          <span key={filePath}>{filePath}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div className="skill-hub__section">
                     <Text className="skill-hub__section-title">Usage</Text>
                     <div className="skill-hub__usage">
-                      <span>Bind this skill to the agent for automatic trigger-based injection.</span>
-                      <span>Use the chat composer skill picker for one-off per-turn injection.</span>
-                      <span>Tool hints are merged into the agent tool filter when the skill is active.</span>
+                      <span>Bind this skill to the agent so its description can trigger automatic loading.</span>
+                      <span>Type {getSkillCommand(activeHubSkill)} in chat, or select it in the composer, for manual loading.</span>
+                      <span>Only the invoked SKILL.md body is injected; supporting files stay as lazy resources.</span>
                     </div>
                   </div>
                 </>

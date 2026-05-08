@@ -1,6 +1,7 @@
 import axios from './axios';
-import type { ConversationState, ConversationTurn } from "../pages/home/components/chat/types";
+import type {ConversationState, ConversationTurn} from "../pages/home/components/chat/types";
 import {message} from "antd";
+import {ApiRetryUtil} from './retryUtils';
 
 const SPRINGBOOT3_BACKEND_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
 
@@ -52,23 +53,24 @@ export const pageConversationsApi = async (
   size: number = 10,
   search?: string
 ): Promise<SpringDataPage<ConversationHistory>> => {
+  // 前端和后端都使用0开始的页码
+  const params: Record<string, string | number> = {
+    page,
+    size
+  };
+
+  if (search?.trim()) {
+    params.search = search.trim();
+  }
+
   try {
-    // 前端和后端都使用0开始的页码
-    const params: Record<string, string | number> = {
-      page,
-      size
-    };
-
-    if (search?.trim()) {
-      params.search = search.trim();
-    }
-
-    const response = await axios.get<SpringDataPage<ConversationHistory>>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`, {
-      params
+    return await ApiRetryUtil.request(() => {
+      return axios.get<SpringDataPage<ConversationHistory>>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`, {
+        params
+      });
     });
-    return response.data;
   } catch (error) {
-    message.error('errorsdfsdfsd');
+    message.error('Failed to fetch conversations page');
     console.error('Error fetching conversations page:', error);
     throw error;
   }
@@ -77,7 +79,7 @@ export const pageConversationsApi = async (
 const toConversationRequestPayload = (
   conversation: ConversationHistory
 ): Omit<ConversationHistory, 'staffId'> => {
-  const payload: Partial<ConversationHistory> = { ...conversation };
+  const payload: Partial<ConversationHistory> = {...conversation};
   delete payload.staffId;
   return payload as Omit<ConversationHistory, 'staffId'>;
 };
@@ -119,7 +121,7 @@ export const getConversationDetailApi = async (id: string): Promise<Conversation
 
 // 重命名会话
 export const renameConversationApi = async (id: string, title: string): Promise<ConversationHistory> => {
-  const payload: ConversationRenameRequest = { title };
+  const payload: ConversationRenameRequest = {title};
   const response = await axios.put<ConversationHistory>(
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}/rename`,
     payload

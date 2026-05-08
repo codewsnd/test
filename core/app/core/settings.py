@@ -92,6 +92,20 @@ class Settings(BaseSettings):
             "CORE_SKILLS_CATALOG_PATH",
         ),
     )
+    skills_project_root: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "SKILLS_PROJECT_ROOT",
+            "CORE_SKILLS_PROJECT_ROOT",
+        ),
+    )
+    skills_additional_dirs: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices(
+            "SKILLS_ADDITIONAL_DIRS",
+            "CORE_SKILLS_ADDITIONAL_DIRS",
+        ),
+    )
     request_timeout_seconds: float = 120.0
     agent_db_jdbc_url: str = Field(
         default=(
@@ -151,11 +165,13 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     @field_validator(
         "cors_allow_origins",
         "mcp_tool_names",
+        "skills_additional_dirs",
         "cors_allow_methods",
         "cors_allow_headers",
         mode="before",

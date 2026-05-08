@@ -61,7 +61,10 @@ type SkillAppliedEventData = {
     name?: string;
     description?: string;
     reason?: string;
+    arguments?: string;
+    commandName?: string;
     toolNames?: string[];
+    allowedTools?: string[];
   }>;
 };
 
@@ -850,8 +853,13 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       details: appliedSkills.flatMap((skill) => [
         { label: 'Skill', value: skill.name || skill.id || '-' },
         { label: 'Reason', value: skill.reason || 'matched' },
+        ...(skill.commandName ? [{ label: 'Command', value: `/${skill.commandName}` }] : []),
+        ...(skill.arguments ? [{ label: 'Arguments', value: skill.arguments }] : []),
         ...(skill.toolNames?.length
           ? [{ label: 'Tools', value: skill.toolNames.join(', ') }]
+          : []),
+        ...(skill.allowedTools?.length
+          ? [{ label: 'Allowed tools', value: skill.allowedTools.join(', ') }]
           : [])
       ])
     });
@@ -1259,11 +1267,13 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
           maxTagCount="responsive"
           value={selectedSkillIds}
           onChange={setSelectedSkillIds}
-          placeholder={loadingSkills ? 'Loading skills...' : 'Skills for this turn'}
-          options={skills.map((skill) => ({
-            label: skill.name,
-            value: skill.id
-          }))}
+          placeholder={loadingSkills ? 'Loading skills...' : 'Skills for this turn or type /skill'}
+          options={skills
+            .filter((skill) => skill.userInvocable !== false)
+            .map((skill) => ({
+              label: `${skill.name} · /${skill.commandName || skill.id}`,
+              value: skill.id
+            }))}
           optionFilterProp="label"
           className="chat-area__skill-select"
           disabled={loadingSkills || isSending || !!conversationState.currentTurnId}

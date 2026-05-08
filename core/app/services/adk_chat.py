@@ -105,11 +105,15 @@ class AdkChatService:
         instruction = self._skill_catalog_service.build_instruction(
             agent_config.system_prompt,
             skill_items,
+            applied_skills,
         )
         skill_tool_names = [
             tool_name
             for skill in skill_items
-            for tool_name in skill.tool_names
+            for tool_name in [
+                *skill.tool_names,
+                *self._application_tools_from_allowed_tools(skill.allowed_tools),
+            ]
         ]
 
         return (
@@ -645,6 +649,15 @@ class AdkChatService:
             if normalized and normalized not in deduped:
                 deduped.append(normalized)
         return deduped
+
+    def _application_tools_from_allowed_tools(self, allowed_tools: list[str]) -> list[str]:
+        configured_tools = set(self._settings.mcp_tool_names)
+        tool_names: list[str] = []
+        for allowed_tool in allowed_tools:
+            tool_name = allowed_tool.split("(", 1)[0].strip()
+            if tool_name in configured_tools:
+                tool_names.append(tool_name)
+        return tool_names
 
     @staticmethod
     def _iso_now() -> str:

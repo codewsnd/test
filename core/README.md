@@ -68,6 +68,8 @@ Configuration is read from `.env`. Preferred keys are:
 - `MCP_TOOL_NAMES`
 - `SKILLS_ENABLED`
 - `SKILLS_CATALOG_PATH`
+- `SKILLS_PROJECT_ROOT`
+- `SKILLS_ADDITIONAL_DIRS`
 
 If the configured OpenAI-compatible `base-url` has no path, the service will
 automatically normalize it to include `/v1`.
@@ -86,9 +88,37 @@ The service exposes selectable model skills at:
 curl http://127.0.0.1:8000/api/v1/skills
 ```
 
-Built-in skills are available by default. To add local custom skills, set
+Built-in skills are available by default. The service also understands the
+Claude Code skill layout:
+
+```text
+.claude/skills/<skill-name>/SKILL.md
+~/.claude/skills/<skill-name>/SKILL.md
+```
+
+`SKILL.md` uses YAML frontmatter plus Markdown instructions. The MVP supports
+Claude-style `description`, `when_to_use`, `disable-model-invocation`,
+`user-invocable`, `allowed-tools`, `argument-hint`, `arguments`, `model`,
+`effort`, `context`, `agent`, `paths`, and supporting files listed beside
+`SKILL.md`.
+
+```markdown
+---
+name: summarize-changes
+description: Summarizes uncommitted changes and flags anything risky.
+allowed-tools: createTestCase
+argument-hint: "[scope]"
+---
+
+Summarize $ARGUMENTS and list the top risks.
+```
+
+To add local custom skills outside the default Claude paths, set
 `SKILLS_CATALOG_PATH` to either a JSON file containing `{ "skills": [...] }` or
-a directory with one or more `SKILL.md` files.
+a directory with one or more `SKILL.md` files. Use `SKILLS_PROJECT_ROOT` to
+point project discovery at a specific repository root, and
+`SKILLS_ADDITIONAL_DIRS` for comma-separated extra roots whose
+`.claude/skills/` folders should be scanned.
 
 Chat requests can pass `skillIds` for one-off injection. Agent-bound skills are
 read from `chat_agents_info.template_schemas` as JSON, for example:
@@ -96,6 +126,9 @@ read from `chat_agents_info.template_schemas` as JSON, for example:
 ```json
 {"skillIds":["test-case-writer","structured-output"]}
 ```
+
+Users can also invoke a user-invocable skill directly in chat with
+`/skill-name optional arguments`.
 
 ## CORS
 

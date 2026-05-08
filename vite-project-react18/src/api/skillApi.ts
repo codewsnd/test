@@ -6,16 +6,32 @@ export interface SkillApiItem {
   id: string
   name: string
   description: string
+  whenToUse?: string
   content: string
+  commandName?: string
   triggerKeywords: string[]
   toolNames: string[]
+  allowedTools?: string[]
+  argumentHint?: string
+  arguments?: string[]
+  disableModelInvocation?: boolean
+  userInvocable?: boolean
+  model?: string | null
+  effort?: string | null
+  context?: string | null
+  agent?: string | null
+  paths?: string[]
+  shell?: string | null
   tags: string[]
   source?: string
+  sourcePath?: string | null
+  resourceFiles?: string[]
   version?: string
   author?: string
   installCount?: number
   trustLevel?: string
   homepageUrl?: string | null
+  claudeCodeCompatible?: boolean
   enabled: boolean
 }
 
