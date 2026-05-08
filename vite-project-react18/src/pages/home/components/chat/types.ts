@@ -32,6 +32,7 @@ export type AiResponseStatus = 'pending' | 'streaming' | 'completed' | 'error';
 export type SseStatusStage =
   | 'accepted'
   | 'session-ready'
+  | 'skill-applied'
   | 'generating'
   | 'responding'
   | 'tool-running'

@@ -1,4 +1,6 @@
-import { springboot3BackendApi } from '../axios';
+import axios from '../axios';
+
+const SPRINGBOOT3_BACKEND_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
 
 /**
  * PPT 生成请求参数
@@ -23,7 +25,8 @@ export interface PptGenerateResponse {
  * 调用后端 API 生成 PPT
  */
 export const generatePptApi = async (request: PptGenerateRequest): Promise<PptGenerateResponse> => {
-  return springboot3BackendApi.post('/api/ppt/generate', request);
+  const response = await axios.post<PptGenerateResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/api/ppt/generate`, request);
+  return response.data;
 };
 
 /**

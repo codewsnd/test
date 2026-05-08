@@ -1,4 +1,6 @@
-import { springboot3BackendApi } from '@/api/axios'
+import axios from '@/api/axios'
+
+const SPRINGBOOT3_BACKEND_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081'
 
 export interface CreateAgentApiRequest {
   name: string
@@ -34,22 +36,26 @@ export interface GetAgentsApiRequest {
 export const getAgentsApi = async (
   params?: GetAgentsApiRequest,
 ): Promise<AgentApiItem[]> => {
-  return springboot3BackendApi.get('/agents', { params })
+  const response = await axios.get<AgentApiItem[]>(`${SPRINGBOOT3_BACKEND_API_URL}/agents`, { params })
+  return response.data
 }
 
 export const createAgentApi = async (
   request: CreateAgentApiRequest,
 ): Promise<AgentApiItem> => {
-  return springboot3BackendApi.post('/agents', request)
+  const response = await axios.post<AgentApiItem>(`${SPRINGBOOT3_BACKEND_API_URL}/agents`, request)
+  return response.data
 }
 
 export const getAgentApi = async (id: number | string): Promise<AgentApiItem> => {
-  return springboot3BackendApi.get(`/agents/${id}`)
+  const response = await axios.get<AgentApiItem>(`${SPRINGBOOT3_BACKEND_API_URL}/agents/${id}`)
+  return response.data
 }
 
 export const updateAgentApi = async (
   id: number | string,
   request: CreateAgentApiRequest,
 ): Promise<AgentApiItem> => {
-  return springboot3BackendApi.put(`/agents/${id}`, request)
+  const response = await axios.put<AgentApiItem>(`${SPRINGBOOT3_BACKEND_API_URL}/agents/${id}`, request)
+  return response.data
 }

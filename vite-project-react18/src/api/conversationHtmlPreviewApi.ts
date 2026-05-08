@@ -1,7 +1,9 @@
 /**
  * HTML 预览 API 服务
  */
-import { springboot3BackendApi } from './axios';
+import axios from './axios';
+
+const SPRINGBOOT3_BACKEND_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
 
 /**
  * 创建 HTML 预览请求
@@ -66,7 +68,8 @@ export interface HtmlShareResponse {
 export const createHtmlPreviewApi = async (
   request: CreateHtmlPreviewRequest
 ): Promise<HtmlPreviewResponse> => {
-  return springboot3BackendApi.post('/conversation/html/preview', request);
+  const response = await axios.post<HtmlPreviewResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview`, request);
+  return response.data;
 };
 
 /**
@@ -74,7 +77,8 @@ export const createHtmlPreviewApi = async (
  * 返回预览元信息和 HTML 内容（仅当安全时，即无 XSS 和外部引用）
  */
 export const getHtmlPreviewContentApi = async (id: string): Promise<HtmlPreviewResponse> => {
-  return springboot3BackendApi.get(`/conversation/html/preview/${id}`);
+  const response = await axios.get<HtmlPreviewResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview/${id}`);
+  return response.data;
 };
 
 /**
@@ -83,7 +87,8 @@ export const getHtmlPreviewContentApi = async (id: string): Promise<HtmlPreviewR
 export const createHtmlShareApi = async (
   request: CreateHtmlShareRequest
 ): Promise<HtmlShareResponse> => {
-  return springboot3BackendApi.post('/conversation/html/preview/share', request);
+  const response = await axios.post<HtmlShareResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview/share`, request);
+  return response.data;
 };
 
 /**
@@ -93,19 +98,25 @@ export const updateHtmlShareStatusApi = async (
   id: string,
   request: UpdateHtmlShareStatusRequest
 ): Promise<HtmlShareResponse> => {
-  return springboot3BackendApi.put(`/conversation/html/preview/share/${id}/status`, request);
+  const response = await axios.put<HtmlShareResponse>(
+    `${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview/share/${id}/status`,
+    request
+  );
+  return response.data;
 };
 
 /**
  * 根据分享 ID 获取分享内容
  */
 export const getHtmlShareContentApi = async (id: string): Promise<HtmlShareResponse> => {
-  return springboot3BackendApi.get(`/conversation/html/preview/share/${id}`);
+  const response = await axios.get<HtmlShareResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview/share/${id}`);
+  return response.data;
 };
 
 /**
  * 根据 previewId 查询分享状态
  */
 export const getHtmlShareByPreviewApi = async (previewId: string): Promise<HtmlShareResponse> => {
-  return springboot3BackendApi.get(`/conversation/html/preview/share/preview/${previewId}`);
+  const response = await axios.get<HtmlShareResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview/share/preview/${previewId}`);
+  return response.data;
 };

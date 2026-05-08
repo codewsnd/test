@@ -13,6 +13,7 @@ class StoredAgentPayload(BaseModel):
     presence_penalty: float | None = None
     output_type: str | None = None
     tools: str | None = None
+    template_schemas: str | None = None
 
 
 class ResolvedAgentConfig(BaseModel):
@@ -21,6 +22,7 @@ class ResolvedAgentConfig(BaseModel):
     model_name: str = Field(..., alias="modelName")
     system_prompt: str = Field(..., alias="systemPrompt")
     tools: list[str] = Field(default_factory=list)
+    skill_ids: list[str] = Field(default_factory=list, alias="skillIds")
     temperature: float | None = None
     max_tokens: int | None = Field(default=None, alias="maxTokens")
     top_p: float | None = Field(default=None, alias="topP")

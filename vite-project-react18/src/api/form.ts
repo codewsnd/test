@@ -1,14 +1,17 @@
-import { springboot2Api } from './axios';
+import axios from './axios';
 import type {Form} from "../models/form";
 import type {Page} from '../models/page';
 import {buildQueryParams} from "../utils/paramUtils";
+
+const SPRINGBOOT2_API_URL = import.meta.env.VITE_API_SPRINGBOOT2_URL || 'http://localhost:8082';
 
 export const listFormApi = async (Form?: Form): Promise<Array<Form>> => {
   try {
     const queryString = buildQueryParams({
       ...Form
     });
-    return await springboot2Api.get(`/forms?${queryString}`);
+    const response = await axios.get<Array<Form>>(`${SPRINGBOOT2_API_URL}/forms?${queryString}`);
+    return response.data;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -22,7 +25,8 @@ export const pageFormApi = async (page: number, size: number = 10, Form?: Form):
       size,
       ...Form
     });
-    return await springboot2Api.get(`/forms/page?${queryString}`);
+    const response = await axios.get<Page<Form>>(`${SPRINGBOOT2_API_URL}/forms/page?${queryString}`);
+    return response.data;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -33,11 +37,11 @@ export const saveFormApi = async (Form: Form): Promise<Form> => {
   try {
     let response;
     if (Form.id) {
-      response = await springboot2Api.put(`/forms/${Form.id}`, Form);
+      response = await axios.put<Form>(`${SPRINGBOOT2_API_URL}/forms/${Form.id}`, Form);
     } else {
-      response = await springboot2Api.post(`/forms`, Form);
+      response = await axios.post<Form>(`${SPRINGBOOT2_API_URL}/forms`, Form);
     }
-    return response;
+    return response.data;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -47,8 +51,8 @@ export const saveFormApi = async (Form: Form): Promise<Form> => {
 
 export const deleteFormApi = async (Form: Form): Promise<Form> => {
   try {
-    const response = await springboot2Api.delete(`/forms/${Form.id}`);
-    return response;
+    const response = await axios.delete<Form>(`${SPRINGBOOT2_API_URL}/forms/${Form.id}`);
+    return response.data;
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -58,8 +62,8 @@ export const deleteFormApi = async (Form: Form): Promise<Form> => {
 
 export const getFormApi = async (id: string): Promise<Form> => {
   try {
-    const response = await springboot2Api.get(`/forms/${id}`);
-    return response;
+    const response = await axios.get<Form>(`${SPRINGBOOT2_API_URL}/forms/${id}`);
+    return response.data;
   } catch (error) {
     console.error('API Error', error);
     throw error;

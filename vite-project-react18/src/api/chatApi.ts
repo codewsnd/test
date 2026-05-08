@@ -3,7 +3,6 @@
  * 提供与 core ADK 聊天接口的交互功能
  */
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import { API_BASE_URLS } from './axios';
 
 /**
  * 消息接口定义（与后端对应）
@@ -21,6 +20,7 @@ export interface ChatStreamRequest {
   requestId?: string;
   agentId?: string;
   modelName?: string;
+  skillIds?: string[];
   userId?: string;
   documents?: any[];
   messages: ChatMessage[];
@@ -97,7 +97,7 @@ export const chatStream = (
   callbacks: StreamCallbacks
 ): AbortController => {
   const controller = new AbortController();
-  const baseURL = API_BASE_URLS.core;
+  const baseURL = import.meta.env.VITE_API_CORE_URL || 'http://localhost:8000';
 
   // 使用 fetchEventSource 处理 SSE 流
   fetchEventSource(`${baseURL}/chat/stream`, {

@@ -5,8 +5,8 @@ import { useAtom, useSetAtom } from 'jotai';
 import { useRequest } from 'ahooks';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 
-import { API_BASE_URLS } from '@/api/axios';
 import { getAgentsApi } from '@/api/agentApi';
+import { getAllSkillsApi } from '@/api/skillApi';
 import {
   getConversationDetailApi,
   type ConversationHistory
@@ -55,6 +55,16 @@ type ToolResultEventData = {
   timestamp?: string;
 };
 
+type SkillAppliedEventData = {
+  skills?: Array<{
+    id?: string;
+    name?: string;
+    description?: string;
+    reason?: string;
+    toolNames?: string[];
+  }>;
+};
+
 type StreamMessageEventData = {
   output?: {
     text?: string | null;
@@ -99,6 +109,8 @@ const EMPTY_CONVERSATION_STATE: ConversationState = {
   turns: [],
   currentTurnId: undefined
 };
+
+const CORE_API_URL = import.meta.env.VITE_API_CORE_URL || 'http://localhost:8000';
 
 const STEP_KEYS = {
   request: 'request',
@@ -246,6 +258,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
 
   const [localConversationId, setLocalConversationId] = useState<string | null>(conversationId ?? null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(undefined);
+  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [input, setInput] = useState('');
   const [isRepositoryVisible, setIsRepositoryVisible] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -269,6 +282,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
     : undefined;
   const conversationState = conversationHistory?.conversationState ?? EMPTY_CONVERSATION_STATE;
   const { data: agents = [], loading: loadingAgents } = useRequest(getAgentsApi);
+  const { data: skills = [], loading: loadingSkills } = useRequest(getAllSkillsApi);
   const selectedAgent =
     agents.find((agent) => String(agent.id) === selectedAgentId) ??
     (conversationState.agentId
@@ -495,6 +509,14 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
           status: 'completed',
           content: '连接会话',
           tooltip: joinDetails('会话上下文已经准备完成。', sessionDetail)
+        });
+        break;
+
+      case 'skill-applied':
+        manager.updateStep(STEP_KEYS.response, {
+          status: 'processing',
+          content: '注入技能',
+          tooltip: payload.detail || '本轮已注入匹配的技能。'
         });
         break;
 
@@ -815,12 +837,33 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
     });
   };
 
+  const handleSkillApplied = (turnId: string, payload: SkillAppliedEventData) => {
+    const manager = getTurnStepsManager(turnId);
+    const appliedSkills = payload.skills?.filter((skill) => skill.id || skill.name) ?? [];
+    if (!manager || appliedSkills.length === 0) {
+      return;
+    }
+
+    const skillNames = appliedSkills.map((skill) => skill.name || skill.id || 'Skill');
+    manager.addStep(`注入技能 ${skillNames.join(', ')}`, '本轮请求已装载匹配的模型技能。', {
+      status: 'completed',
+      details: appliedSkills.flatMap((skill) => [
+        { label: 'Skill', value: skill.name || skill.id || '-' },
+        { label: 'Reason', value: skill.reason || 'matched' },
+        ...(skill.toolNames?.length
+          ? [{ label: 'Tools', value: skill.toolNames.join(', ') }]
+          : [])
+      ])
+    });
+  };
+
   const setupSSE = (
     turnId: string,
     conversationHistoryId: string,
     historyTurns: ConversationTurn[],
     userMessage: string,
-    agentId?: string
+    agentId?: string,
+    skillIds: string[] = []
   ) => {
     try {
       if (eventSourceRef.current) {
@@ -836,10 +879,11 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
         conversationId: conversationHistoryId,
         requestId: turnId,
         agentId,
+        skillIds,
         messages: buildHistoryMessages(historyTurns, userMessage)
       };
 
-      void fetchEventSource(`${API_BASE_URLS.core}/chat/stream`, {
+      void fetchEventSource(`${CORE_API_URL}/chat/stream`, {
         method: 'POST',
         headers: {
           Accept: 'text/event-stream',
@@ -875,6 +919,14 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
               const payload = parseEventData<ToolCallEventData>(event.data);
               if (payload) {
                 handleToolCall(turnId, payload);
+              }
+              break;
+            }
+
+            case 'skill-applied': {
+              const payload = parseEventData<SkillAppliedEventData>(event.data);
+              if (payload) {
+                handleSkillApplied(turnId, payload);
               }
               break;
             }
@@ -1102,7 +1154,14 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       );
 
       initializeTurnSteps(newTurn.id, targetConversation.id);
-      setupSSE(newTurn.id, targetConversation.id, historyTurns, trimmedInput, selectedAgentId);
+      setupSSE(
+        newTurn.id,
+        targetConversation.id,
+        historyTurns,
+        trimmedInput,
+        selectedAgentId,
+        selectedSkillIds
+      );
 
       return true;
     } catch (error) {
@@ -1127,6 +1186,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
     const success = await sendMessage(input);
     if (success) {
       setInput('');
+      setSelectedSkillIds([]);
     }
   };
 
@@ -1193,6 +1253,20 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
           }))}
           className="chat-area__agent-select"
           disabled={loadingAgents || isSending || !!conversationState.currentTurnId}
+        />
+        <Select
+          mode="multiple"
+          maxTagCount="responsive"
+          value={selectedSkillIds}
+          onChange={setSelectedSkillIds}
+          placeholder={loadingSkills ? 'Loading skills...' : 'Skills for this turn'}
+          options={skills.map((skill) => ({
+            label: skill.name,
+            value: skill.id
+          }))}
+          optionFilterProp="label"
+          className="chat-area__skill-select"
+          disabled={loadingSkills || isSending || !!conversationState.currentTurnId}
         />
         <Button
           type="text"

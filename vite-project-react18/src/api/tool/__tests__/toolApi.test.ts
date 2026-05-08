@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { coreApi } from '@/api/axios'
+import axios from '@/api/axios'
 import { GET_TOOL_LIST } from '@/api/tool/api'
 import { getAllToolsApi, getAllToolsApi2 } from '../toolApi'
 
 vi.mock('@/api/axios', () => ({
-  coreApi: {
+  default: {
     get: vi.fn(),
   },
 }))
@@ -14,14 +14,16 @@ afterEach(() => {
 })
 
 describe('toolApi', () => {
+  const coreBaseUrl = import.meta.env.VITE_API_CORE_URL || 'http://localhost:8000'
+
   it('fetches tool list from core service', async () => {
     const response = [{ tool_full_name: 'server/tool' }]
 
-    vi.mocked(coreApi.get).mockResolvedValueOnce(response as never)
+    vi.mocked(axios.get).mockResolvedValueOnce({ data: response } as never)
 
     const result = await getAllToolsApi()
 
-    expect(coreApi.get).toHaveBeenCalledWith(GET_TOOL_LIST, {
+    expect(axios.get).toHaveBeenCalledWith(`${coreBaseUrl}${GET_TOOL_LIST}`, {
       params: {
         usecache: false,
       },
@@ -32,11 +34,11 @@ describe('toolApi', () => {
   it('delegates getAllToolsApi2 to getAllToolsApi', async () => {
     const response = [{ tool_full_name: 'server/tool' }]
 
-    vi.mocked(coreApi.get).mockResolvedValueOnce(response as never)
+    vi.mocked(axios.get).mockResolvedValueOnce({ data: response } as never)
 
     const result = await getAllToolsApi2()
 
-    expect(coreApi.get).toHaveBeenCalledTimes(1)
+    expect(axios.get).toHaveBeenCalledTimes(1)
     expect(result).toBe(response)
   })
 })

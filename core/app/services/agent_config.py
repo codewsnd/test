@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from urllib.parse import parse_qs, urlsplit
+from typing import Any
 
 import asyncpg
 
@@ -31,6 +33,7 @@ class AgentConfigService:
                 modelName=requested_model_name or self._settings.oml_model,
                 systemPrompt=DEFAULT_INSTRUCTION,
                 tools=list(self._settings.mcp_tool_names),
+                skillIds=[],
             )
 
         payload = await self._fetch_db_agent(agent_id)
@@ -40,6 +43,7 @@ class AgentConfigService:
             modelName=payload.model_name or requested_model_name or self._settings.oml_model,
             systemPrompt=payload.system_prompt or DEFAULT_INSTRUCTION,
             tools=self._normalize_tools(payload.tools),
+            skillIds=self._normalize_skill_ids(payload.template_schemas),
             temperature=payload.temperature,
             maxTokens=payload.max_tokens,
             topP=payload.top_p,
@@ -71,7 +75,8 @@ class AgentConfigService:
                     frequency_penalty,
                     presence_penalty,
                     output_type,
-                    tools
+                    tools,
+                    template_schemas
                 FROM chat_agents_info
                 WHERE id = $1
                   AND is_deleted = FALSE
@@ -141,5 +146,33 @@ class AgentConfigService:
             tool_name = value.rsplit("/", 1)[-1]
             if tool_name not in normalized:
                 normalized.append(tool_name)
+
+        return normalized
+
+    @staticmethod
+    def _normalize_skill_ids(raw_template_schemas: str | None) -> list[str]:
+        if not raw_template_schemas:
+            return []
+
+        try:
+            payload = json.loads(raw_template_schemas)
+        except json.JSONDecodeError:
+            return []
+
+        candidates: Any = None
+        if isinstance(payload, dict):
+            candidates = payload.get("skillIds") or payload.get("skills")
+
+        if not isinstance(candidates, list):
+            return []
+
+        normalized: list[str] = []
+        for item in candidates:
+            if not isinstance(item, str):
+                continue
+
+            skill_id = item.strip()
+            if skill_id and skill_id not in normalized:
+                normalized.append(skill_id)
 
         return normalized

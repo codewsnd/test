@@ -41,21 +41,21 @@ uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
 After startup, you can verify the service with:
 
 ```bash
-curl http://127.0.0.1:8001/api/v1/health
+curl -X POST http://127.0.0.1:8001/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"你好，简单介绍一下你自己"}]}'
 ```
 
 ## Endpoints
 
 ```bash
-curl http://127.0.0.1:8000/api/v1/health
-
-curl -X POST http://127.0.0.1:8000/api/v1/chat \
+curl -X POST http://127.0.0.1:8000/chat/completions \
   -H 'Content-Type: application/json' \
-  -d '{"message":"你好，简单介绍一下你自己"}'
+  -d '{"messages":[{"role":"user","content":"你好，简单介绍一下你自己"}]}'
 
-curl -N -X POST http://127.0.0.1:8000/api/v1/stream-chat \
+curl -N -X POST http://127.0.0.1:8000/chat/stream \
   -H 'Content-Type: application/json' \
-  -d '{"message":"用三句话介绍 Google ADK"}'
+  -d '{"messages":[{"role":"user","content":"用三句话介绍 Google ADK"}]}'
 ```
 
 Configuration is read from `.env`. Preferred keys are:
@@ -66,6 +66,8 @@ Configuration is read from `.env`. Preferred keys are:
 - `MCP_ENABLED`
 - `MCP_SERVER_URL`
 - `MCP_TOOL_NAMES`
+- `SKILLS_ENABLED`
+- `SKILLS_CATALOG_PATH`
 
 If the configured OpenAI-compatible `base-url` has no path, the service will
 automatically normalize it to include `/v1`.
@@ -75,6 +77,25 @@ Legacy `OMLX_*` aliases are still supported for backward compatibility.
 When `MCP_ENABLED=true`, the ADK agent will load tools from the
 `springboot3-backend` MCP endpoint, which defaults to
 `http://127.0.0.1:8082/mcp`.
+
+## Skills
+
+The service exposes selectable model skills at:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/skills
+```
+
+Built-in skills are available by default. To add local custom skills, set
+`SKILLS_CATALOG_PATH` to either a JSON file containing `{ "skills": [...] }` or
+a directory with one or more `SKILL.md` files.
+
+Chat requests can pass `skillIds` for one-off injection. Agent-bound skills are
+read from `chat_agents_info.template_schemas` as JSON, for example:
+
+```json
+{"skillIds":["test-case-writer","structured-output"]}
+```
 
 ## CORS
 

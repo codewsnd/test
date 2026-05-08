@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { springboot3BackendApi } from '@/api/axios';
+import axios from '@/api/axios';
 import { aiChat } from '@/api';
 import { message } from 'antd';
 import { getEmployeeId } from '@/utils/userUtils';
@@ -14,7 +14,7 @@ import {
 } from '../copyDeckApi';
 
 vi.mock('@/api/axios', () => ({
-  springboot3BackendApi: {
+  default: {
     get: vi.fn(),
     post: vi.fn(),
   },
@@ -39,6 +39,8 @@ vi.mock('antd', () => ({
 }));
 
 describe('copyDeckApi', () => {
+  const backendBaseUrl = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
+
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -63,26 +65,26 @@ describe('copyDeckApi', () => {
       fileNames: ['a.png'],
     };
 
-    vi.mocked(springboot3BackendApi.get).mockReturnValueOnce(storageResponse as never);
-    vi.mocked(springboot3BackendApi.post)
-      .mockReturnValueOnce(uploadResponse as never)
-      .mockReturnValueOnce(attachmentResponse as never);
+    vi.mocked(axios.get).mockResolvedValueOnce({ data: storageResponse } as never);
+    vi.mocked(axios.post)
+      .mockResolvedValueOnce({ data: uploadResponse } as never)
+      .mockResolvedValueOnce({ data: attachmentResponse } as never);
 
     return copyDeckStorageApi('https://page')
       .then((storage) => {
         expect(storage).toBe(storageResponse);
         expect(getEmployeeId).toHaveBeenCalledTimes(1);
-        expect(springboot3BackendApi.get).toHaveBeenCalledWith(
-          '/api/chatbycard/copydeck/storage',
+        expect(axios.get).toHaveBeenCalledWith(
+          `${backendBaseUrl}/api/chatbycard/copydeck/storage`,
           { params: { confluenceUrl: 'https://page', staffId: 'staff-1' } },
         );
         return uploadStorageApi(uploadData);
       })
       .then((upload) => {
         expect(upload).toBe(uploadResponse);
-        expect(springboot3BackendApi.post).toHaveBeenNthCalledWith(
+        expect(axios.post).toHaveBeenNthCalledWith(
           1,
-          '/api/chatbycard/copydeck/upload',
+          `${backendBaseUrl}/api/chatbycard/copydeck/upload`,
           { ...uploadData, staffId: 'staff-1' },
         );
         return getAttachmentsApi(attachmentData);
@@ -90,9 +92,9 @@ describe('copyDeckApi', () => {
       .then((attachments) => {
         expect(attachments).toBe(attachmentResponse);
         expect(getEmployeeId).toHaveBeenCalledTimes(3);
-        expect(springboot3BackendApi.post).toHaveBeenNthCalledWith(
+        expect(axios.post).toHaveBeenNthCalledWith(
           2,
-          '/api/chatbycard/copydeck/getAttachments',
+          `${backendBaseUrl}/api/chatbycard/copydeck/getAttachments`,
           { ...attachmentData, staffId: 'staff-1' },
         );
       });

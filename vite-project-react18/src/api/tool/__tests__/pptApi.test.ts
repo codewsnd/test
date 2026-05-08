@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { springboot3BackendApi } from '@/api/axios';
+import axios from '@/api/axios';
 import { downloadPptFromBase64, generatePptApi } from '../pptApi';
 
 vi.mock('@/api/axios', () => ({
-  springboot3BackendApi: {
+  default: {
     post: vi.fn(),
   },
 }));
 
 describe('pptApi', () => {
+  const backendBaseUrl = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
+
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -23,11 +25,11 @@ describe('pptApi', () => {
     const request = { font: 'Arial', pageCount: 3, title: 'Deck' };
     const response = { success: true, message: 'ok', fileName: 'deck.pptx' };
 
-    vi.mocked(springboot3BackendApi.post).mockReturnValueOnce(response as never);
+    vi.mocked(axios.post).mockResolvedValueOnce({ data: response } as never);
 
     return generatePptApi(request).then((result) => {
       expect(result).toBe(response);
-      expect(springboot3BackendApi.post).toHaveBeenCalledWith('/api/ppt/generate', request);
+      expect(axios.post).toHaveBeenCalledWith(`${backendBaseUrl}/api/ppt/generate`, request);
     });
   });
 

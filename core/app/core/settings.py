@@ -78,6 +78,20 @@ class Settings(BaseSettings):
             "CORE_MCP_TOOL_NAMES",
         ),
     )
+    skills_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "SKILLS_ENABLED",
+            "CORE_SKILLS_ENABLED",
+        ),
+    )
+    skills_catalog_path: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "SKILLS_CATALOG_PATH",
+            "CORE_SKILLS_CATALOG_PATH",
+        ),
+    )
     request_timeout_seconds: float = 120.0
     agent_db_jdbc_url: str = Field(
         default=(

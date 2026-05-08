@@ -1,4 +1,6 @@
-import { coreApi } from "@/api/axios";
+import axios from "@/api/axios";
+
+const CORE_API_URL = import.meta.env.VITE_API_CORE_URL || 'http://localhost:8000';
 
 export interface AiChatRequest {
   requestId?: string;
@@ -34,5 +36,6 @@ export interface  AiChatResponse {
 
 export const aiChat = async (request: AiChatRequest): Promise<ApiResponse<AiChatResponse>> => {
   // 调用 API
-  return await coreApi.post('/chat/completions', request);
+  const response = await axios.post<ApiResponse<AiChatResponse>>(`${CORE_API_URL}/chat/completions`, request);
+  return response.data;
 }

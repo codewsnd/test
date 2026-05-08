@@ -1,5 +1,7 @@
-import { springboot3BackendApi } from './axios';
+import axios from './axios';
 import type { ConversationState, ConversationTurn } from "../pages/home/components/chat/types";
+
+const SPRINGBOOT3_BACKEND_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
 
 // 分页响应类型（Spring Data Page）
 export interface SpringDataPage<T> {
@@ -60,9 +62,10 @@ export const pageConversationsApi = async (
       params.search = search.trim();
     }
 
-    return await springboot3BackendApi.get('/conversations/histories', {
+    const response = await axios.get<SpringDataPage<ConversationHistory>>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`, {
       params
     });
+    return response.data;
   } catch (error) {
     console.error('Error fetching conversations page:', error);
     throw error;
@@ -80,7 +83,11 @@ const toConversationRequestPayload = (
 // 创建会话；后续更新请使用 saveConversationStateApi / renameConversationApi 做增量更新
 export const saveConversationApi = async (conversation: ConversationHistory): Promise<ConversationHistory> => {
   try {
-    return await springboot3BackendApi.post('/conversations/histories', toConversationRequestPayload(conversation));
+    const response = await axios.post<ConversationHistory>(
+      `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`,
+      toConversationRequestPayload(conversation)
+    );
+    return response.data;
   } catch (error) {
     console.error('Error saving conversation:', error);
     throw error;
@@ -92,7 +99,11 @@ export const saveConversationStateApi = async (
   payload: ConversationStatePatchRequest
 ): Promise<ConversationHistory> => {
   try {
-    return await springboot3BackendApi.post(`/conversations/histories/state/${id}`, payload);
+    const response = await axios.post<ConversationHistory>(
+      `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/state/${id}`,
+      payload
+    );
+    return response.data;
   } catch (error) {
     console.error('Error saving conversation state:', error);
     throw error;
@@ -100,28 +111,33 @@ export const saveConversationStateApi = async (
 };
 
 export const getConversationDetailApi = async (id: string): Promise<ConversationHistory> => {
-  return await springboot3BackendApi.get(`/conversations/histories/${id}`);
+  const response = await axios.get<ConversationHistory>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}`);
+  return response.data;
 };
 
 // 重命名会话
 export const renameConversationApi = async (id: string, title: string): Promise<ConversationHistory> => {
   const payload: ConversationRenameRequest = { title };
-  return await springboot3BackendApi.put(`/conversations/histories/${id}/rename`, payload);
+  const response = await axios.put<ConversationHistory>(
+    `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}/rename`,
+    payload
+  );
+  return response.data;
 };
 
 // 批量删除会话
 export const batchDeleteConversationsApi = async (conversationIds: string[]): Promise<void> => {
-  await springboot3BackendApi.delete('/conversations/histories/batch', {
+  await axios.delete(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch`, {
     data: conversationIds
   });
 };
 
 // 批量置顶会话
 export const batchPinConversationsApi = async (conversationIds: string[]): Promise<void> => {
-  await springboot3BackendApi.put('/conversations/histories/batch/pin', conversationIds);
+  await axios.put(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch/pin`, conversationIds);
 };
 
 // 批量取消置顶会话
 export const batchUnpinConversationsApi = async (conversationIds: string[]): Promise<void> => {
-  await springboot3BackendApi.put('/conversations/histories/batch/unpin', conversationIds);
+  await axios.put(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch/unpin`, conversationIds);
 };

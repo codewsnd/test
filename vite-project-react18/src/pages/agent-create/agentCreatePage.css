@@ -91,6 +91,11 @@
   gap: 12px;
 }
 
+.agent-create-page__skills {
+  display: grid;
+  gap: 10px;
+}
+
 .agent-create-page__tools-loading,
 .agent-create-page__tools-empty {
   display: flex;
@@ -174,6 +179,49 @@
 
 .agent-tool-card__remove.ant-btn {
   color: #6b7280;
+}
+
+.agent-skill-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid #d9dde3;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.agent-skill-card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-skill-card__title.ant-typography {
+  color: #111827;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.agent-skill-card__id.ant-typography {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.agent-skill-card__description.ant-typography {
+  color: #4b5563;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.agent-skill-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent-skill-card__tags .ant-tag {
+  margin-inline-end: 0;
 }
 
 .agent-create-page__footer {

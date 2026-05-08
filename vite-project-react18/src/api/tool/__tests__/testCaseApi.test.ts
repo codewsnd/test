@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { springboot3Api } from '@/api/axios';
+import axios from '@/api/axios';
 import { getEmployeeId } from '@/utils/userUtils';
 import {
   exportApi,
@@ -9,7 +9,7 @@ import {
 } from '../testCaseApi';
 
 vi.mock('@/api/axios', () => ({
-  springboot3Api: {
+  default: {
     post: vi.fn(),
   },
 }));
@@ -19,6 +19,8 @@ vi.mock('@/utils/userUtils', () => ({
 }));
 
 describe('testCaseApi', () => {
+  const springboot3BaseUrl = import.meta.env.VITE_API_SPRINGBOOT3_URL || 'http://localhost:8080';
+
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -57,12 +59,12 @@ describe('testCaseApi', () => {
     const postResponse = { ok: true };
 
     vi.useFakeTimers();
-    vi.mocked(springboot3Api.post).mockReturnValueOnce(postResponse as never);
+    vi.mocked(axios.post).mockResolvedValueOnce({ data: postResponse } as never);
 
     return saveTestCaseStatistics(payload)
       .then((result) => {
-        expect(result).toBe(postResponse);
-        expect(springboot3Api.post).toHaveBeenCalledWith('/test-case/statistics', payload);
+        expect(result).toBeUndefined();
+        expect(axios.post).toHaveBeenCalledWith(`${springboot3BaseUrl}/test-case/statistics`, payload);
         const labelsPromise = getIssueLabels();
         vi.runAllTimers();
         return labelsPromise;
@@ -77,17 +79,15 @@ describe('testCaseApi', () => {
   it('returns an empty label list when almType is missing', () => {
     return listJiraIssueLabels('', 'bug').then((labels) => {
       expect(labels).toEqual([]);
-      expect(springboot3Api.post).not.toHaveBeenCalled();
+      expect(axios.post).not.toHaveBeenCalled();
     });
   });
 
   it('maps jira label results, handles non-array responses, and catches failures', () => {
-    vi.mocked(springboot3Api.post)
-      .mockReturnValueOnce(['bug', 'feature'] as never)
-      .mockReturnValueOnce({ value: 'bug' } as never)
-      .mockImplementationOnce(() => {
-        throw new Error('query-fail');
-      });
+    vi.mocked(axios.post)
+      .mockResolvedValueOnce({ data: ['bug', 'feature'] } as never)
+      .mockResolvedValueOnce({ data: { value: 'bug' } } as never)
+      .mockRejectedValueOnce(new Error('query-fail'));
 
     return listJiraIssueLabels('jira', 'bu')
       .then((first) => {
@@ -95,7 +95,7 @@ describe('testCaseApi', () => {
           { label: 'bug', value: 'bug' },
           { label: 'feature', value: 'feature' },
         ]);
-        expect(springboot3Api.post).toHaveBeenNthCalledWith(1, '/api/tolsquery/querylabels', {
+        expect(axios.post).toHaveBeenNthCalledWith(1, `${springboot3BaseUrl}/api/tolsquery/querylabels`, {
           almType: 'jira',
           staffId: 'staff-1',
           query: 'bu',

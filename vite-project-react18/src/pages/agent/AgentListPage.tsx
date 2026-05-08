@@ -15,6 +15,22 @@ const parseCommaList = (value?: string) =>
     .map((item) => item.trim())
     .filter(Boolean) ?? []
 
+const parseSkillIds = (value?: string) => {
+  if (!value?.trim()) {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(value)
+    const rawSkillIds = parsed?.skillIds ?? parsed?.skills
+    return Array.isArray(rawSkillIds)
+      ? rawSkillIds.filter((item): item is string => typeof item === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
 const formatDateTime = (value?: string) => {
   if (!value) {
     return '-'
@@ -84,6 +100,7 @@ const AgentListPage = () => {
           <div className="agent-list-page__grid">
             {sortedAgents.map((agent) => {
               const tools = parseCommaList(agent.tools)
+              const skills = parseSkillIds(agent.templateSchemas)
               const tags = parseCommaList(agent.tags)
 
               return (
@@ -122,6 +139,21 @@ const AgentListPage = () => {
                       {tools.length > 4 ? (
                         <Tag bordered={false} className="agent-list-page__chip">
                           +{tools.length - 4}
+                        </Tag>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {skills.length > 0 ? (
+                    <div className="agent-list-page__chip-row">
+                      {skills.slice(0, 4).map((skill) => (
+                        <Tag key={skill} bordered={false} className="agent-list-page__chip">
+                          {skill}
+                        </Tag>
+                      ))}
+                      {skills.length > 4 ? (
+                        <Tag bordered={false} className="agent-list-page__chip">
+                          +{skills.length - 4}
                         </Tag>
                       ) : null}
                     </div>

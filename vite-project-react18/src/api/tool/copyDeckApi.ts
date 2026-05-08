@@ -1,10 +1,12 @@
-import { springboot3BackendApi } from '../axios';
+import axios from '../axios';
 import {getEmployeeId} from "@/utils/userUtils";
 import {aiChat, type AiChatRequest} from "@/api";
 import {buildGroupedMatchPrompt, buildSingleTableMatchPrompt} from './copyDeckPrompt';
 import {buildLanguageComparePrompt, type LanguageCompareDifference, type LanguageIssue} from './languageComparePrompt';
 import {mergeChineseQualityIssues} from "@/utils/chineseUtils";
 import {message} from "antd";
+
+const SPRINGBOOT3_BACKEND_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
 
 
 /**
@@ -19,12 +21,13 @@ export interface CopyDeckStorageResponse {
  * 获取Confluence页面的Storage HTML和页面标题
  */
 export const copyDeckStorageApi = async (confluenceUrl: string): Promise<CopyDeckStorageResponse> => {
-  return springboot3BackendApi.get('/api/chatbycard/copydeck/storage', {
+  const response = await axios.get<CopyDeckStorageResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/api/chatbycard/copydeck/storage`, {
     params: {
       confluenceUrl,
       staffId: getEmployeeId()
     }
   });
+  return response.data;
 };
 
 
@@ -211,10 +214,11 @@ export interface UploadStorageResponse {
 export const uploadStorageApi = async (
   data: UploadStorageRequest
 ): Promise<UploadStorageResponse> => {
-  return springboot3BackendApi.post('/api/chatbycard/copydeck/upload', {
+  const response = await axios.post<UploadStorageResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/api/chatbycard/copydeck/upload`, {
     ...data,
     staffId: getEmployeeId()
   });
+  return response.data;
 };
 
 /**
@@ -235,10 +239,11 @@ export interface GetAttachmentsResponse {
 export const getAttachmentsApi = async (
   data: GetAttachmentsRequest
 ): Promise<GetAttachmentsResponse> => {
-  return springboot3BackendApi.post('/api/chatbycard/copydeck/getAttachments', {
+  const response = await axios.post<GetAttachmentsResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/api/chatbycard/copydeck/getAttachments`, {
     ...data,
     staffId: getEmployeeId()
   });
+  return response.data;
 };
 
 /**

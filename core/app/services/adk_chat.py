@@ -28,7 +28,9 @@ from app.schemas.chat import (
     ChatStatusEvent,
     ChatStreamCompatRequest,
 )
+from app.schemas.skill import SkillAppliedEvent, SkillAppliedItem
 from app.services.agent_config import AgentConfigService
+from app.services.skill_catalog import SkillCatalogService
 
 
 class LocalChatAgent(Agent):
@@ -40,6 +42,7 @@ class AdkChatService:
         self._settings = settings
         self._session_service = InMemorySessionService()
         self._agent_config_service = AgentConfigService(settings)
+        self._skill_catalog_service = SkillCatalogService(settings)
 
     def _build_agent(self, agent_config: ResolvedAgentConfig) -> Agent:
         return LocalChatAgent(
@@ -83,6 +86,44 @@ class AdkChatService:
             )
         ]
 
+    def _build_execution_config(
+        self,
+        agent_config: ResolvedAgentConfig,
+        *,
+        prompt: str,
+        requested_skill_ids: list[str],
+    ) -> tuple[ResolvedAgentConfig, list[SkillAppliedItem]]:
+        applied_skills = self._skill_catalog_service.resolve_skills(
+            bound_skill_ids=agent_config.skill_ids,
+            requested_skill_ids=requested_skill_ids,
+            prompt=prompt,
+        )
+        if not applied_skills:
+            return agent_config, []
+
+        skill_items = self._skill_catalog_service.get_skill_items(applied_skills)
+        instruction = self._skill_catalog_service.build_instruction(
+            agent_config.system_prompt,
+            skill_items,
+        )
+        skill_tool_names = [
+            tool_name
+            for skill in skill_items
+            for tool_name in skill.tool_names
+        ]
+
+        return (
+            agent_config.model_copy(
+                update={
+                    "system_prompt": instruction,
+                    "tools": self._dedupe_strings(
+                        [*agent_config.tools, *skill_tool_names]
+                    ),
+                }
+            ),
+            applied_skills,
+        )
+
     async def chat(self, request: ChatRequest) -> ChatResponse:
         agent_config = await self._agent_config_service.resolve_agent_config(
             agent_id=request.agent_id,
@@ -91,7 +132,12 @@ class AdkChatService:
         session_id, _ = await self._ensure_session(request.user_id, request.session_id)
         content = self._content_from_text(request.message)
         answer_parts: list[str] = []
-        runner = self._build_runner(agent_config)
+        execution_config, _ = self._build_execution_config(
+            agent_config,
+            prompt=request.message,
+            requested_skill_ids=request.skill_ids,
+        )
+        runner = self._build_runner(execution_config)
 
         async for event in runner.run_async(
             user_id=request.user_id,
@@ -111,8 +157,14 @@ class AdkChatService:
             agent_id=request.agent_id,
             requested_model_name=request.model_name,
         )
+        execution_config, applied_skills = self._build_execution_config(
+            agent_config,
+            prompt=request.message,
+            requested_skill_ids=request.skill_ids,
+        )
         async for chunk in self._stream_response(
-            agent_config=agent_config,
+            agent_config=execution_config,
+            applied_skills=applied_skills,
             user_id=request.user_id,
             session_id_hint=request.session_id,
             request_id=request.session_id,
@@ -137,9 +189,15 @@ class AdkChatService:
             if is_new_session
             else self._latest_user_message(request.messages)
         )
+        execution_config, applied_skills = self._build_execution_config(
+            agent_config,
+            prompt=prompt,
+            requested_skill_ids=request.skill_ids,
+        )
 
         async for chunk in self._stream_response(
-            agent_config=agent_config,
+            agent_config=execution_config,
+            applied_skills=applied_skills,
             user_id=request.user_id,
             session_id_hint=session_id,
             request_id=request.request_id,
@@ -174,6 +232,7 @@ class AdkChatService:
                 session_id=session_id,
                 agent_id=request.agent_id,
                 model_name=agent_config.model_name,
+                skillIds=request.skill_ids,
                 user_id=request.user_id,
             )
         )
@@ -211,6 +270,7 @@ class AdkChatService:
         self,
         *,
         agent_config: ResolvedAgentConfig,
+        applied_skills: list[SkillAppliedItem] | None = None,
         user_id: str,
         session_id_hint: str | None,
         prompt: str,
@@ -265,6 +325,22 @@ class AdkChatService:
                 session_id=session_id,
             ),
         )
+        if applied_skills:
+            skill_names = ", ".join(skill.name for skill in applied_skills)
+            yield self._sse(
+                "skill-applied",
+                SkillAppliedEvent(skills=applied_skills),
+            )
+            yield self._sse(
+                "status",
+                self._status_event(
+                    stage="skill-applied",
+                    state="completed",
+                    label="Skills applied",
+                    detail=f"Injected skills for this request: {skill_names}.",
+                    session_id=session_id,
+                ),
+            )
         yield self._sse(
             "status",
             self._status_event(
@@ -560,6 +636,15 @@ class AdkChatService:
             return json.dumps(value, ensure_ascii=False, default=str)
         except TypeError:
             return str(value)
+
+    @staticmethod
+    def _dedupe_strings(values: list[str]) -> list[str]:
+        deduped: list[str] = []
+        for value in values:
+            normalized = value.strip()
+            if normalized and normalized not in deduped:
+                deduped.append(normalized)
+        return deduped
 
     @staticmethod
     def _iso_now() -> str:

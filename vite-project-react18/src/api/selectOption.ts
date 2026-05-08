@@ -1,11 +1,13 @@
-import { springboot2Api } from './axios';
+import axios from './axios';
 import type {Option, SelectOption} from "../models/selectOption";
 import {buildQueryParams} from "../utils/paramUtils";
+
+const SPRINGBOOT2_API_URL = import.meta.env.VITE_API_SPRINGBOOT2_URL || 'http://localhost:8082';
 
 export const listSelectOptionApi = async (params?: SelectOption): Promise<Array<SelectOption>> => {
   try {
     const queryString = buildQueryParams(params);
-    const response = await springboot2Api.get(`/selectOptions?${queryString}`);
+    const response = await axios.get<Array<SelectOption>>(`${SPRINGBOOT2_API_URL}/selectOptions?${queryString}`);
     return response.data;
   } catch (error) {
     console.error('API Error', error);
@@ -17,9 +19,9 @@ export const saveSelectOptionApi = async (option: SelectOption): Promise<SelectO
   try {
     let response;
     if (option.id) {
-      response = await springboot2Api.put(`/selectOptions/${option.id}`, option);
+      response = await axios.put<SelectOption>(`${SPRINGBOOT2_API_URL}/selectOptions/${option.id}`, option);
     } else {
-      response = await springboot2Api.post(`/selectOptions`, option);
+      response = await axios.post<SelectOption>(`${SPRINGBOOT2_API_URL}/selectOptions`, option);
     }
     return response.data;
   } catch (error) {
@@ -30,7 +32,7 @@ export const saveSelectOptionApi = async (option: SelectOption): Promise<SelectO
 
 export const deleteSelectOptionApi = async (id: string): Promise<void> => {
   try {
-    await springboot2Api.delete(`/selectOptions/${id}`);
+    await axios.delete(`${SPRINGBOOT2_API_URL}/selectOptions/${id}`);
   } catch (error) {
     console.error('API Error', error);
     throw error;
@@ -39,7 +41,7 @@ export const deleteSelectOptionApi = async (id: string): Promise<void> => {
 
 export const getSelectOptionApi = async (id: string): Promise<SelectOption> => {
   try {
-    const response = await springboot2Api.get(`/selectOptions/${id}`);
+    const response = await axios.get<SelectOption>(`${SPRINGBOOT2_API_URL}/selectOptions/${id}`);
     return response.data;
   } catch (error) {
     console.error('API Error', error);
@@ -51,7 +53,7 @@ export const getSelectOptionApi = async (id: string): Promise<SelectOption> => {
 // 添加选项
 export const addOptionApi = async (id: string, option: Option): Promise<SelectOption> => {
   try {
-    const response = await springboot2Api.post(`/selectOptions/${id}/options`, option);
+    const response = await axios.post<SelectOption>(`${SPRINGBOOT2_API_URL}/selectOptions/${id}/options`, option);
     return response.data;
   } catch (error) {
     console.error('API Error', error);
@@ -62,7 +64,7 @@ export const addOptionApi = async (id: string, option: Option): Promise<SelectOp
 // 更新选项
 export const updateOptionApi = async (id: string, index: number, option: Option): Promise<SelectOption> => {
   try {
-    const response = await springboot2Api.put(`/selectOptions/${id}/options/${index}`, option);
+    const response = await axios.put<SelectOption>(`${SPRINGBOOT2_API_URL}/selectOptions/${id}/options/${index}`, option);
     return response.data;
   } catch (error) {
     console.error('API Error', error);
@@ -73,7 +75,7 @@ export const updateOptionApi = async (id: string, index: number, option: Option)
 // 删除选项
 export const deleteOptionApi = async (id: string, index: number): Promise<SelectOption> => {
   try {
-    const response = await springboot2Api.delete(`/selectOptions/${id}/options/${index}`);
+    const response = await axios.delete<SelectOption>(`${SPRINGBOOT2_API_URL}/selectOptions/${id}/options/${index}`);
     return response.data;
   } catch (error) {
     console.error('API Error', error);
@@ -84,7 +86,7 @@ export const deleteOptionApi = async (id: string, index: number): Promise<Select
 // 移动选项位置
 export const moveOptionApi = async (id: string, fromIndex: number, toIndex: number): Promise<SelectOption> => {
   try {
-    const response = await springboot2Api.post(`/selectOptions/${id}/options/move`, null, {
+    const response = await axios.post<SelectOption>(`${SPRINGBOOT2_API_URL}/selectOptions/${id}/options/move`, null, {
       params: {fromIndex, toIndex}
     });
     return response.data;

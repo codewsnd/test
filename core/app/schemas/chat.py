@@ -10,6 +10,7 @@ class ChatRequest(BaseModel):
     session_id: str | None = Field(default=None, description="Optional ADK session id")
     agent_id: str | None = Field(default=None, alias="agentId")
     model_name: str | None = Field(default=None, alias="modelName")
+    skill_ids: list[str] = Field(default_factory=list, alias="skillIds")
     user_id: str = Field(default="local-user", min_length=1)
 
 
@@ -39,6 +40,7 @@ class ChatStreamCompatRequest(BaseModel):
     request_id: str | None = Field(default=None, alias="requestId")
     agent_id: str | None = Field(default=None, alias="agentId")
     model_name: str | None = Field(default=None, alias="modelName")
+    skill_ids: list[str] = Field(default_factory=list, alias="skillIds")
     documents: list[ChatDocument] = Field(default_factory=list)
     messages: list[ChatMessage] = Field(..., min_length=1)
     user_id: str = Field(default="local-user", alias="userId", min_length=1)
@@ -58,17 +60,11 @@ class CompatApiResponse(BaseModel):
     code: int | None = None
 
 
-class HealthResponse(BaseModel):
-    status: str
-    app: str
-    version: str
-    model: str
-
-
 ChatStreamState = Literal["waiting", "processing", "completed", "error"]
 ChatStreamStage = Literal[
     "accepted",
     "session-ready",
+    "skill-applied",
     "generating",
     "responding",
     "tool-running",

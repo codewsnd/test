@@ -1,5 +1,7 @@
-import { coreApi } from '@/api/axios'
+import axios from '@/api/axios'
 import { GET_TOOL_LIST } from '@/api/tool/api'
+
+const CORE_API_URL = import.meta.env.VITE_API_CORE_URL || 'http://localhost:8000'
 
 export interface GetAllToolsApiParameter {
   param_name: string
@@ -22,11 +24,12 @@ export interface GetAllToolsApiItem {
 }
 
 export const getAllToolsApi = async (): Promise<GetAllToolsApiItem[]> => {
-  return coreApi.get(GET_TOOL_LIST, {
+  const response = await axios.get<GetAllToolsApiItem[]>(`${CORE_API_URL}${GET_TOOL_LIST}`, {
     params: {
       usecache: false,
     },
   })
+  return response.data
 }
 
 export const getAllToolsApi2 = async (): Promise<GetAllToolsApiItem[]> => {

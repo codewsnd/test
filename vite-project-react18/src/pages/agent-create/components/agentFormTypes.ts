@@ -13,5 +13,7 @@ export interface AgentFormData {
   outputType?: string
   createUser?: string
   tools: string[]
+  skills?: string[]
   tags?: string[]
+  templateSchemas?: string
 }

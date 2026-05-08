@@ -1,11 +1,13 @@
-import { springboot2Api } from './axios';
+import axios from './axios';
 import type {FormResponse} from '../models/formResponse';
 import {buildQueryParams} from "../utils/paramUtils";
 import type {Page} from "../models/page";
 
+const SPRINGBOOT2_API_URL = import.meta.env.VITE_API_SPRINGBOOT2_URL || 'http://localhost:8082';
+
 export const getMyFormResponseApi = async (formId: string): Promise<FormResponse> => {
   try {
-    const response = await springboot2Api.get(`/forms/responses/${formId}`);
+    const response = await axios.get<FormResponse>(`${SPRINGBOOT2_API_URL}/forms/responses/${formId}`);
     return response.data;
   } catch (error) {
     return Promise.reject(error);
@@ -19,7 +21,7 @@ export const pageFormResponseApi = async (page: number, size: number, formRespon
       size,
       ...formResponse
     });
-    const response = await springboot2Api.get(`/forms/responses/page?${queryString}`);
+    const response = await axios.get<Page<FormResponse>>(`${SPRINGBOOT2_API_URL}/forms/responses/page?${queryString}`);
     return response.data;
   } catch (error) {
     console.error('API Error', error);
@@ -32,9 +34,9 @@ export const saveFormResponseApi = async (formResponse: FormResponse): Promise<F
   try {
     let response;
     if (formResponse.id) {
-      response = await springboot2Api.put(`/forms/responses/${formResponse.id}`, formResponse);
+      response = await axios.put<FormResponse>(`${SPRINGBOOT2_API_URL}/forms/responses/${formResponse.id}`, formResponse);
     } else {
-      response = await springboot2Api.post(`/forms/responses`, formResponse);
+      response = await axios.post<FormResponse>(`${SPRINGBOOT2_API_URL}/forms/responses`, formResponse);
     }
     return response.data;
   } catch (error) {
@@ -45,14 +47,13 @@ export const saveFormResponseApi = async (formResponse: FormResponse): Promise<F
 
 export const deleteFormResponseApi = async (formResponseId: string): Promise<FormResponse> => {
   try {
-    const response = await springboot2Api.delete(`/forms/responses/${formResponseId}`);
+    const response = await axios.delete<FormResponse>(`${SPRINGBOOT2_API_URL}/forms/responses/${formResponseId}`);
     return response.data;
   } catch (error) {
     console.error('API Error', error);
     throw error;
   }
 }
-
 
 
 

@@ -1,5 +1,7 @@
-import { springboot3Api } from '../axios';
+import axios from '../axios';
 import {getEmployeeId} from "@/utils/userUtils";
+
+const SPRINGBOOT3_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_URL || 'http://localhost:8080';
 
 // Jira Issue接口
 export interface JiraIssue {
@@ -45,7 +47,7 @@ export const exportApi = async (): Promise<JiraIssue[]> => {
  * 保存测试用例统计数据
  */
 export const saveTestCaseStatistics = async (data: TestCaseStatisticsRequest): Promise<void> => {
-    return await springboot3Api.post('/test-case/statistics', data);
+    await axios.post(`${SPRINGBOOT3_API_URL}/test-case/statistics`, data);
 };
 
 /**
@@ -102,11 +104,12 @@ export const listJiraIssueLabels =
   }
 
   try{
-    const data = await springboot3Api.post('/api/tolsquery/querylabels', {
+    const response = await axios.post<string[]>(`${SPRINGBOOT3_API_URL}/api/tolsquery/querylabels`, {
       almType,
       staffId: getEmployeeId(),
       query
     })
+    const data = response.data;
 
     if(!Array.isArray(data)) {
       return [];
