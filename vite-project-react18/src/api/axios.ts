@@ -1,6 +1,12 @@
 import axios from 'axios'
 import {message} from 'antd'
 
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    skipError?: boolean
+  }
+}
+
 const baseURL = '/';
 const instance = axios.create({
   baseURL,
@@ -29,6 +35,9 @@ instance.interceptors.response.use(
     return response.data
   },
   (error) => {
+    if (error?.config?.skipError) {
+      return Promise.reject(error)
+    }
     if (error?.response?.data) {
       if (typeof error?.response?.data === 'string') {
         message.error(error?.response?.data);
