@@ -65,11 +65,10 @@ export const pageConversationsApi = async (
 
   try {
     return await ApiRetryUtil.request(async () => {
-      const response = await axios.get<SpringDataPage<ConversationHistory>>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`, {
+      return await axios.get(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`, {
         params,
         skipError: true
       });
-      return response.data;
     });
   } catch (error) {
     message.error('Failed to fetch conversations page');
