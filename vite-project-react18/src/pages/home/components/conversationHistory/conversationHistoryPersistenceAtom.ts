@@ -4,7 +4,7 @@ import type { PrimitiveAtom } from 'jotai';
 import { aiChat } from '@/api';
 import {
   renameConversationApi,
-  saveConversationApi,
+  createConversationApi,
   saveConversationStateApi,
   type ConversationHistory,
   type ConversationStatePatch,
@@ -395,7 +395,7 @@ const buildConversationStatePatchRequest = (
 
 // 执行创建请求，创建仍然需要使用完整会话数据。
 const persistConversationCreate = async (task: QueuedPersistenceTask) => {
-  const persistedConversation = await saveConversationApi(toPersistableConversation(task.conversation));
+  const persistedConversation = await createConversationApi(toPersistableConversation(task.conversation));
 
   // 创建接口本身不会 rename；如果本地没有正在生成的 turn，不能让后端旧值把 loading 卡住。
   return {

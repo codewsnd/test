@@ -1,7 +1,7 @@
 import axios from './axios';
 import type {ConversationState, ConversationTurn} from "../pages/home/components/chat/types";
 import {message} from "antd";
-import {ApiRetryUtil} from "@/api/retryUtils";
+import {ApiRetryUtil} from "./retryUtils";
 
 const SPRINGBOOT3_BACKEND_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
 
@@ -64,12 +64,10 @@ export const pageConversationsApi = async (
   }
 
   try {
-    return await ApiRetryUtil.request(async () => {
-      return await axios.get<SpringDataPage<ConversationHistory>>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`, {
-        params,
-        skipError: true
-      });
-    });
+    return await ApiRetryUtil.get(
+      `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`,
+      {params}
+    );
   } catch (error) {
     message.error('Failed to fetch conversations page');
     console.error('Error fetching conversations page:', error);
@@ -77,20 +75,12 @@ export const pageConversationsApi = async (
   }
 };
 
-const toConversationRequestPayload = (
-  conversation: ConversationHistory
-): Omit<ConversationHistory, 'staffId'> => {
-  const payload: Partial<ConversationHistory> = {...conversation};
-  delete payload.staffId;
-  return payload as Omit<ConversationHistory, 'staffId'>;
-};
-
 // 创建会话；后续更新请使用 saveConversationStateApi / renameConversationApi 做增量更新
-export const saveConversationApi = async (conversation: ConversationHistory): Promise<ConversationHistory> => {
+export const createConversationApi = async (conversation: ConversationHistory): Promise<ConversationHistory> => {
   try {
     const response = await axios.post<ConversationHistory>(
       `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`,
-      toConversationRequestPayload(conversation)
+      conversation
     );
     return response;
   } catch (error) {
