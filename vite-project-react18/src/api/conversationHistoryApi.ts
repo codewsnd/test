@@ -1,18 +1,9 @@
 import type {ConversationState, ConversationTurn} from "../pages/home/components/chat/types";
 import {message} from "antd";
 import {ApiRetryUtil} from "./retryUtils";
+import type {SpringPage} from "./types";
 
 const SPRINGBOOT3_BACKEND_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
-
-// 分页响应类型（Spring Data Page）
-export interface SpringDataPage<T> {
-  content: T[];
-  totalElements: number;
-  totalPages: number;
-  size: number;
-  number: number;
-}
-
 
 // 会话历史记录类型
 export type ConversationHistory = {
@@ -38,7 +29,7 @@ export const pageConversationsApi = async (
   page: number = 0,
   size: number = 10,
   search?: string
-): Promise<SpringDataPage<ConversationHistory>> => {
+): Promise<SpringPage<ConversationHistory>> => {
   // 前端和后端都使用0开始的页码
   const params: Record<string, string | number> = {
     page,
@@ -50,7 +41,7 @@ export const pageConversationsApi = async (
   }
 
   try {
-    return await ApiRetryUtil.get<SpringDataPage<ConversationHistory>>(
+    return await ApiRetryUtil.get<SpringPage<ConversationHistory>>(
       `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`,
       {params}
     );
