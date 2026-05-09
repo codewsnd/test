@@ -7,7 +7,8 @@ import {
   createConversationApi,
   batchDeleteConversationsApi,
   batchPinConversationsApi,
-  batchUnpinConversationsApi
+  batchUnpinConversationsApi,
+  saveConversationStateApi
 } from "@/api/conversationHistoryApi";
 import axios from "../../../../api/axios";
 import {v7} from 'uuid';
@@ -99,7 +100,7 @@ export const setConversationHistoryAtom = atom(
     // 自动异步持久化到数据库
     if (isDone) {
       try {
-        await saveConversationApi(updatedConvHistory);
+        await saveConversationStateApi();
       } catch (error) {
         console.error('Failed to persist conversation history', error);
       }
