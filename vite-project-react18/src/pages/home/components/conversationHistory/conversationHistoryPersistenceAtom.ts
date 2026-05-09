@@ -7,8 +7,7 @@ import {
   createConversationApi,
   saveConversationStateApi,
   type ConversationHistory,
-  type ConversationStatePatch,
-  type ConversationStatePatchRequest
+  type ConversationStatePatch
 } from '@/api/conversationHistoryApi';
 import type { ConversationState, ConversationTurn } from '../chat/types';
 
@@ -377,22 +376,6 @@ const buildConversationStatePatch = (
   return Object.keys(patch).length > 0 ? patch : null;
 };
 
-// 构造增量更新会话状态所需的请求体。
-const buildConversationStatePatchRequest = (
-  task: QueuedPersistenceTask,
-  conversationStatePatch: ConversationStatePatch
-): ConversationStatePatchRequest => {
-  const request: ConversationStatePatchRequest = {
-    conversationState: conversationStatePatch
-  };
-
-  if (task.previousConversation?.updatedAt !== task.conversation.updatedAt) {
-    request.updatedAt = task.conversation.updatedAt;
-  }
-
-  return request;
-};
-
 // 执行创建请求，创建仍然需要使用完整会话数据。
 const persistConversationCreate = async (task: QueuedPersistenceTask) => {
   const persistedConversation = await createConversationApi(toPersistableConversation(task.conversation));
@@ -416,7 +399,7 @@ const persistConversationUpdate = async (task: QueuedPersistenceTask) => {
   if (conversationStatePatch) {
     patchedConversation = await saveConversationStateApi(
       task.conversation.id,
-      buildConversationStatePatchRequest(task, conversationStatePatch)
+      conversationStatePatch
     );
   }
 

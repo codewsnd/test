@@ -1,4 +1,3 @@
-import axios from './axios';
 import type {ConversationState, ConversationTurn} from "../pages/home/components/chat/types";
 import {message} from "antd";
 import {ApiRetryUtil} from "./retryUtils";
@@ -32,20 +31,7 @@ export type ConversationHistory = {
 
 export type ConversationStatePatch = {
   turns?: [ConversationTurn];
-  agentId?: string | null;
-  agentName?: string | null;
-  currentTurnId?: string | null;
 };
-
-export type ConversationStatePatchRequest = {
-  conversationState: ConversationStatePatch;
-  updatedAt?: string;
-};
-
-export type ConversationRenameRequest = {
-  title: string;
-};
-
 
 // 分页获取会话（页码从0开始，与后端保持一致）
 export const pageConversationsApi = async (
@@ -64,7 +50,7 @@ export const pageConversationsApi = async (
   }
 
   try {
-    return await ApiRetryUtil.get(
+    return await ApiRetryUtil.get<SpringDataPage<ConversationHistory>>(
       `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`,
       {params}
     );
@@ -78,11 +64,10 @@ export const pageConversationsApi = async (
 // 创建会话；后续更新请使用 saveConversationStateApi / renameConversationApi 做增量更新
 export const createConversationApi = async (conversation: ConversationHistory): Promise<ConversationHistory> => {
   try {
-    const response = await axios.post<ConversationHistory>(
+    return await ApiRetryUtil.post<ConversationHistory>(
       `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`,
       conversation
     );
-    return response;
   } catch (error) {
     console.error('Error saving conversation:', error);
     throw error;
@@ -91,14 +76,13 @@ export const createConversationApi = async (conversation: ConversationHistory): 
 
 export const saveConversationStateApi = async (
   id: string,
-  payload: ConversationStatePatchRequest
+  conversationState: ConversationState
 ): Promise<ConversationHistory> => {
   try {
-    const response = await axios.post<ConversationHistory>(
+    return await ApiRetryUtil.post<ConversationHistory>(
       `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/state/${id}`,
-      payload
+      {conversationState}
     );
-    return response;
   } catch (error) {
     console.error('Error saving conversation state:', error);
     throw error;
@@ -106,33 +90,32 @@ export const saveConversationStateApi = async (
 };
 
 export const getConversationDetailApi = async (id: string): Promise<ConversationHistory> => {
-  const response = await axios.get<ConversationHistory>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}`);
-  return response;
+  return await ApiRetryUtil.get<ConversationHistory>(
+    `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}`
+  );
 };
 
 // 重命名会话
 export const renameConversationApi = async (id: string, title: string): Promise<ConversationHistory> => {
-  const payload: ConversationRenameRequest = {title};
-  const response = await axios.put<ConversationHistory>(
+  return await ApiRetryUtil.put<ConversationHistory>(
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}/rename`,
-    payload
+    {title}
   );
-  return response;
 };
 
 // 批量删除会话
 export const batchDeleteConversationsApi = async (conversationIds: string[]): Promise<void> => {
-  await axios.delete(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch`, {
+  await ApiRetryUtil.delete<void>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch`, {
     data: conversationIds
   });
 };
 
 // 批量置顶会话
 export const batchPinConversationsApi = async (conversationIds: string[]): Promise<void> => {
-  await axios.put(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch/pin`, conversationIds);
+  await ApiRetryUtil.put<void>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch/pin`, conversationIds);
 };
 
 // 批量取消置顶会话
 export const batchUnpinConversationsApi = async (conversationIds: string[]): Promise<void> => {
-  await axios.put(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch/unpin`, conversationIds);
+  await ApiRetryUtil.put<void>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch/unpin`, conversationIds);
 };
