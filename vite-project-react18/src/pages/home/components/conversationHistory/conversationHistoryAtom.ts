@@ -1,22 +1,19 @@
 import { atom } from 'jotai';
 import type { ConversationState } from '../chat/types';
+import { getEmployeeId } from '@/utils/userUtils';
 import type {ConversationHistory} from "@/api/conversationHistoryApi";
 import {
   pageConversationsApi,
+  createConversationApi,
   batchDeleteConversationsApi,
   batchPinConversationsApi,
   batchUnpinConversationsApi
 } from "@/api/conversationHistoryApi";
+import axios from "../../../../api/axios";
 import {v7} from 'uuid';
-import {
-  enqueueConversationHistoryPersistenceAtom,
-  installConversationHistoryPersistenceGuard
-} from './conversationHistoryPersistenceAtom';
 
 // 分页大小配置
-export const CONVERSATION_HISTORY_PAGE_SIZE = 50;
-
-installConversationHistoryPersistenceGuard();
+const PAGE_SIZE = 50;
 
 // 基础状态
 export const conversationHistoriesAtom = atom<ConversationHistory[]>([]);
@@ -41,10 +38,9 @@ export const createConversationHistoryAtom = atom(
       isPinned: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      staffId: getEmployeeId(),
       titleGenerating: true,
-      ...initialState,
-      isCreating: true,
-      isUpdating: false
+      ...initialState
     };
 
     try {
@@ -53,11 +49,7 @@ export const createConversationHistoryAtom = atom(
       set(activeConversationIdAtom, newId);
 
       // 持久化到数据库
-      set(enqueueConversationHistoryPersistenceAtom, {
-        operation: 'create',
-        conversation: newConversationHistory,
-        conversationHistoriesAtom
-      });
+      await createConversationApi(newConversationHistory);
 
       return { conversation: newConversationHistory, id: newId };
     } catch (error) {
@@ -93,24 +85,24 @@ export const setConversationHistoryAtom = atom(
       ? updater(targetConvHistory)
       : { ...targetConvHistory, ...updater };
 
-    const localUpdatedConvHistory = isDone
-      ? { ...updatedConvHistory, isUpdating: true}
-      : updatedConvHistory;
+    // 是否有更新
+    if (JSON.stringify(targetConvHistory) === JSON.stringify(updatedConvHistory)) {
+      return;
+    }
 
     const newConvs = conversations.map(conv =>
-      conv.id === conversationHistoryId ? localUpdatedConvHistory : conv
+      conv.id === conversationHistoryId ? updatedConvHistory : conv
     );
 
     set(conversationHistoriesAtom, newConvs);
 
-    // 自动异步持久化到数据库，队列会保证创建完成后再执行更新
+    // 自动异步持久化到数据库
     if (isDone) {
-      set(enqueueConversationHistoryPersistenceAtom, {
-        operation: 'update',
-        previousConversation: targetConvHistory,
-        conversation: localUpdatedConvHistory,
-        conversationHistoriesAtom
-      });
+      try {
+        await saveConversationApi(updatedConvHistory);
+      } catch (error) {
+        console.error('Failed to persist conversation history', error);
+      }
     }
   }
 );
@@ -121,6 +113,8 @@ export const initializeDbAtom = atom(
   null,
   async (_get, set) => {
     try {
+      const staffId = getEmployeeId();
+
       // 重置搜索和分页状态
       set(searchQueryAtom, '');
       set(currentPageAtom, 0);
@@ -129,8 +123,7 @@ export const initializeDbAtom = atom(
       let allInitialData: ConversationHistory[] = [];
 
       // 只加载第一页数据用于初始化（页码从0开始）
-      const result = await pageConversationsApi(0, CONVERSATION_HISTORY_PAGE_SIZE);
-      console.log('result', result);
+      const result = await pageConversationsApi(staffId, 0, PAGE_SIZE);
       allInitialData = result.content;
       set(hasMoreAtom, result.number + 1 < result.totalPages);
 
@@ -159,13 +152,11 @@ export const initializeDbAtom = atom(
 // 加载更多会话
 export const loadMoreConversationsAtom = atom(
   null,
-  async (get, set, {
-    currentPage,
-    pageSize = CONVERSATION_HISTORY_PAGE_SIZE
-  }: { currentPage: number; pageSize?: number }) => {
+  async (get, set, { currentPage, pageSize = PAGE_SIZE }: { currentPage: number; pageSize?: number }) => {
     try {
+      const staffId = getEmployeeId();
       const searchQuery = get(searchQueryAtom);
-      const result = await pageConversationsApi(currentPage, pageSize, searchQuery);
+      const result = await pageConversationsApi(staffId, currentPage, pageSize, searchQuery);
 
       if (result.content.length > 0) {
         set(conversationHistoriesAtom, prev => {
@@ -192,13 +183,15 @@ export const searchConversationsAtom = atom(
   null,
   async (_get, set, searchQuery: string) => {
     try {
+      const staffId = getEmployeeId();
+
       // 更新搜索状态
       set(searchQueryAtom, searchQuery);
       set(currentPageAtom, 0);
       set(hasMoreAtom, true);
 
       // 获取搜索结果
-      const result = await pageConversationsApi(0, CONVERSATION_HISTORY_PAGE_SIZE, searchQuery);
+      const result = await pageConversationsApi(staffId, 0, PAGE_SIZE, searchQuery);
 
       set(conversationHistoriesAtom, result.content);
       set(hasMoreAtom, result.number + 1 < result.totalPages);
@@ -234,12 +227,89 @@ export const setConversationStateAtom = atom(
 
         return {
           ...convHistory,
-          titleGenerating: updatedState.currentTurnId ? true : convHistory.titleGenerating,
           conversationState: updatedState
         };
       },
       isDone
     });
+  }
+);
+
+export const generateConversationTitleAtom = atom(
+  null,
+  async (get, set, {
+    conversationId,
+    turns,
+    turnId
+  }: {
+    conversationId: string;
+    turns: any[];
+    turnId: string;
+  }) => {
+    // 只在第一次对话且有AI回复内容时生成标题
+    if (turns.length !== 1 || !conversationId) return;
+
+    const turn = turns.find((turn: any) => turn.id === turnId);
+    if (!turn?.aiResponse.content) return;
+
+    const conversations = get(conversationHistoriesAtom);
+    const conversation = conversations.find(c => c.id === conversationId);
+    if (!conversation) return;
+
+    const userInput = turn.userInput.content;
+    const aiResponse = turn.aiResponse.content.replace(/<think>[\s\S]*?<\/think>/g, '') || '';
+    const fallbackTitle = userInput.trim().substring(0, 20);
+
+    try {
+      const summaryContent = `Generate a concise conversation title (maximum 20 characters) based on the following conversation. The title should:
+1. Be in the same language as the user's input
+2. Capture the main topic or question
+3. Be specific and descriptive
+4. Use clear, natural language
+
+User Input: ${userInput}
+AI Response: ${aiResponse}
+
+Please provide only the title, no additional text or explanation.`;
+
+      const response = await axios.post('/chat', { message: summaryContent });
+      const finalTitle = (response || '').toString().trim().substring(0, 20) || fallbackTitle;
+
+      // 添加小延迟以避免与创建操作的竞态条件
+      // await new Promise(resolve => setTimeout(resolve, 100));
+
+      setTimeout(()=> {
+        // 更新标题
+        set(setConversationHistoryAtom, {
+          conversationHistoryId: conversationId,
+          updater: { title: finalTitle, titleGenerating: false },
+          isDone: true
+        });
+      }, 100);
+
+
+
+      return finalTitle;
+    } catch (error) {
+      console.error('Failed to generate title:', error);
+
+      // 添加延迟
+      // await new Promise(resolve => setTimeout(resolve, 100));
+
+      setTimeout(()=> {
+        // 更新标题
+        set(setConversationHistoryAtom, {
+          conversationHistoryId: conversationId,
+          updater: { title: fallbackTitle, titleGenerating: false },
+          isDone: true
+        });
+      }, 100);
+
+      // 失败时使用fallback标题
+
+
+      return fallbackTitle;
+    }
   }
 );
 
@@ -311,3 +381,4 @@ export const batchUnpinConversationsAtom = atom(
     }
   }
 );
+

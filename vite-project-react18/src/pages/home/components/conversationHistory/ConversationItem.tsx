@@ -47,7 +47,6 @@ export default function ConversationItem({
 
   // 计算状态
   const isActive = activeConversationId === item.id;
-  const isMoreButtonDisabled = Boolean(item.titleGenerating);
 
   const handleStartRename = () => {
     setIsRenaming(true);
@@ -55,28 +54,17 @@ export default function ConversationItem({
   };
 
   const handleConfirmRename = async () => {
-    const nextTitle = renameValue.trim();
-
-    if (nextTitle) {
+    if (renameValue.trim()) {
       // 更新本地状态
       updateConversationHistory({
         conversationHistoryId: item.id,
-        updater: { title: nextTitle },
+        updater: { title: renameValue.trim() },
         isDone: false
       });
 
       // 持久化到数据库
       try {
-        const renamedConversation = await renameConversationApi(item.id, nextTitle);
-        updateConversationHistory({
-          conversationHistoryId: item.id,
-          updater: {
-            title: renamedConversation.title,
-            updatedAt: renamedConversation.updatedAt,
-            titleGenerating: renamedConversation.titleGenerating
-          },
-          isDone: false
-        });
+        await renameConversationApi(item.id, renameValue.trim());
       } catch (error) {
         console.error('Failed to persist rename', error);
         // 如果API调用失败，可以考虑回滚本地状态
@@ -274,7 +262,6 @@ export default function ConversationItem({
               type="text"
               icon={<MoreOutlined />}
               size="small"
-              disabled={isMoreButtonDisabled}
               style={{ color: "#666", flexShrink: 0 }}
               onClick={(e) => e.stopPropagation()}
             />

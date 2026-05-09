@@ -22,8 +22,7 @@ import {
   batchDeleteConversationsAtom,
   batchPinConversationsAtom,
   batchUnpinConversationsAtom,
-  activeConversationIdAtom,
-  CONVERSATION_HISTORY_PAGE_SIZE
+  activeConversationIdAtom
 } from './conversationHistoryAtom';
 import type {ConversationHistory} from '../../../../api/conversationHistoryApi';
 import ConversationItem from "./ConversationItem";
@@ -86,6 +85,9 @@ const DEFAULT_GROUP_RULES: TimeGroupRule[] = [
   }
 ];
 
+// 分页大小配置 - 可以在这里修改默认每页显示的条数
+const PAGE_SIZE = 10;
+
 // 筛选选项类型
 interface FilterOptions {
   showPinned: boolean;
@@ -124,11 +126,7 @@ export default function ConversationHistoryCard() {
   const toggleConversationSelection = (id: string) => {
     setSelectedConversationIds(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
-      } else {
-        newSet.add(id);
-      }
+      newSet.has(id) ? newSet.delete(id) : newSet.add(id);
       return newSet;
     });
   };
@@ -288,10 +286,7 @@ export default function ConversationHistoryCard() {
 
     try {
       setLoading(true);
-      const result = await loadMoreConversations({
-        currentPage: currentPage + 1,
-        pageSize: CONVERSATION_HISTORY_PAGE_SIZE
-      });
+      const result = await loadMoreConversations({ currentPage: currentPage + 1, pageSize: PAGE_SIZE });
 
       if (!result.success) {
         console.error('Failed to load more conversations');
@@ -390,7 +385,7 @@ export default function ConversationHistoryCard() {
     }
 
     const collapseItems: CollapseProps['items'] = Object.entries(groupedData)
-      .filter(([, conversations]) => conversations.length > 0)
+      .filter(([_, conversations]) => conversations.length > 0)
       .map(([groupName, conversations]) => ({
         key: groupName,
         label: (
@@ -448,16 +443,16 @@ export default function ConversationHistoryCard() {
             },
           }}
         >
-        <Collapse
-          activeKey={openPanels}
-          onChange={handlePanelChange}
-          ghost
-          expandIcon={({ isActive }) =>
-            isActive ? <DownOutlined style={{ fontSize: 10 }} /> : <RightOutlined style={{ fontSize: 10 }} />
-          }
-          style={{ background: 'transparent' }}
-          items={collapseItems}
-        />
+          <Collapse
+            activeKey={openPanels}
+            onChange={handlePanelChange}
+            ghost
+            expandIcon={({ isActive }) =>
+              isActive ? <DownOutlined style={{ fontSize: 10 }} /> : <RightOutlined style={{ fontSize: 10 }} />
+            }
+            style={{ background: 'transparent' }}
+            items={collapseItems}
+          />
         </ConfigProvider>
 
         {loading && (
