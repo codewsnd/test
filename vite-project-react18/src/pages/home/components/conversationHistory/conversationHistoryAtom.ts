@@ -1,6 +1,5 @@
 import { atom } from 'jotai';
-import type { ConversationState } from '../chat/types';
-import { getEmployeeId } from '@/utils/userUtils';
+import type { ConversationState, ConversationTurn } from '../chat/types';
 import type {ConversationHistory} from "@/api/conversationHistoryApi";
 import {
   pageConversationsApi,
@@ -10,7 +9,7 @@ import {
   batchUnpinConversationsApi,
   saveConversationStateApi
 } from "@/api/conversationHistoryApi";
-import axios from "../../../../api/axios";
+import {aiChat} from "@/api";
 import {v7} from 'uuid';
 
 // 分页大小配置
@@ -39,7 +38,6 @@ export const createConversationHistoryAtom = atom(
       isPinned: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      staffId: getEmployeeId(),
       titleGenerating: true,
       ...initialState
     };
@@ -100,7 +98,15 @@ export const setConversationHistoryAtom = atom(
     // 自动异步持久化到数据库
     if (isDone) {
       try {
-        await saveConversationStateApi();
+        const conversationState = updatedConvHistory.conversationState;
+        const lastTurn = conversationState?.turns[conversationState.turns.length - 1];
+
+        if (conversationState) {
+          await saveConversationStateApi(conversationHistoryId, {
+            ...conversationState,
+            turns: lastTurn ? [lastTurn] : []
+          });
+        }
       } catch (error) {
         console.error('Failed to persist conversation history', error);
       }
@@ -114,8 +120,6 @@ export const initializeDbAtom = atom(
   null,
   async (_get, set) => {
     try {
-      const staffId = getEmployeeId();
-
       // 重置搜索和分页状态
       set(searchQueryAtom, '');
       set(currentPageAtom, 0);
@@ -124,7 +128,7 @@ export const initializeDbAtom = atom(
       let allInitialData: ConversationHistory[] = [];
 
       // 只加载第一页数据用于初始化（页码从0开始）
-      const result = await pageConversationsApi(staffId, 0, PAGE_SIZE);
+      const result = await pageConversationsApi(0, PAGE_SIZE);
       allInitialData = result.content;
       set(hasMoreAtom, result.number + 1 < result.totalPages);
 
@@ -155,9 +159,8 @@ export const loadMoreConversationsAtom = atom(
   null,
   async (get, set, { currentPage, pageSize = PAGE_SIZE }: { currentPage: number; pageSize?: number }) => {
     try {
-      const staffId = getEmployeeId();
       const searchQuery = get(searchQueryAtom);
-      const result = await pageConversationsApi(staffId, currentPage, pageSize, searchQuery);
+      const result = await pageConversationsApi(currentPage, pageSize, searchQuery);
 
       if (result.content.length > 0) {
         set(conversationHistoriesAtom, prev => {
@@ -184,15 +187,13 @@ export const searchConversationsAtom = atom(
   null,
   async (_get, set, searchQuery: string) => {
     try {
-      const staffId = getEmployeeId();
-
       // 更新搜索状态
       set(searchQueryAtom, searchQuery);
       set(currentPageAtom, 0);
       set(hasMoreAtom, true);
 
       // 获取搜索结果
-      const result = await pageConversationsApi(staffId, 0, PAGE_SIZE, searchQuery);
+      const result = await pageConversationsApi(0, PAGE_SIZE, searchQuery);
 
       set(conversationHistoriesAtom, result.content);
       set(hasMoreAtom, result.number + 1 < result.totalPages);
@@ -244,13 +245,13 @@ export const generateConversationTitleAtom = atom(
     turnId
   }: {
     conversationId: string;
-    turns: any[];
+    turns: ConversationTurn[];
     turnId: string;
   }) => {
     // 只在第一次对话且有AI回复内容时生成标题
     if (turns.length !== 1 || !conversationId) return;
 
-    const turn = turns.find((turn: any) => turn.id === turnId);
+    const turn = turns.find((turn) => turn.id === turnId);
     if (!turn?.aiResponse.content) return;
 
     const conversations = get(conversationHistoriesAtom);
@@ -273,8 +274,15 @@ AI Response: ${aiResponse}
 
 Please provide only the title, no additional text or explanation.`;
 
-      const response = await axios.post('/chat', { message: summaryContent });
-      const finalTitle = (response || '').toString().trim().substring(0, 20) || fallbackTitle;
+      const response = await aiChat({
+        messages: [
+          {
+            role: 'user',
+            content: summaryContent
+          }
+        ]
+      });
+      const finalTitle = response.data?.content.trim().substring(0, 20) || fallbackTitle;
 
       // 添加小延迟以避免与创建操作的竞态条件
       // await new Promise(resolve => setTimeout(resolve, 100));
@@ -382,4 +390,3 @@ export const batchUnpinConversationsAtom = atom(
     }
   }
 );
-

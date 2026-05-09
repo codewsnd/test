@@ -1,12 +1,6 @@
 import axios from 'axios'
 import {message} from 'antd'
 
-declare module 'axios' {
-  interface AxiosRequestConfig {
-    skipError?: boolean
-  }
-}
-
 const baseURL = '/';
 const instance = axios.create({
   baseURL,
@@ -14,7 +8,6 @@ const instance = axios.create({
     'Content-Type': 'application/json'
   }
 })
-
 
 // 请求拦截器
 instance.interceptors.request.use(

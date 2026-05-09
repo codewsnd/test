@@ -36,6 +36,5 @@ export interface  AiChatResponse {
 
 export const aiChat = async (request: AiChatRequest): Promise<ApiResponse<AiChatResponse>> => {
   // 调用 API
-  const response = await axios.post<ApiResponse<AiChatResponse>>(`${CORE_API_URL}/chat/completions`, request);
-  return response;
+  return await axios.post<ApiResponse<AiChatResponse>>(`${CORE_API_URL}/chat/completions`, request);
 }

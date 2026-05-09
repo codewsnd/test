@@ -46,30 +46,30 @@ export class ApiRetryUtil {
   }
 
   static get<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    return this.request(() => axios.get<T>(url, withDefaultSkipError(config)));
+    return this.request(() => axios.get<T, T>(url, withDefaultSkipError(config)));
   }
 
   static delete<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    return this.request(() => axios.delete<T>(url, withDefaultSkipError(config)));
+    return this.request(() => axios.delete<T, T>(url, withDefaultSkipError(config)));
   }
 
   static head<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    return this.request(() => axios.head<T>(url, withDefaultSkipError(config)));
+    return this.request(() => axios.head<T, T>(url, withDefaultSkipError(config)));
   }
 
   static options<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    return this.request(() => axios.options<T>(url, withDefaultSkipError(config)));
+    return this.request(() => axios.options<T, T>(url, withDefaultSkipError(config)));
   }
 
   static post<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
-    return this.request(() => axios.post<T>(url, data, withDefaultSkipError(config)));
+    return this.request(() => axios.post<T, T>(url, data, withDefaultSkipError(config)));
   }
 
   static put<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
-    return this.request(() => axios.put<T>(url, data, withDefaultSkipError(config)));
+    return this.request(() => axios.put<T, T>(url, data, withDefaultSkipError(config)));
   }
 
   static patch<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
-    return this.request(() => axios.patch<T>(url, data, withDefaultSkipError(config)));
+    return this.request(() => axios.patch<T, T>(url, data, withDefaultSkipError(config)));
   }
 }

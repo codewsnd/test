@@ -36,9 +36,10 @@ export interface SkillApiItem {
 }
 
 export const getAllSkillsApi = async (): Promise<SkillApiItem[]> => {
-  return await axios.get<SkillApiItem[]>(`${CORE_API_URL}/api/v1/skills`, {
+  const response = await axios.get<SkillApiItem[]>(`${CORE_API_URL}/api/v1/skills`, {
     params: {
       usecache: false,
     },
   })
+  return response as unknown as SkillApiItem[]
 }

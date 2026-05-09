@@ -6,7 +6,6 @@ import { useRequest } from 'ahooks';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 
 import { getAgentsApi } from '@/api/agentApi';
-import { getAllSkillsApi } from '@/api/skillApi';
 import {
   getConversationDetailApi,
   type ConversationHistory
@@ -25,7 +24,7 @@ import type {
 } from './types';
 import {
   conversationHistoriesAtom,
-  createConversationHistoryAtom,
+  createConversationHistoryAtom, generateConversationTitleAtom,
   setConversationStateAtom
 } from '../conversationHistory/conversationHistoryAtom';
 import './chatArea.css';
@@ -258,10 +257,10 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
   const createConversationHistory = useSetAtom(createConversationHistoryAtom);
   const setConversationState = useSetAtom(setConversationStateAtom);
   const showTestCaseSidebar = useSetAtom(showTestCaseSidebarAtom);
+  const generateConversationTitle = useSetAtom(generateConversationTitleAtom);
 
   const [localConversationId, setLocalConversationId] = useState<string | null>(conversationId ?? null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(undefined);
-  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [input, setInput] = useState('');
   const [isRepositoryVisible, setIsRepositoryVisible] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -285,7 +284,6 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
     : undefined;
   const conversationState = conversationHistory?.conversationState ?? EMPTY_CONVERSATION_STATE;
   const { data: agents = [], loading: loadingAgents } = useRequest(getAgentsApi);
-  const { data: skills = [], loading: loadingSkills } = useRequest(getAllSkillsApi);
   const selectedAgent =
     agents.find((agent) => String(agent.id) === selectedAgentId) ??
     (conversationState.agentId
@@ -676,6 +674,9 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       manager.completeStep(STEP_KEYS.completion);
     }
 
+    let turnsForTitle: ConversationTurn[] | undefined;
+
+
     updateConversation(
       conversationHistoryId,
       (prevState) => {
@@ -698,10 +699,23 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
           currentTurnId: undefined
         };
 
+        if (nextState.turns.length === 1) {
+          turnsForTitle = nextState.turns;
+        }
+
         return nextState;
       },
       true
     );
+
+    if (turnsForTitle) {
+    void generateConversationTitle({
+      conversationId: conversationHistoryId,
+      turns: turnsForTitle,
+      turnId
+    }).catch(console.error);
+    }
+
     eventSourceRef.current = null;
     releaseTurnResources(turnId);
   };
@@ -870,8 +884,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
     conversationHistoryId: string,
     historyTurns: ConversationTurn[],
     userMessage: string,
-    agentId?: string,
-    skillIds: string[] = []
+    agentId?: string
   ) => {
     try {
       if (eventSourceRef.current) {
@@ -887,7 +900,6 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
         conversationId: conversationHistoryId,
         requestId: turnId,
         agentId,
-        skillIds,
         messages: buildHistoryMessages(historyTurns, userMessage)
       };
 
@@ -1167,8 +1179,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
         targetConversation.id,
         historyTurns,
         trimmedInput,
-        selectedAgentId,
-        selectedSkillIds
+        selectedAgentId
       );
 
       return true;
@@ -1194,7 +1205,6 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
     const success = await sendMessage(input);
     if (success) {
       setInput('');
-      setSelectedSkillIds([]);
     }
   };
 
@@ -1261,22 +1271,6 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
           }))}
           className="chat-area__agent-select"
           disabled={loadingAgents || isSending || !!conversationState.currentTurnId}
-        />
-        <Select
-          mode="multiple"
-          maxTagCount="responsive"
-          value={selectedSkillIds}
-          onChange={setSelectedSkillIds}
-          placeholder={loadingSkills ? 'Loading skills...' : 'Skills for this turn or type /skill'}
-          options={skills
-            .filter((skill) => skill.userInvocable !== false)
-            .map((skill) => ({
-              label: `${skill.name} · /${skill.commandName || skill.id}`,
-              value: skill.id
-            }))}
-          optionFilterProp="label"
-          className="chat-area__skill-select"
-          disabled={loadingSkills || isSending || !!conversationState.currentTurnId}
         />
         <Button
           type="text"

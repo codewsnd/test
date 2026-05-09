@@ -68,11 +68,6 @@
   flex-shrink: 0;
 }
 
-.chat-area__skill-select {
-  width: 260px;
-  flex-shrink: 0;
-}
-
 .chat-area__attach-button {
   min-width: auto;
   padding: 4px 8px;
@@ -88,10 +83,6 @@
   }
 
   .chat-area__agent-select {
-    width: 100%;
-  }
-
-  .chat-area__skill-select {
     width: 100%;
   }
 }

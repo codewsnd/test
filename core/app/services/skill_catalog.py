@@ -144,7 +144,13 @@ class SkillCatalogService:
         prompt: str,
     ) -> list[SkillAppliedItem]:
         skills_by_id = {skill.id: skill for skill in self.list_skills()}
-        direct_invocations = self.extract_invocations(prompt, skills_by_id)
+        direct_invocation_ids = set(self._dedupe([*bound_skill_ids, *requested_skill_ids]))
+        direct_invocation_skills = {
+            skill_id: skill
+            for skill_id, skill in skills_by_id.items()
+            if skill_id in direct_invocation_ids
+        }
+        direct_invocations = self.extract_invocations(prompt, direct_invocation_skills)
         requested_ids = set(self._dedupe([*requested_skill_ids, *direct_invocations.keys()]))
         selected_ids = self._dedupe(
             [*direct_invocations.keys(), *requested_skill_ids, *bound_skill_ids]

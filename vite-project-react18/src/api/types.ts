@@ -1,3 +1,9 @@
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    skipError?: boolean;
+  }
+}
+
 export interface SpringSort {
   empty: boolean;
   sorted: boolean;
