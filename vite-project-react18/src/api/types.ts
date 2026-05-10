@@ -19,7 +19,7 @@ export interface SpringPageable {
   unpaged: boolean;
 }
 
-export interface SpringPage<T> {
+export interface Page<T> {
   content: T[];
   empty: boolean;
   first: boolean;

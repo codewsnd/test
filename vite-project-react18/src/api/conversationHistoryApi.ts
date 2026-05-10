@@ -1,7 +1,6 @@
-import type {ConversationState, ConversationTurn} from "../pages/home/components/chat/types";
-import {message} from "antd";
+import type {ConversationState} from "../pages/home/components/chat/types";
 import {ApiRetryUtil} from "./retryUtils";
-import type {SpringPage} from "./types";
+import type {Page} from "./types";
 
 const SPRINGBOOT3_BACKEND_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
 
@@ -25,7 +24,7 @@ export const pageConversationsApi = async (
   page: number = 0,
   size: number = 10,
   search?: string
-): Promise<SpringPage<ConversationHistory>> => {
+): Promise<Page<ConversationHistory>> => {
   // 前端和后端都使用0开始的页码
   const params: Record<string, string | number> = {
     page,
@@ -36,105 +35,72 @@ export const pageConversationsApi = async (
     params.search = search.trim();
   }
 
-  try {
-    return await ApiRetryUtil.get<SpringPage<ConversationHistory>>(
-      `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`,
-      {params}
-    );
-  } catch (error) {
-    message.error('Failed to fetch conversations page');
-    console.error('Error fetching conversations page:', error);
-    throw error;
-  }
+  return await ApiRetryUtil.get<Page<ConversationHistory>>(
+    `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`,
+    {params},
+    'Failed to fetch conversations page'
+  );
 };
 
 // 创建会话；后续更新请使用 saveConversationStateApi / renameConversationApi 做增量更新
 export const createConversationApi = async (conversation: ConversationHistory): Promise<ConversationHistory> => {
-  try {
-    return await ApiRetryUtil.post<ConversationHistory>(
-      `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`,
-      conversation
-    );
-  } catch (error) {
-    message.error('Failed to create conversation');
-    console.error('Error saving conversation:', error);
-    throw error;
-  }
+  return await ApiRetryUtil.post<ConversationHistory>(
+    `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`,
+    conversation,
+    'Failed to create conversation'
+  );
 };
 
 export const saveConversationStateApi = async (
   id: string,
   conversationState: ConversationState
 ): Promise<ConversationHistory> => {
-  try {
-    return await ApiRetryUtil.post<ConversationHistory>(
-      `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/state/${id}`,
-      {conversationState}
-    );
-  } catch (error) {
-    message.error('Failed to save conversation state');
-    console.error('Error saving conversation state:', error);
-    throw error;
-  }
+  return await ApiRetryUtil.post<ConversationHistory>(
+    `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/state/${id}`,
+    {conversationState},
+    'Failed to save conversation state'
+  );
 };
 
 export const getConversationDetailApi = async (id: string): Promise<ConversationHistory> => {
-  try {
-    return await ApiRetryUtil.get<ConversationHistory>(
-      `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}`
-    );
-  } catch (error) {
-    message.error('Failed to fetch conversation detail');
-    console.error('Error fetching conversation detail:', error);
-    throw error;
-  }
+  return await ApiRetryUtil.get<ConversationHistory>(
+    `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}`,
+    'Failed to fetch conversation detail'
+  );
 };
 
 // 重命名会话
 export const renameConversationApi = async (id: string, title: string): Promise<ConversationHistory> => {
-  try {
-    return await ApiRetryUtil.put<ConversationHistory>(
-      `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}/rename`,
-      {title}
-    );
-  } catch (error) {
-    message.error('Failed to rename conversation');
-    console.error('Error renaming conversation:', error);
-    throw error;
-  }
+  return await ApiRetryUtil.put<ConversationHistory>(
+    `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}/rename`,
+    {title},
+    'Failed to rename conversation'
+  );
 };
 
 // 批量删除会话
 export const batchDeleteConversationsApi = async (conversationIds: string[]): Promise<void> => {
-  try {
-    await ApiRetryUtil.delete<void>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch`, {
-      data: conversationIds
-    });
-  } catch (error) {
-    message.error('Failed to delete conversations');
-    console.error('Error deleting conversations:', error);
-    throw error;
-  }
+  await ApiRetryUtil.delete<void>(
+    `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch`,
+    {data: conversationIds},
+    'Failed to delete conversations'
+  );
 };
 
 // 批量置顶会话
 export const batchPinConversationsApi = async (conversationIds: string[]): Promise<void> => {
-  try {
-    await ApiRetryUtil.put<void>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch/pin`, conversationIds);
-  } catch (error) {
-    message.error('Failed to pin conversations');
-    console.error('Error pinning conversations:', error);
-    throw error;
-  }
+  await ApiRetryUtil.put<void>(
+    `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch/pin`,
+    conversationIds,
+    'Failed to pin conversations'
+  );
 };
 
 // 批量取消置顶会话
 export const batchUnpinConversationsApi = async (conversationIds: string[]): Promise<void> => {
-  try {
-    await ApiRetryUtil.put<void>(`${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch/unpin`, conversationIds);
-  } catch (error) {
-    message.error('Failed to unpin conversations');
-    console.error('Error unpinning conversations:', error);
-    throw error;
-  }
+  await ApiRetryUtil.put<void>(
+    `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch/unpin`,
+    conversationIds,
+    'Failed to unpin conversations'
+  );
 };

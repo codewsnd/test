@@ -1,5 +1,6 @@
 import axios from './axios';
 import type { AxiosError, AxiosRequestConfig } from 'axios';
+import {message} from 'antd';
 
 // API 请求默认尝试次数。
 export const API_RETRY_ATTEMPTS = 3;
@@ -40,36 +41,131 @@ const withDefaultSkipError = (config?: AxiosRequestConfig): AxiosRequestConfig =
   skipError: config?.skipError ?? true
 });
 
+const resolveRequestOptions = (
+  configOrErrorMessage?: AxiosRequestConfig | string,
+  errorMessage?: string
+): { config?: AxiosRequestConfig; errorMessage?: string } => {
+  if (typeof configOrErrorMessage === 'string') {
+    return {errorMessage: configOrErrorMessage};
+  }
+
+  return {
+    config: configOrErrorMessage,
+    errorMessage
+  };
+};
+
 export class ApiRetryUtil {
-  static request<T>(request: () => Promise<T>): Promise<T> {
-    return requestWithRetry(request);
+  static async request<T>(request: () => Promise<T>, errorMessage?: string): Promise<T> {
+    try {
+      return await requestWithRetry(request);
+    } catch (error) {
+      if (errorMessage) {
+        message.error(errorMessage);
+        console.error(errorMessage, error);
+      }
+      throw error;
+    }
   }
 
-  static get<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    return this.request(() => axios.get<T, T>(url, withDefaultSkipError(config)));
+  static get<T = unknown>(url: string, errorMessage?: string): Promise<T>;
+  static get<T = unknown>(url: string, config?: AxiosRequestConfig, errorMessage?: string): Promise<T>;
+  static get<T = unknown>(
+    url: string,
+    configOrErrorMessage?: AxiosRequestConfig | string,
+    errorMessage?: string
+  ): Promise<T> {
+    const options = resolveRequestOptions(configOrErrorMessage, errorMessage);
+    return this.request(
+      () => axios.get<T, T>(url, withDefaultSkipError(options.config)),
+      options.errorMessage
+    );
   }
 
-  static delete<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    return this.request(() => axios.delete<T, T>(url, withDefaultSkipError(config)));
+  static delete<T = unknown>(url: string, errorMessage?: string): Promise<T>;
+  static delete<T = unknown>(url: string, config?: AxiosRequestConfig, errorMessage?: string): Promise<T>;
+  static delete<T = unknown>(
+    url: string,
+    configOrErrorMessage?: AxiosRequestConfig | string,
+    errorMessage?: string
+  ): Promise<T> {
+    const options = resolveRequestOptions(configOrErrorMessage, errorMessage);
+    return this.request(
+      () => axios.delete<T, T>(url, withDefaultSkipError(options.config)),
+      options.errorMessage
+    );
   }
 
-  static head<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    return this.request(() => axios.head<T, T>(url, withDefaultSkipError(config)));
+  static head<T = unknown>(url: string, errorMessage?: string): Promise<T>;
+  static head<T = unknown>(url: string, config?: AxiosRequestConfig, errorMessage?: string): Promise<T>;
+  static head<T = unknown>(
+    url: string,
+    configOrErrorMessage?: AxiosRequestConfig | string,
+    errorMessage?: string
+  ): Promise<T> {
+    const options = resolveRequestOptions(configOrErrorMessage, errorMessage);
+    return this.request(
+      () => axios.head<T, T>(url, withDefaultSkipError(options.config)),
+      options.errorMessage
+    );
   }
 
-  static options<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    return this.request(() => axios.options<T, T>(url, withDefaultSkipError(config)));
+  static options<T = unknown>(url: string, errorMessage?: string): Promise<T>;
+  static options<T = unknown>(url: string, config?: AxiosRequestConfig, errorMessage?: string): Promise<T>;
+  static options<T = unknown>(
+    url: string,
+    configOrErrorMessage?: AxiosRequestConfig | string,
+    errorMessage?: string
+  ): Promise<T> {
+    const options = resolveRequestOptions(configOrErrorMessage, errorMessage);
+    return this.request(
+      () => axios.options<T, T>(url, withDefaultSkipError(options.config)),
+      options.errorMessage
+    );
   }
 
-  static post<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
-    return this.request(() => axios.post<T, T>(url, data, withDefaultSkipError(config)));
+  static post<T = unknown>(url: string, data?: unknown, errorMessage?: string): Promise<T>;
+  static post<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig, errorMessage?: string): Promise<T>;
+  static post<T = unknown>(
+    url: string,
+    data?: unknown,
+    configOrErrorMessage?: AxiosRequestConfig | string,
+    errorMessage?: string
+  ): Promise<T> {
+    const options = resolveRequestOptions(configOrErrorMessage, errorMessage);
+    return this.request(
+      () => axios.post<T, T>(url, data, withDefaultSkipError(options.config)),
+      options.errorMessage
+    );
   }
 
-  static put<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
-    return this.request(() => axios.put<T, T>(url, data, withDefaultSkipError(config)));
+  static put<T = unknown>(url: string, data?: unknown, errorMessage?: string): Promise<T>;
+  static put<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig, errorMessage?: string): Promise<T>;
+  static put<T = unknown>(
+    url: string,
+    data?: unknown,
+    configOrErrorMessage?: AxiosRequestConfig | string,
+    errorMessage?: string
+  ): Promise<T> {
+    const options = resolveRequestOptions(configOrErrorMessage, errorMessage);
+    return this.request(
+      () => axios.put<T, T>(url, data, withDefaultSkipError(options.config)),
+      options.errorMessage
+    );
   }
 
-  static patch<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
-    return this.request(() => axios.patch<T, T>(url, data, withDefaultSkipError(config)));
+  static patch<T = unknown>(url: string, data?: unknown, errorMessage?: string): Promise<T>;
+  static patch<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig, errorMessage?: string): Promise<T>;
+  static patch<T = unknown>(
+    url: string,
+    data?: unknown,
+    configOrErrorMessage?: AxiosRequestConfig | string,
+    errorMessage?: string
+  ): Promise<T> {
+    const options = resolveRequestOptions(configOrErrorMessage, errorMessage);
+    return this.request(
+      () => axios.patch<T, T>(url, data, withDefaultSkipError(options.config)),
+      options.errorMessage
+    );
   }
 }
