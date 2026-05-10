@@ -7,6 +7,7 @@ import {
   batchDeleteConversationsApi,
   batchPinConversationsApi,
   batchUnpinConversationsApi,
+  renameConversationApi,
   saveConversationStateApi
 } from "@/api/conversationHistoryApi";
 import {aiChat} from "@/api";
@@ -261,6 +262,21 @@ export const generateConversationTitleAtom = atom(
     const userInput = turn.userInput.content;
     const aiResponse = turn.aiResponse.content.replace(/<think>[\s\S]*?<\/think>/g, '') || '';
     const fallbackTitle = userInput.trim().substring(0, 20);
+    const applyGeneratedTitle = async (title: string) => {
+      const renamedConversation = await renameConversationApi(conversationId, title);
+
+      set(setConversationHistoryAtom, {
+        conversationHistoryId: conversationId,
+        updater: {
+          title: renamedConversation.title,
+          titleGenerating: renamedConversation.titleGenerating ?? false,
+          updatedAt: renamedConversation.updatedAt
+        },
+        isDone: false
+      });
+
+      return renamedConversation.title;
+    };
 
     try {
       const summaryContent = `Generate a concise conversation title (maximum 20 characters) based on the following conversation. The title should:
@@ -284,40 +300,22 @@ Please provide only the title, no additional text or explanation.`;
       });
       const finalTitle = response.data?.content.trim().substring(0, 20) || fallbackTitle;
 
-      // 添加小延迟以避免与创建操作的竞态条件
-      // await new Promise(resolve => setTimeout(resolve, 100));
-
-      setTimeout(()=> {
-        // 更新标题
-        set(setConversationHistoryAtom, {
-          conversationHistoryId: conversationId,
-          updater: { title: finalTitle, titleGenerating: false },
-          isDone: true
-        });
-      }, 100);
-
-
-
-      return finalTitle;
+      return await applyGeneratedTitle(finalTitle);
     } catch (error) {
       console.error('Failed to generate title:', error);
 
-      // 添加延迟
-      // await new Promise(resolve => setTimeout(resolve, 100));
-
-      setTimeout(()=> {
-        // 更新标题
+      // 失败时使用fallback标题
+      try {
+        return await applyGeneratedTitle(fallbackTitle);
+      } catch (renameError) {
+        console.error('Failed to persist generated fallback title:', renameError);
         set(setConversationHistoryAtom, {
           conversationHistoryId: conversationId,
           updater: { title: fallbackTitle, titleGenerating: false },
-          isDone: true
+          isDone: false
         });
-      }, 100);
-
-      // 失败时使用fallback标题
-
-
-      return fallbackTitle;
+        return fallbackTitle;
+      }
     }
   }
 );

@@ -4,7 +4,7 @@ import type { AxiosError, AxiosRequestConfig } from 'axios';
 // API 请求默认尝试次数。
 export const API_RETRY_ATTEMPTS = 3;
 // 每次重试之间的等待时间，单位毫秒。
-export const API_RETRY_DELAY_MS = 1000;
+export const API_RETRY_DELAY_MS = 500;
 
 // 延迟指定时间后继续执行，用于控制重试间隔。
 const delay = (ms: number): Promise<void> => new Promise((resolve) => {
