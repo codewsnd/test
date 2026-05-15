@@ -29,9 +29,11 @@ vi.mock('antd', () => ({
 
 const retryableStatuses = [408, 429, 500]
 
-const makeAxiosError = (status?: number) => (
-  status === undefined ? {} : { response: { status } }
-)
+const makeAxiosError = (status?: number, code?: string) => ({
+  isAxiosError: true,
+  code,
+  ...(status === undefined ? {} : { response: { status } }),
+})
 
 beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
@@ -87,6 +89,24 @@ describe('requestWithRetry', () => {
 
   it('does not retry non-retryable business errors', async () => {
     const error = makeAxiosError(400)
+    const request = vi.fn().mockRejectedValueOnce(error)
+
+    await expect(requestWithRetry(request)).rejects.toBe(error)
+
+    expect(request).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry non-axios errors', async () => {
+    const error = new Error('boom')
+    const request = vi.fn().mockRejectedValueOnce(error)
+
+    await expect(requestWithRetry(request)).rejects.toBe(error)
+
+    expect(request).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry canceled axios requests', async () => {
+    const error = makeAxiosError(undefined, 'ERR_CANCELED')
     const request = vi.fn().mockRejectedValueOnce(error)
 
     await expect(requestWithRetry(request)).rejects.toBe(error)
@@ -210,6 +230,19 @@ describe('ApiRetryUtil HTTP helpers', () => {
 
     expect(message.error).toHaveBeenCalledWith('get failed')
     expect(console.error).toHaveBeenCalledWith('get failed', error)
+  })
+
+  it('does not show extra error messages when skipError is false', async () => {
+    const error = makeAxiosError(400)
+    vi.mocked(axios.get).mockRejectedValueOnce(error as never)
+
+    await expect(
+      ApiRetryUtil.get('/items', { skipError: false }, 'get failed')
+    ).rejects.toBe(error)
+
+    expect(message.error).not.toHaveBeenCalled()
+    expect(console.error).not.toHaveBeenCalled()
+    expect(axios.get).toHaveBeenCalledWith('/items', { skipError: false })
   })
 
   it('delegates head and options with supplied config and preserves skipError false', async () => {

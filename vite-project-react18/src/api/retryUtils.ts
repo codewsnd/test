@@ -1,5 +1,6 @@
 import axios from './axios';
-import type { AxiosError, AxiosRequestConfig } from 'axios';
+import { isAxiosError } from 'axios';
+import type { AxiosRequestConfig } from 'axios';
 import {message} from 'antd';
 
 /**
@@ -21,11 +22,14 @@ const delay = (ms: number): Promise<void> => new Promise((resolve) => {
 
 /**
  * 判断当前错误是否适合重试。
- * 只对网络异常、请求超时、限流和服务端错误重试，避免业务错误被重复提交。
+ * 只对 Axios 网络异常、请求超时、限流和服务端错误重试，取消请求和业务错误不重试。
  */
 const isRetryableError = (error: unknown): boolean => {
-  const axiosError = error as AxiosError;
-  const status = axiosError.response?.status;
+  if (!isAxiosError(error) || error.code === 'ERR_CANCELED') {
+    return false;
+  }
+
+  const status = error.response?.status;
   return !status || status === 408 || status === 429 || status >= 500;
 };
 
@@ -56,6 +60,15 @@ const withDefaultSkipError = <D = unknown>(config?: AxiosRequestConfig<D>): Axio
   ...config,
   skipError: config?.skipError ?? true
 });
+
+/**
+ * 根据 Axios 配置决定是否由 ApiRetryUtil 展示额外错误提示。
+ * 当调用方显式设置 skipError=false 时，错误提示交给 axios 拦截器处理，避免重复提示。
+ */
+const resolveErrorMessage = <D = unknown>(
+  config: AxiosRequestConfig<D> | undefined,
+  errorMessage: string | undefined
+): string | undefined => (config?.skipError === false ? undefined : errorMessage);
 
 /**
  * 带重试能力的 API 请求工具。
@@ -93,7 +106,7 @@ export class ApiRetryUtil {
 
     return this.execute(
       () => axios.request<T, R, D>(withDefaultSkipError(requestOrConfig)),
-      errorMessage
+      resolveErrorMessage(requestOrConfig, errorMessage)
     );
   }
 
@@ -107,7 +120,7 @@ export class ApiRetryUtil {
   ): Promise<R> {
     return this.execute(
       () => axios.get<T, R, D>(url, withDefaultSkipError(config)),
-      errorMessage
+      resolveErrorMessage(config, errorMessage)
     );
   }
 
@@ -121,7 +134,7 @@ export class ApiRetryUtil {
   ): Promise<R> {
     return this.execute(
       () => axios.delete<T, R, D>(url, withDefaultSkipError(config)),
-      errorMessage
+      resolveErrorMessage(config, errorMessage)
     );
   }
 
@@ -135,7 +148,7 @@ export class ApiRetryUtil {
   ): Promise<R> {
     return this.execute(
       () => axios.head<T, R, D>(url, withDefaultSkipError(config)),
-      errorMessage
+      resolveErrorMessage(config, errorMessage)
     );
   }
 
@@ -149,7 +162,7 @@ export class ApiRetryUtil {
   ): Promise<R> {
     return this.execute(
       () => axios.options<T, R, D>(url, withDefaultSkipError(config)),
-      errorMessage
+      resolveErrorMessage(config, errorMessage)
     );
   }
 
@@ -164,7 +177,7 @@ export class ApiRetryUtil {
   ): Promise<R> {
     return this.execute(
       () => axios.post<T, R, D>(url, data, withDefaultSkipError(config)),
-      errorMessage
+      resolveErrorMessage(config, errorMessage)
     );
   }
 
@@ -179,7 +192,7 @@ export class ApiRetryUtil {
   ): Promise<R> {
     return this.execute(
       () => axios.put<T, R, D>(url, data, withDefaultSkipError(config)),
-      errorMessage
+      resolveErrorMessage(config, errorMessage)
     );
   }
 
@@ -194,7 +207,7 @@ export class ApiRetryUtil {
   ): Promise<R> {
     return this.execute(
       () => axios.patch<T, R, D>(url, data, withDefaultSkipError(config)),
-      errorMessage
+      resolveErrorMessage(config, errorMessage)
     );
   }
 }
