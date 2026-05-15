@@ -1,5 +1,6 @@
 declare module 'axios' {
   interface AxiosRequestConfig {
+    /** 是否跳过 axios 拦截器里的默认错误提示。 */
     skipError?: boolean;
   }
 }

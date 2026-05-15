@@ -13,7 +13,7 @@ public class ConversationHtmlShareCreateRequest {
 
     private String previewId;
 
-    private String staffId;
+    private String staffId = "12345678";
 
     private String conversationId;
 

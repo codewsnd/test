@@ -9,8 +9,7 @@ import lombok.Data;
 @Data
 public class ConversationHtmlPreviewRequest {
 
-    @NotBlank(message = "Staff ID is required")
-    private String staffId;
+    private String staffId = "12345678";
 
     @NotBlank(message = "Conversation ID is required")
     private String conversationId;

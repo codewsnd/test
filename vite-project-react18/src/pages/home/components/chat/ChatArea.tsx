@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Input, Select, Spin, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { useAtom, useSetAtom } from 'jotai';
@@ -122,6 +122,7 @@ const STEP_KEYS = {
 
 const TOOL_STEP_PREFIX = 'tool';
 const STREAM_FLUSH_INTERVAL = 40;
+const AUTO_SCROLL_BOTTOM_THRESHOLD = 96;
 
 const truncateText = (value: string, maxLength: number = 140) => {
   if (value.length <= maxLength) {
@@ -203,6 +204,9 @@ const formatEventTimestamp = (timestamp?: string) => {
   return date.toLocaleString('zh-CN', { hour12: false });
 };
 
+const isNearScrollBottom = (container: HTMLDivElement) =>
+  container.scrollHeight - container.scrollTop - container.clientHeight <= AUTO_SCROLL_BOTTOM_THRESHOLD;
+
 const buildToolStepDetails = ({
   toolName,
   toolCallId,
@@ -267,6 +271,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
 
   const activeConversationId = conversationId ?? localConversationId;
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
   const eventSourceRef = useRef<AbortController | null>(null);
   const stepManagersRef = useRef<Map<string, StepsManager>>(new Map());
   const pendingToolStepsRef = useRef<Map<string, PendingToolState>>(new Map());
@@ -307,16 +312,39 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
     }
   }, [conversationHistory?.conversationState?.agentId, conversationId]);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback((force: boolean = false) => {
     const container = messagesContainerRef.current;
     if (!container) {
       return;
     }
 
+    if (!force && !shouldAutoScrollRef.current) {
+      return;
+    }
+
     requestAnimationFrame(() => {
-      container.scrollTop = container.scrollHeight;
+      const latestContainer = messagesContainerRef.current;
+      if (!latestContainer) {
+        return;
+      }
+
+      if (!force && !shouldAutoScrollRef.current) {
+        return;
+      }
+
+      latestContainer.scrollTop = latestContainer.scrollHeight;
+      shouldAutoScrollRef.current = true;
     });
-  };
+  }, []);
+
+  const handleMessagesScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) {
+      return;
+    }
+
+    shouldAutoScrollRef.current = isNearScrollBottom(container);
+  }, []);
 
   const updateConversation = (
     conversationHistoryId: string,
@@ -1077,7 +1105,8 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
     conversationState.turns.length,
     latestTurnContentLength,
     latestTurnStepCount,
-    loadingConversationDetail
+    loadingConversationDetail,
+    scrollToBottom
   ]);
 
   useEffect(
@@ -1157,6 +1186,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       const turnIndex = historyTurns.length;
       const newTurn = createNewTurn(trimmedInput, turnIndex, targetConversation.id);
       newTurnId = newTurn.id;
+      shouldAutoScrollRef.current = true;
 
       turnStatusRef.current.set(newTurn.id, {
         status: 'pending',
@@ -1232,6 +1262,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       <div
         ref={messagesContainerRef}
         className="chat-area__viewport"
+        onScroll={handleMessagesScroll}
       >
         {loadingConversationDetail ? (
           <div className="chat-area__loading">

@@ -1,9 +1,9 @@
 /**
  * HTML 预览 API 服务
  */
-import axios from './axios';
+import { ApiRetryUtil } from './retryUtils';
 
-const SPRINGBOOT3_BACKEND_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
+const SPRINGBOOT3_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_URL || 'http://localhost:8080';
 
 /**
  * 创建 HTML 预览请求
@@ -68,8 +68,12 @@ export interface HtmlShareResponse {
 export const createHtmlPreviewApi = async (
   request: CreateHtmlPreviewRequest
 ): Promise<HtmlPreviewResponse> => {
-  const response = await axios.post<HtmlPreviewResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview`, request);
-  return response;
+  return await ApiRetryUtil.post<HtmlPreviewResponse>(
+    `${SPRINGBOOT3_API_URL}/conversation/html/preview`,
+    request,
+    undefined,
+    'Failed to create HTML preview'
+  );
 };
 
 /**
@@ -77,8 +81,11 @@ export const createHtmlPreviewApi = async (
  * 返回预览元信息和 HTML 内容（仅当安全时，即无 XSS 和外部引用）
  */
 export const getHtmlPreviewContentApi = async (id: string): Promise<HtmlPreviewResponse> => {
-  const response = await axios.get<HtmlPreviewResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview/${id}`);
-  return response;
+  return await ApiRetryUtil.get<HtmlPreviewResponse>(
+    `${SPRINGBOOT3_API_URL}/conversation/html/preview/${id}`,
+    undefined,
+    'Failed to get HTML preview'
+  );
 };
 
 /**
@@ -87,8 +94,12 @@ export const getHtmlPreviewContentApi = async (id: string): Promise<HtmlPreviewR
 export const createHtmlShareApi = async (
   request: CreateHtmlShareRequest
 ): Promise<HtmlShareResponse> => {
-  const response = await axios.post<HtmlShareResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview/share`, request);
-  return response;
+  return await ApiRetryUtil.post<HtmlShareResponse>(
+    `${SPRINGBOOT3_API_URL}/conversation/html/preview/share`,
+    request,
+    undefined,
+    'Failed to create HTML share'
+  );
 };
 
 /**
@@ -98,25 +109,32 @@ export const updateHtmlShareStatusApi = async (
   id: string,
   request: UpdateHtmlShareStatusRequest
 ): Promise<HtmlShareResponse> => {
-  const response = await axios.put<HtmlShareResponse>(
-    `${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview/share/${id}/status`,
-    request
+  return await ApiRetryUtil.put<HtmlShareResponse>(
+    `${SPRINGBOOT3_API_URL}/conversation/html/preview/share/${id}/status`,
+    request,
+    undefined,
+    'Failed to update HTML share status'
   );
-  return response;
 };
 
 /**
  * 根据分享 ID 获取分享内容
  */
 export const getHtmlShareContentApi = async (id: string): Promise<HtmlShareResponse> => {
-  const response = await axios.get<HtmlShareResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview/share/${id}`);
-  return response;
+  return await ApiRetryUtil.get<HtmlShareResponse>(
+    `${SPRINGBOOT3_API_URL}/conversation/html/preview/share/${id}`,
+    undefined,
+    'Failed to get HTML share'
+  );
 };
 
 /**
  * 根据 previewId 查询分享状态
  */
 export const getHtmlShareByPreviewApi = async (previewId: string): Promise<HtmlShareResponse> => {
-  const response = await axios.get<HtmlShareResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/conversation/html/preview/share/preview/${previewId}`);
-  return response;
+  return await ApiRetryUtil.get<HtmlShareResponse>(
+    `${SPRINGBOOT3_API_URL}/conversation/html/preview/share/preview/${previewId}`,
+    undefined,
+    'Failed to get HTML share status'
+  );
 };

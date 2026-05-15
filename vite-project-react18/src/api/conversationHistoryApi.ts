@@ -47,6 +47,7 @@ export const createConversationApi = async (conversation: ConversationHistory): 
   return await ApiRetryUtil.post<ConversationHistory>(
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`,
     conversation,
+    undefined,
     'Failed to create conversation'
   );
 };
@@ -58,6 +59,7 @@ export const saveConversationStateApi = async (
   return await ApiRetryUtil.post<ConversationHistory>(
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/state/${id}`,
     {conversationState},
+    undefined,
     'Failed to save conversation state'
   );
 };
@@ -65,6 +67,7 @@ export const saveConversationStateApi = async (
 export const getConversationDetailApi = async (id: string): Promise<ConversationHistory> => {
   return await ApiRetryUtil.get<ConversationHistory>(
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}`,
+    undefined,
     'Failed to fetch conversation detail'
   );
 };
@@ -74,6 +77,7 @@ export const renameConversationApi = async (id: string, title: string): Promise<
   return await ApiRetryUtil.put<ConversationHistory>(
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}/rename`,
     {title},
+    undefined,
     'Failed to rename conversation'
   );
 };
@@ -92,6 +96,7 @@ export const batchPinConversationsApi = async (conversationIds: string[]): Promi
   await ApiRetryUtil.put<void>(
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch/pin`,
     conversationIds,
+    undefined,
     'Failed to pin conversations'
   );
 };
@@ -101,6 +106,7 @@ export const batchUnpinConversationsApi = async (conversationIds: string[]): Pro
   await ApiRetryUtil.put<void>(
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch/unpin`,
     conversationIds,
+    undefined,
     'Failed to unpin conversations'
   );
 };
