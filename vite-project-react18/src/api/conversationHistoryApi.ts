@@ -38,7 +38,7 @@ export const pageConversationsApi = async (
   return await ApiRetryUtil.get<Page<ConversationHistory>>(
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`,
     {params},
-    'Failed to fetch conversations page'
+    'Failed to fetch conversations page. Please refresh the page.'
   );
 };
 
@@ -48,7 +48,7 @@ export const createConversationApi = async (conversation: ConversationHistory): 
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`,
     conversation,
     undefined,
-    'Failed to create conversation'
+    'Failed to create conversation. Please try again.'
   );
 };
 
@@ -60,7 +60,7 @@ export const saveConversationStateApi = async (
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/state/${id}`,
     {conversationState},
     undefined,
-    'Failed to save conversation state'
+    'Failed to save conversation state. Please try again.'
   );
 };
 
@@ -68,7 +68,7 @@ export const getConversationDetailApi = async (id: string): Promise<Conversation
   return await ApiRetryUtil.get<ConversationHistory>(
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}`,
     undefined,
-    'Failed to fetch conversation detail'
+    'Failed to fetch conversation detail. Please try again.'
   );
 };
 
@@ -78,7 +78,7 @@ export const renameConversationApi = async (id: string, title: string): Promise<
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/${id}/rename`,
     {title},
     undefined,
-    'Failed to rename conversation'
+    'Failed to rename conversation. Please try again.'
   );
 };
 
@@ -87,7 +87,7 @@ export const batchDeleteConversationsApi = async (conversationIds: string[]): Pr
   await ApiRetryUtil.delete<void>(
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch`,
     {data: conversationIds},
-    'Failed to delete conversations'
+    'Failed to delete conversations. Please try again.'
   );
 };
 
@@ -97,7 +97,7 @@ export const batchPinConversationsApi = async (conversationIds: string[]): Promi
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch/pin`,
     conversationIds,
     undefined,
-    'Failed to pin conversations'
+    'Failed to pin conversations. Please try again.'
   );
 };
 
@@ -107,6 +107,6 @@ export const batchUnpinConversationsApi = async (conversationIds: string[]): Pro
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories/batch/unpin`,
     conversationIds,
     undefined,
-    'Failed to unpin conversations'
+    'Failed to unpin conversations. Please try again.'
   );
 };
