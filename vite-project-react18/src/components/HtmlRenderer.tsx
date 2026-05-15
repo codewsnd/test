@@ -30,11 +30,13 @@ import { downloadHtmlFile } from '@/utils/downloadUtils';
 interface HtmlRendererProps {
   blockKey: string;
   codeContent: string;
+  expansionKey?: string;
   language: string;
   turn: ConversationTurn;
 }
 
 const STREAMING_COLLAPSED_LINE_COUNT = 10;
+const htmlCodeExpansionStateMap = new Map<string, boolean>();
 const HTML_FORMATTER_PROTECTED_BLOCK_PATTERN = /<(script|style|pre|textarea)\b[\s\S]*?<\/\1>/gi;
 const HTML_FORMATTER_PLACEHOLDER_PREFIX = '___HTML_FORMATTER_BLOCK_';
 const HTML_FORMATTER_PLACEHOLDER_PATTERN = /___HTML_FORMATTER_BLOCK_(\d+)___/g;
@@ -180,10 +182,14 @@ const stopScrollPropagation = (event: React.UIEvent | React.WheelEvent | React.T
 const HtmlRenderer: React.FC<HtmlRendererProps> = ({
   blockKey,
   codeContent,
+  expansionKey,
   language,
   turn
 }) => {
-  const [codeExpansionOverride, setCodeExpansionOverride] = React.useState<boolean | null>(null);
+  const stableExpansionKey = expansionKey ?? blockKey;
+  const [codeExpansionOverride, setCodeExpansionOverride] = React.useState<boolean | null>(
+    () => htmlCodeExpansionStateMap.get(stableExpansionKey) ?? null
+  );
   const [isEditingCurrentBlock, setIsEditingCurrentBlock] = React.useState(false);
   const [editedCodeContent, setEditedCodeContent] = React.useState<string | undefined>();
   const [isSavingCurrentBlock, setIsSavingCurrentBlock] = React.useState(false);
@@ -222,8 +228,8 @@ const HtmlRenderer: React.FC<HtmlRendererProps> = ({
     : displayCodeContent;
 
   React.useEffect(() => {
-    setCodeExpansionOverride(null);
-  }, [blockKey]);
+    setCodeExpansionOverride(htmlCodeExpansionStateMap.get(stableExpansionKey) ?? null);
+  }, [stableExpansionKey]);
 
   const handleHtmlPreview = (content: string) => {
     setHtmlPreviewTurnId(turn.id);
@@ -339,6 +345,14 @@ const HtmlRenderer: React.FC<HtmlRendererProps> = ({
     setIsEditingCurrentBlock(false);
   };
 
+  const handleToggleCodeExpansion = () => {
+    setCodeExpansionOverride((prevValue) => {
+      const nextValue = !(prevValue ?? false);
+      htmlCodeExpansionStateMap.set(stableExpansionKey, nextValue);
+      return nextValue;
+    });
+  };
+
   return (
     <div className="relative group">
       <div
@@ -449,7 +463,7 @@ const HtmlRenderer: React.FC<HtmlRendererProps> = ({
               <Button
                 type="text"
                 block
-                onClick={() => setCodeExpansionOverride((prevValue) => !(prevValue ?? false))}
+                onClick={handleToggleCodeExpansion}
                 style={{
                   height: '38px',
                   borderTop: '1px solid #e5e5e5',

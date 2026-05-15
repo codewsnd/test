@@ -113,6 +113,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   const normalizedHeaders = headers.map((header) => header.trim().toLowerCase());
   const shouldShowHelloButton = hasTable && ['test case id', 'test case description', 'preconditions']
     .every((requiredHeader) => normalizedHeaders.includes(requiredHeader));
+  let htmlBlockIndex = 0;
 
   return (
     <div className={className} style={{ ...style, position: 'relative' }}>
@@ -274,10 +275,14 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
               }
 
               if (isHtmlLanguage(language)) {
+                const htmlExpansionKey = `${turn.id}-html-${htmlBlockIndex}`;
+                htmlBlockIndex += 1;
+
                 return (
                   <HtmlRenderer
                     blockKey={blockKey}
                     codeContent={codeContent}
+                    expansionKey={htmlExpansionKey}
                     language={language}
                     turn={turn}
                   />
