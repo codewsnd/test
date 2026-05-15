@@ -21,3 +21,30 @@
   border-color: #730014 !important;
   color: #fff !important;
 }
+
+.ant-message .ant-message-error {
+  color: #ff4d4f;
+}
+
+.ant-message .ant-message-error .anticon {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  color: inherit;
+}
+
+.ant-message .ant-message-error .anticon svg {
+  display: none !important;
+}
+
+.ant-message .ant-message-error .anticon::after {
+  content: '';
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  background-image: url('../assets/statusWarning.svg');
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  line-height: 1;
+}

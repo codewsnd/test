@@ -14,7 +14,7 @@ import StringDiffViewer from "./components/Diff";
 import './styles/antd-common.less';
 import { getDefaultStore } from 'jotai';
 import { globalStaffIdAtom } from './atom/globalAtom';
-import { ConfigProvider } from 'antd';
+import { ConfigProvider, message } from 'antd';
 import { appTheme } from './styles/appTheme';
 import HtmlSharePage from './components/htmlPreview/HtmlSharePage';
 import AgentCreatePage from '@/pages/agent-create/AgentCreatePage';
@@ -23,6 +23,11 @@ import AgentListPage from '@/pages/agent/AgentListPage';
 // 设置全局 Staff ID
 const store = getDefaultStore();
 store.set(globalStaffIdAtom, '12345678');
+
+// 设置全局消息提示的默认展示时长，单位秒。
+message.config({
+  duration: 8,
+});
 
 createRoot(document.getElementById('root')!).render(
   <ConfigProvider theme={appTheme}>
