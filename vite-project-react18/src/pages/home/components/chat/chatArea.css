@@ -187,22 +187,6 @@
   animation: chat-turn-cursor-blink 1s steps(1, end) infinite;
 }
 
-.chat-turn__footer {
-  margin-top: 14px;
-  padding-top: 10px;
-  border-top: 1px solid #f0f0f0;
-}
-
-.chat-turn__footer-button {
-  padding: 0;
-  height: auto;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-weight: 500;
-  color: var(--chat-red);
-}
-
 .chat-turn__error {
   margin-top: 12px;
   color: var(--chat-red-strong);
