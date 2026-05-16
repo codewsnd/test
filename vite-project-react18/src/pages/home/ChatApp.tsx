@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { Layout, Tabs } from "antd";
+import { MenuFoldOutlined, MenuUnfoldOutlined } from "@ant-design/icons";
 import { useAtom } from 'jotai';
 import ConversationHistoryCard from "./components/conversationHistory/ConversationHistoryCard";
 import ChatArea from "./components/chat/ChatArea";
@@ -25,6 +26,7 @@ function ChatAppContent() {
 
   // 本地管理主标签页状态
   const [activeMainTab, setActiveMainTab] = useState('conversation');
+  const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
 
   // 使用atoms中的chat区域管理逻辑来渲染ChatArea
   const renderActiveChatAreas = () => {
@@ -52,12 +54,68 @@ function ChatAppContent() {
   const hasFullscreenPanel = testCaseFullscreen || copyDeckFullscreen || htmlPreviewFullscreen;
 
   return (
-    <Layout style={{ height: "100vh" }}>
+    <Layout style={{ height: "100vh", position: "relative" }}>
+      {isHistoryCollapsed && (
+        <button
+          type="button"
+          onClick={() => setIsHistoryCollapsed(false)}
+          aria-label="Expand conversation history"
+          title="Expand conversation history"
+          style={{
+            position: "absolute",
+            top: 10,
+            left: 10,
+            zIndex: 10,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            border: "1px solid #d9d9d9",
+            background: "#ffffff",
+            color: "#262626",
+            width: 32,
+            height: 32,
+            padding: 0,
+            borderRadius: 8,
+            cursor: "pointer",
+            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.08)"
+          }}
+        >
+          <MenuUnfoldOutlined />
+        </button>
+      )}
       <Sider
-        width={320}
-        className="flex flex-col overflow-hidden bg-white p-4"
+        width={280}
+        collapsed={isHistoryCollapsed}
+        collapsedWidth={0}
+        trigger={null}
+        style={{
+          background: "#ffffff",
+          borderRight: "1px solid #f0f0f0"
+        }}
+        className="flex flex-col overflow-hidden p-4"
       >
         <div className="flex h-full flex-col">
+          <div className="mb-4 flex items-center justify-end">
+            <button
+              type="button"
+              onClick={() => setIsHistoryCollapsed(true)}
+              aria-label="Collapse conversation history"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 28,
+                height: 28,
+                border: "1px solid #d9d9d9",
+                background: "#ffffff",
+                color: "#595959",
+                borderRadius: 6,
+                cursor: "pointer"
+              }}
+            >
+              <MenuFoldOutlined />
+            </button>
+          </div>
           <Tabs
             activeKey={activeMainTab}
             onChange={setActiveMainTab}

@@ -1,3 +1,5 @@
+import type { A2uiMessage } from '@a2ui/web_core/v0_9';
+
 export interface ConversationTurn {
   id: string; // 对话会话的唯一Id
   turnIndex: number; // 在对话中的位置索引（从0开始）
@@ -18,6 +20,7 @@ export interface ConversationTurn {
   }
 
   processSteps?: ProcessStep[];
+  a2uiMessages?: A2uiMessage[];
 }
 
 export interface ConversationState {

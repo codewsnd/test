@@ -176,6 +176,8 @@ class ToolCatalogService:
             return "Productivity & Knowledge"
         if any(keyword in haystack for keyword in ("weather", "temperature", "forecast", "climate")):
             return "Utilities"
+        if any(keyword in haystack for keyword in ("coffee", "latte", "order card")):
+            return "Commerce"
 
         return "MCP Tools"
 
@@ -197,6 +199,8 @@ class ToolCatalogService:
             tags.append("PPT")
         elif "weather" in haystack:
             tags.append("Weather")
+        elif any(keyword in haystack for keyword in ("coffee", "latte", "order card")):
+            tags.append("Coffee Order")
         else:
             tags.append(tool_category)
 

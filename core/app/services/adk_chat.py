@@ -37,6 +37,16 @@ class LocalChatAgent(Agent):
     pass
 
 
+A2UI_TOOL_NAMES = {"coffeeorder", "createtestcase"}
+A2UI_MIME_TYPE = "application/json+a2ui"
+A2UI_MESSAGE_KEYS = {
+    "createSurface",
+    "deleteSurface",
+    "updateComponents",
+    "updateDataModel",
+}
+
+
 class AdkChatService:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -178,10 +188,6 @@ class AdkChatService:
             yield chunk
 
     async def stream_chat_compat(self, request: ChatStreamCompatRequest) -> AsyncIterator[str]:
-        agent_config = await self._agent_config_service.resolve_agent_config(
-            agent_id=request.agent_id,
-            requested_model_name=request.model_name,
-        )
         session_id_hint = self._build_session_hint(
             conversation_id=request.conversation_id,
             request_id=request.request_id,
@@ -192,6 +198,11 @@ class AdkChatService:
             self._messages_to_prompt(request.messages)
             if is_new_session
             else self._latest_user_message(request.messages)
+        )
+
+        agent_config = await self._agent_config_service.resolve_agent_config(
+            agent_id=request.agent_id,
+            requested_model_name=request.model_name,
         )
         execution_config, applied_skills = self._build_execution_config(
             agent_config,
@@ -361,6 +372,9 @@ class AdkChatService:
         first_chunk_sent = False
         chunk_count = 0
         character_count = 0
+        a2ui_text_sent = False
+        a2ui_surface_sent = False
+        agent_has_a2ui_tool = self._has_a2ui_tool(agent_config.tools)
 
         try:
             async for event in runner.run_async(
@@ -384,6 +398,38 @@ class AdkChatService:
 
                 for function_response in event.get_function_responses():
                     yield self._sse("tool-result", self._tool_result_payload(function_response))
+
+                    for a2ui_payload in self._a2ui_payloads_from_tool_response(function_response):
+                        a2ui_surface_sent = True
+                        yield self._sse(
+                            "status",
+                            self._status_event(
+                                stage="tool-completed",
+                                state="processing",
+                                label="Rendering A2UI",
+                                detail=f"Tool {function_response.name or 'unknown-tool'} returned an A2UI surface.",
+                                session_id=session_id,
+                            ),
+                        )
+                        for a2ui_message in a2ui_payload["messages"]:
+                            yield self._sse("a2ui", a2ui_message)
+
+                        a2ui_text = a2ui_payload.get("text")
+                        if isinstance(a2ui_text, str) and a2ui_text.strip() and not a2ui_text_sent:
+                            a2ui_text_sent = True
+                            first_chunk_sent = True
+                            chunk_count += 1
+                            character_count += len(a2ui_text)
+                            yield self._sse(
+                                "message",
+                                message_payload_builder(
+                                    a2ui_text,
+                                    session_id,
+                                    chunk_count,
+                                    False,
+                                ),
+                            )
+
                     yield self._sse(
                         "status",
                         self._status_event(
@@ -397,6 +443,34 @@ class AdkChatService:
 
                 text = self._text_from_event(event)
                 if not text or not text.strip():
+                    continue
+
+                direct_a2ui_payloads = (
+                    self._a2ui_payloads_from_value(text) if agent_has_a2ui_tool else []
+                )
+                if direct_a2ui_payloads:
+                    a2ui_surface_sent = True
+                    for a2ui_payload in direct_a2ui_payloads:
+                        for a2ui_message in a2ui_payload["messages"]:
+                            yield self._sse("a2ui", a2ui_message)
+                        a2ui_text = a2ui_payload.get("text")
+                        if isinstance(a2ui_text, str) and a2ui_text.strip() and not a2ui_text_sent:
+                            a2ui_text_sent = True
+                            first_chunk_sent = True
+                            chunk_count += 1
+                            character_count += len(a2ui_text)
+                            yield self._sse(
+                                "message",
+                                message_payload_builder(
+                                    a2ui_text,
+                                    session_id,
+                                    chunk_count,
+                                    False,
+                                ),
+                            )
+                    continue
+
+                if a2ui_surface_sent:
                     continue
 
                 if not first_chunk_sent:
@@ -630,6 +704,147 @@ class AdkChatService:
             "tool-result": result,
             "timestamp": AdkChatService._iso_now(),
         }
+
+    @staticmethod
+    def _a2ui_payloads_from_tool_response(
+        function_response: types.FunctionResponse,
+    ) -> list[dict[str, object]]:
+        tool_name = (function_response.name or "").rsplit("/", 1)[-1].lower()
+        if tool_name not in A2UI_TOOL_NAMES:
+            return []
+
+        payloads: list[dict[str, object]] = []
+        payloads.extend(AdkChatService._a2ui_payloads_from_value(function_response.response))
+        payloads.extend(AdkChatService._a2ui_payloads_from_value(function_response.parts))
+        return payloads
+
+    @staticmethod
+    def _has_a2ui_tool(tool_names: list[str]) -> bool:
+        return any(
+            tool_name.rsplit("/", 1)[-1].lower() in A2UI_TOOL_NAMES
+            for tool_name in tool_names
+        )
+
+    @staticmethod
+    def _a2ui_payloads_from_value(value: Any) -> list[dict[str, object]]:
+        if value is None:
+            return []
+
+        if isinstance(value, str):
+            return AdkChatService._a2ui_payloads_from_string(value)
+
+        if isinstance(value, dict):
+            resource_payloads = AdkChatService._a2ui_payloads_from_resource(value)
+            if resource_payloads:
+                return resource_payloads
+
+            normalized_payload = AdkChatService._normalize_a2ui_payload(value)
+            if normalized_payload is not None:
+                return [normalized_payload]
+
+            payloads: list[dict[str, object]] = []
+            for child_value in value.values():
+                payloads.extend(AdkChatService._a2ui_payloads_from_value(child_value))
+            return payloads
+
+        if isinstance(value, list | tuple):
+            normalized_message_list = AdkChatService._normalize_a2ui_message_list(value)
+            if normalized_message_list is not None:
+                return [normalized_message_list]
+
+            payloads: list[dict[str, object]] = []
+            for child_value in value:
+                payloads.extend(AdkChatService._a2ui_payloads_from_value(child_value))
+            return payloads
+
+        text_value = getattr(value, "text", None)
+        if isinstance(text_value, str):
+            return AdkChatService._a2ui_payloads_from_string(text_value)
+
+        return []
+
+    @staticmethod
+    def _a2ui_payloads_from_resource(value: dict[str, Any]) -> list[dict[str, object]]:
+        resource = value.get("resource")
+        if not isinstance(resource, dict):
+            return []
+
+        mime_type = resource.get("mimeType") or resource.get("mime_type")
+        if not isinstance(mime_type, str):
+            return []
+
+        normalized_mime_type = mime_type.split(";", 1)[0].strip().lower()
+        if normalized_mime_type != A2UI_MIME_TYPE:
+            return []
+
+        text = resource.get("text")
+        if isinstance(text, str):
+            return AdkChatService._a2ui_payloads_from_string(text)
+
+        return []
+
+    @staticmethod
+    def _a2ui_payloads_from_string(value: str) -> list[dict[str, object]]:
+        stripped_value = value.strip()
+        if not stripped_value:
+            return []
+
+        if stripped_value.startswith("```"):
+            lines = stripped_value.splitlines()
+            if len(lines) >= 3 and lines[-1].strip() == "```":
+                stripped_value = "\n".join(lines[1:-1]).strip()
+
+        try:
+            parsed_value = json.loads(stripped_value)
+        except json.JSONDecodeError:
+            return []
+
+        return AdkChatService._a2ui_payloads_from_value(parsed_value)
+
+    @staticmethod
+    def _normalize_a2ui_message_list(value: list[Any] | tuple[Any, ...]) -> dict[str, object] | None:
+        messages = [message for message in value if isinstance(message, dict)]
+        if len(messages) != len(value) or not messages:
+            return None
+
+        if not all(
+            message.get("version") == "v0.9"
+            and any(message_key in message for message_key in A2UI_MESSAGE_KEYS)
+            for message in messages
+        ):
+            return None
+
+        return {
+            "version": "v0.9",
+            "messages": messages,
+        }
+
+    @staticmethod
+    def _normalize_a2ui_payload(value: dict[str, Any]) -> dict[str, object] | None:
+        payload = value.get("a2ui") if isinstance(value.get("a2ui"), dict) else value
+
+        if payload.get("kind") != "a2ui" and not (
+            payload.get("version") == "v0.9" and isinstance(payload.get("messages"), list)
+        ):
+            return None
+
+        raw_messages = payload.get("messages")
+        if not isinstance(raw_messages, list):
+            return None
+
+        messages = [message for message in raw_messages if isinstance(message, dict)]
+        if not messages:
+            return None
+
+        normalized: dict[str, object] = {
+            "version": payload.get("version") or "v0.9",
+            "messages": messages,
+        }
+        text = payload.get("text")
+        if isinstance(text, str):
+            normalized["text"] = text
+
+        return normalized
 
     @staticmethod
     def _stringify_payload(value: Any) -> str:

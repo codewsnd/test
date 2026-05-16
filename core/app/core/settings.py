@@ -72,6 +72,7 @@ class Settings(BaseSettings):
             "createTestCase",
             "createPpt",
             "queryWeather",
+            "coffeeOrder",
         ],
         validation_alias=AliasChoices(
             "MCP_TOOL_NAMES",

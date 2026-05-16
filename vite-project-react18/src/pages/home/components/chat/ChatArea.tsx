@@ -4,6 +4,7 @@ import { PlusOutlined } from '@ant-design/icons';
 import { useAtom, useSetAtom } from 'jotai';
 import { useRequest } from 'ahooks';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
+import type { A2uiMessage } from '@a2ui/web_core/v0_9';
 
 import { getAgentsApi } from '@/api/agentApi';
 import {
@@ -100,6 +101,10 @@ type ErrorEventData = {
   timestamp?: string;
 };
 
+type A2UIStreamEventData = A2uiMessage | A2uiMessage[] | {
+  messages?: A2uiMessage[];
+};
+
 type StreamBuffer = {
   chunks: string[];
   timeoutId: number | null;
@@ -146,6 +151,26 @@ const parseEventData = <T,>(rawData: string): T | null => {
     console.error('Failed to parse SSE event payload:', error, rawData);
     return null;
   }
+};
+
+const normalizeA2UIMessages = (payload: A2UIStreamEventData | null): A2uiMessage[] => {
+  if (!payload) {
+    return [];
+  }
+
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  if ('messages' in payload && Array.isArray(payload.messages)) {
+    return payload.messages;
+  }
+
+  if ('version' in payload) {
+    return [payload];
+  }
+
+  return [];
 };
 
 const buildHistoryMessages = (turns: ConversationTurn[], userMessage: string): HistoryMessage[] => {
@@ -916,6 +941,43 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
     });
   };
 
+  const handleA2UIEvent = (
+    turnId: string,
+    conversationHistoryId: string,
+    payload: A2UIStreamEventData
+  ) => {
+    const a2uiMessages = normalizeA2UIMessages(payload);
+    if (a2uiMessages.length === 0) {
+      return;
+    }
+
+    const manager = getTurnStepsManager(turnId);
+    manager?.updateStep(STEP_KEYS.response, {
+      status: 'processing',
+      content: '渲染 A2UI',
+      tooltip: '服务端返回了 A2UI 声明式界面，正在准备渲染。'
+    });
+
+    updateConversation(
+      conversationHistoryId,
+      (prevState) => ({
+        ...prevState,
+        turns: prevState.turns.map((turn) =>
+          turn.id === turnId
+            ? {
+                ...turn,
+                a2uiMessages: [
+                  ...(turn.a2uiMessages ?? []),
+                  ...a2uiMessages
+                ]
+              }
+            : turn
+        )
+      }),
+      false
+    );
+  };
+
   const setupSSE = (
     turnId: string,
     conversationHistoryId: string,
@@ -992,6 +1054,14 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
               const payload = parseEventData<ToolResultEventData>(event.data);
               if (payload) {
                 handleToolResult(turnId, payload);
+              }
+              break;
+            }
+
+            case 'a2ui': {
+              const payload = parseEventData<A2UIStreamEventData>(event.data);
+              if (payload) {
+                handleA2UIEvent(turnId, conversationHistoryId, payload);
               }
               break;
             }

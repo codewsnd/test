@@ -1,6 +1,7 @@
 package com.mytest.backend.service;
 
 import com.mytest.backend.entity.AgentConfig;
+import com.mytest.backend.tools.CoffeeOrderTools;
 import com.mytest.backend.tools.CopyDeckTools;
 import com.mytest.backend.tools.PptTools;
 import com.mytest.backend.tools.TestCaseTools;
@@ -20,6 +21,7 @@ import java.util.List;
 public class AgentService {
 
     private final CopyDeckTools copyDeckTools;
+    private final CoffeeOrderTools coffeeOrderTools;
     private final TestCaseTools testCaseTools;
     private final PptTools pptTools;
 
@@ -47,6 +49,8 @@ public class AgentService {
                 case "CopyDeck": toolsList.add(copyDeckTools);break;
                 case "TestCase": toolsList.add(testCaseTools);break;
                 case "Ppt": toolsList.add(pptTools);break;
+                case "CoffeeOrder":
+                case "coffeeOrder": toolsList.add(coffeeOrderTools);break;
             }
         }
 
@@ -94,6 +98,8 @@ public class AgentService {
                 case "CopyDeck": toolsList.add(copyDeckTools);break;
                 case "TestCase": toolsList.add(testCaseTools);break;
                 case "Ppt": toolsList.add(pptTools);break;
+                case "CoffeeOrder":
+                case "coffeeOrder": toolsList.add(coffeeOrderTools);break;
             }
         }
 
