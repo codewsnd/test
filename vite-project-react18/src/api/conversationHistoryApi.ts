@@ -2,7 +2,7 @@ import type {ConversationState} from "../pages/home/components/chat/types";
 import {ApiRetryUtil} from "./retryUtils";
 import type {Page} from "./types";
 
-const SPRINGBOOT3_BACKEND_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
+const SPRINGBOOT3_BACKEND_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8082';
 
 // 会话历史记录类型
 export type ConversationHistory = {
@@ -19,15 +19,14 @@ export type ConversationHistory = {
   isCreating?: boolean; // 前端本地状态：是否已经成功创建到后端
 };
 
-// 分页获取会话（页码从0开始，与后端保持一致）
+// 分页获取会话（请求参数页码从1开始）
 export const pageConversationsApi = async (
-  page: number = 0,
-  size: number = 10,
+  page: number = 1,
+  size: number = 50,
   search?: string
 ): Promise<Page<ConversationHistory>> => {
-  // 前端和后端都使用0开始的页码
   const params: Record<string, string | number> = {
-    page,
+    page: Math.max(1, page),
     size
   };
 
@@ -42,7 +41,7 @@ export const pageConversationsApi = async (
   );
 };
 
-// 创建会话；后续更新请使用 saveConversationStateApi / renameConversationApi 做增量更新
+// 创建会话
 export const createConversationApi = async (conversation: ConversationHistory): Promise<ConversationHistory> => {
   return await ApiRetryUtil.post<ConversationHistory>(
     `${SPRINGBOOT3_BACKEND_API_URL}/conversations/histories`,

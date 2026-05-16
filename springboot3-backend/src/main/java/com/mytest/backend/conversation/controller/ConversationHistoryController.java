@@ -10,9 +10,6 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.web.PageableDefault;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -33,11 +30,9 @@ public class ConversationHistoryController {
     public Page<ConversationHistoryResponse> pageConversations(
             @RequestHeader(X_E2E_TRUST_TOKEN) String jwtToken,
             @RequestParam(required = false) String search,
-            @PageableDefault(
-                    sort = {"isPinned", "pinnedAt", "updatedAt"},
-                    direction = Sort.Direction.DESC
-            ) Pageable pageable) {
-        return conversationHistoryService.pageConversations(JwtTokenUtil.getStaffId(jwtToken), search, pageable);
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return conversationHistoryService.pageConversations(JwtTokenUtil.getStaffId(jwtToken), search, page, size);
     }
 
     @GetMapping("/{id}")

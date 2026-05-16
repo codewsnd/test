@@ -42,7 +42,7 @@ public class ConversationHistory {
     @TableField("pinned_at")
     private Instant pinnedAt;
 
-    @TableField("user_id")
+    @TableField("staff_id")
     private String staffId;
 
     @TableField("title_generating")

@@ -85,8 +85,8 @@ const DEFAULT_GROUP_RULES: TimeGroupRule[] = [
   }
 ];
 
-// 分页大小配置 - 可以在这里修改默认每页显示的条数
-const PAGE_SIZE = 10;
+// 分页大小配置 - 与后端默认值保持一致
+const PAGE_SIZE = 50;
 
 // 筛选选项类型
 interface FilterOptions {
@@ -126,7 +126,11 @@ export default function ConversationHistoryCard() {
   const toggleConversationSelection = (id: string) => {
     setSelectedConversationIds(prev => {
       const newSet = new Set(prev);
-      newSet.has(id) ? newSet.delete(id) : newSet.add(id);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
       return newSet;
     });
   };
@@ -385,7 +389,7 @@ export default function ConversationHistoryCard() {
     }
 
     const collapseItems: CollapseProps['items'] = Object.entries(groupedData)
-      .filter(([_, conversations]) => conversations.length > 0)
+      .filter(([, conversations]) => conversations.length > 0)
       .map(([groupName, conversations]) => ({
         key: groupName,
         label: (

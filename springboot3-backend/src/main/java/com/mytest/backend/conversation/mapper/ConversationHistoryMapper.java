@@ -22,11 +22,11 @@ public interface ConversationHistoryMapper extends BaseMapper<ConversationHistor
                 created_at,
                 updated_at,
                 pinned_at,
-                user_id AS staff_id,
+                staff_id AS staff_id,
                 title_generating,
                 is_deleted
             FROM conversation_history
-            WHERE user_id = #{staffId}
+            WHERE staff_id = #{staffId}
               AND COALESCE(is_deleted, FALSE) = FALSE
               AND (
                   #{search} = ''
@@ -98,7 +98,7 @@ public interface ConversationHistoryMapper extends BaseMapper<ConversationHistor
                 updated_at = COALESCE(#{updatedAt,jdbcType=TIMESTAMP}, NOW())
             FROM patch
             WHERE ch.id = #{id}
-              AND ch.user_id = #{staffId}
+              AND ch.staff_id = #{staffId}
               AND COALESCE(ch.is_deleted, FALSE) = FALSE
             """)
     int saveConversationState(

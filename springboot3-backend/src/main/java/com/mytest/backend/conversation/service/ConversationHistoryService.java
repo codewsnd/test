@@ -12,7 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.support.PageableExecutionUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -32,21 +32,23 @@ public class ConversationHistoryService {
     public org.springframework.data.domain.Page<ConversationHistoryResponse> pageConversations(
             String staffId,
             String search,
-            Pageable pageable
+            int page,
+            int size
     ) {
         try {
             String searchTerm = StringUtils.hasText(search) ? search.trim() : "";
+            PageRequest responsePageable = PageRequest.of(page - 1, size);
             Page<ConversationHistory> result = conversationHistoryMapper.pageConversations(
-                    Page.of(pageable.getPageNumber() + 1L, pageable.getPageSize(), true),
+                    Page.of(page, size, true),
                     staffId,
                     searchTerm
             );
             List<ConversationHistoryResponse> content = result.getRecords().stream()
                     .map(ConversationHistoryResponse::from)
                     .toList();
-            return PageableExecutionUtils.getPage(content, pageable, result::getTotal);
+            return PageableExecutionUtils.getPage(content, responsePageable, result::getTotal);
         } catch (CustomException e) {
-            log.error("[ConversationHistory:Failed] action=page staffId={} page={} size={}", staffId, pageable.getPageNumber(), pageable.getPageSize(), e);
+            log.error("[ConversationHistory:Failed] action=page staffId={} page={} size={}", staffId, page, size, e);
             throw e;
         }
     }

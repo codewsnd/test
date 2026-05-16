@@ -15,13 +15,14 @@ import {v7} from 'uuid';
 
 // 分页大小配置
 const PAGE_SIZE = 50;
+const FIRST_PAGE = 1;
 
 // 基础状态
 export const conversationHistoriesAtom = atom<ConversationHistory[]>([]);
 export const activeConversationIdAtom = atom<string | null>(null);
 export const dbInitializedAtom = atom<boolean>(false);
 export const searchQueryAtom = atom<string>('');
-export const currentPageAtom = atom<number>(0);
+export const currentPageAtom = atom<number>(FIRST_PAGE);
 export const hasMoreAtom = atom<boolean>(true);
 
 
@@ -123,13 +124,13 @@ export const initializeDbAtom = atom(
     try {
       // 重置搜索和分页状态
       set(searchQueryAtom, '');
-      set(currentPageAtom, 0);
+      set(currentPageAtom, FIRST_PAGE);
       set(hasMoreAtom, true);
 
       let allInitialData: ConversationHistory[] = [];
 
-      // 只加载第一页数据用于初始化（页码从0开始）
-      const result = await pageConversationsApi(0, PAGE_SIZE);
+      // 只加载第一页数据用于初始化
+      const result = await pageConversationsApi(FIRST_PAGE, PAGE_SIZE);
       allInitialData = result.content;
       set(hasMoreAtom, result.number + 1 < result.totalPages);
 
@@ -190,11 +191,11 @@ export const searchConversationsAtom = atom(
     try {
       // 更新搜索状态
       set(searchQueryAtom, searchQuery);
-      set(currentPageAtom, 0);
+      set(currentPageAtom, FIRST_PAGE);
       set(hasMoreAtom, true);
 
       // 获取搜索结果
-      const result = await pageConversationsApi(0, PAGE_SIZE, searchQuery);
+      const result = await pageConversationsApi(FIRST_PAGE, PAGE_SIZE, searchQuery);
 
       set(conversationHistoriesAtom, result.content);
       set(hasMoreAtom, result.number + 1 < result.totalPages);
