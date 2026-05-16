@@ -9,6 +9,7 @@ import {
   basicCatalog,
   type ReactComponentImplementation
 } from '@a2ui/react/v0_9';
+import { genericCatalog } from './genericCatalog';
 import { coffeeOrderCatalog } from './coffeeOrderCatalog';
 import { testCaseCatalog } from './testCaseCatalog';
 
@@ -17,7 +18,7 @@ interface ChatA2UIRendererProps {
   onAction?: (action: A2uiClientAction) => void;
 }
 
-const catalogs = [basicCatalog, coffeeOrderCatalog, testCaseCatalog];
+const catalogs = [basicCatalog, genericCatalog, coffeeOrderCatalog, testCaseCatalog];
 
 export const ChatA2UIRenderer = ({ messages, onAction }: ChatA2UIRendererProps) => {
   const renderState = useMemo(() => {

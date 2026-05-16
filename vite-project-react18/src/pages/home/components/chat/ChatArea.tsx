@@ -308,6 +308,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
   const turnStatusRef = useRef<Map<string, { status: AiResponseStatus; contentLength: number }>>(new Map());
   const streamBuffersRef = useRef<Map<string, StreamBuffer>>(new Map());
   const turnSessionsRef = useRef<Map<string, SessionEventPayload>>(new Map());
+  const a2uiTurnIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     setLocalConversationId(conversationId ?? null);
@@ -464,6 +465,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
     turnStatusRef.current.delete(turnId);
     streamBuffersRef.current.delete(turnId);
     turnSessionsRef.current.delete(turnId);
+    a2uiTurnIdsRef.current.delete(turnId);
   };
 
   const pushPendingToolStep = (turnId: string, stepKey: string) => {
@@ -951,6 +953,9 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       return;
     }
 
+    a2uiTurnIdsRef.current.add(turnId);
+    clearStreamBuffer(turnId);
+
     const manager = getTurnStepsManager(turnId);
     manager?.updateStep(STEP_KEYS.response, {
       status: 'processing',
@@ -1067,6 +1072,10 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
             }
 
             case 'message': {
+              if (a2uiTurnIdsRef.current.has(turnId)) {
+                break;
+              }
+
               const payload = parseEventData<StreamMessageEventData>(event.data);
               const deltaContent = payload?.output?.text;
 
@@ -1196,6 +1205,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
       resolvedTurnsRef.current.clear();
       turnStatusRef.current.clear();
       turnSessionsRef.current.clear();
+      a2uiTurnIdsRef.current.clear();
       streamBuffersRef.current.forEach((buffer) => {
         if (buffer.timeoutId !== null) {
           window.clearTimeout(buffer.timeoutId);
