@@ -1,5 +1,6 @@
 import { memo, useDeferredValue } from 'react';
-import { Card } from 'antd';
+import { ArrowRightOutlined } from '@ant-design/icons';
+import { Button, Card } from 'antd';
 
 import { MarkdownRenderer } from '@/components/MarkdownRenderer';
 import { StatusCard } from './StatusCard';
@@ -7,13 +8,29 @@ import type { ConversationTurn } from './types';
 
 interface ChatTurnCardProps {
   turn: ConversationTurn;
+  onShowTestCase: (markdownTable: string) => void;
 }
 
-const ChatTurnCardComponent = ({ turn }: ChatTurnCardProps) => {
+const normalizeToolName = (value?: string) => (value ?? '').trim().toLowerCase();
+
+const hasCreateTestCaseToolCall = (turn: ConversationTurn) =>
+  turn.processSteps?.some((step) => {
+    const detailToolName = step.details?.find((detail) => detail.label === 'Tool')?.value;
+    return (
+      normalizeToolName(detailToolName) === 'createtestcase' ||
+      normalizeToolName(step.content).includes('createtestcase')
+    );
+  }) ?? false;
+
+const ChatTurnCardComponent = ({ turn, onShowTestCase }: ChatTurnCardProps) => {
   const isStreaming =
     turn.aiResponse.status === 'pending' || turn.aiResponse.status === 'streaming';
   const deferredContent = useDeferredValue(turn.aiResponse.content || '');
   const responseContent = isStreaming ? deferredContent : turn.aiResponse.content || '';
+  const shouldShowExportToJira =
+    turn.aiResponse.status === 'completed' &&
+    Boolean(turn.aiResponse.content) &&
+    hasCreateTestCaseToolCall(turn);
 
   return (
     <div className="chat-turn">
@@ -52,6 +69,19 @@ const ChatTurnCardComponent = ({ turn }: ChatTurnCardProps) => {
             )}
           </div>
 
+          {shouldShowExportToJira && (
+            <div className="chat-turn__footer">
+              <Button
+                type="link"
+                onClick={() => onShowTestCase(turn.aiResponse.content)}
+                className="chat-turn__footer-button"
+              >
+                Export to Jira
+                <ArrowRightOutlined />
+              </Button>
+            </div>
+          )}
+
           {turn.aiResponse.status === 'error' && (
             <div className="chat-turn__error">
               {turn.aiResponse.errorMessage || '生成失败，请稍后重试。'}
@@ -66,5 +96,6 @@ const ChatTurnCardComponent = ({ turn }: ChatTurnCardProps) => {
 export const ChatTurnCard = memo(
   ChatTurnCardComponent,
   (prevProps, nextProps) =>
-    prevProps.turn === nextProps.turn
+    prevProps.turn === nextProps.turn &&
+    prevProps.onShowTestCase === nextProps.onShowTestCase
 );

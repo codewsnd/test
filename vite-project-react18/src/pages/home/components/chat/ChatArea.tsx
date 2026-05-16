@@ -10,6 +10,10 @@ import {
   getConversationDetailApi,
   type ConversationHistory
 } from '@/api/conversationHistoryApi';
+import {
+  showTestCaseSidebarAtom,
+  testCaseMarkdownTableAom
+} from '@/pages/home/components/testCase/testCaseAtom';
 import { MyRepository } from './dataCenter';
 import { ChatTurnCard } from './ChatTurnCard';
 import { StepsManager } from './StepsManager';
@@ -259,6 +263,8 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
   const setConversationHistories = useSetAtom(conversationHistoriesAtom);
   const createConversationHistory = useSetAtom(createConversationHistoryAtom);
   const setConversationState = useSetAtom(setConversationStateAtom);
+  const showTestCaseSidebar = useSetAtom(showTestCaseSidebarAtom);
+  const setTestCaseMarkdownTable = useSetAtom(testCaseMarkdownTableAom);
   const generateConversationTitle = useSetAtom(generateConversationTitleAtom);
 
   const [localConversationId, setLocalConversationId] = useState<string | null>(conversationId ?? null);
@@ -343,6 +349,11 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
 
     shouldAutoScrollRef.current = isNearScrollBottom(container);
   }, []);
+
+  const showGeneratedTestCaseSidebar = useCallback((markdownTable: string) => {
+    setTestCaseMarkdownTable(markdownTable);
+    showTestCaseSidebar();
+  }, [setTestCaseMarkdownTable, showTestCaseSidebar]);
 
   const updateConversation = (
     conversationHistoryId: string,
@@ -1282,6 +1293,7 @@ export default function ChatArea({ conversationId }: ChatAreaProps) {
               <ChatTurnCard
                 key={turn.id}
                 turn={turn}
+                onShowTestCase={showGeneratedTestCaseSidebar}
               />
             ))}
           </>
