@@ -30,7 +30,9 @@ class AgentConfigService:
             return ResolvedAgentConfig(
                 agentId=None,
                 agentName="default",
-                modelName=requested_model_name or self._settings.oml_model,
+                modelName=self._settings.normalize_model_name(
+                    requested_model_name or self._settings.default_model_name()
+                ),
                 systemPrompt=DEFAULT_INSTRUCTION,
                 tools=list(self._settings.mcp_tool_names),
                 skillIds=[],
@@ -40,7 +42,11 @@ class AgentConfigService:
         return ResolvedAgentConfig(
             agentId=str(payload.id),
             agentName=payload.name,
-            modelName=payload.model_name or requested_model_name or self._settings.oml_model,
+            modelName=self._settings.normalize_model_name(
+                payload.model_name
+                or requested_model_name
+                or self._settings.default_model_name()
+            ),
             systemPrompt=payload.system_prompt or DEFAULT_INSTRUCTION,
             tools=self._normalize_tools(payload.tools),
             skillIds=self._normalize_skill_ids(payload.template_schemas),

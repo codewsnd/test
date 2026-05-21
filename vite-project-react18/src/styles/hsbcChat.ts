@@ -10,6 +10,8 @@ export const hsbcChatTheme: ThemeConfig = {
     colorPrimary: '#DB0011', // 汇丰红
     colorInfo: '#DB0011',
     colorSuccess: '#00847F', // 汇丰绿（辅助色）
+    controlOutline: 'rgba(0, 0, 0, 0.18)',
+    controlOutlineWidth: 2,
 
     // === 中性色系 ===
     colorTextBase: '#333333', // 主文本颜色
@@ -58,9 +60,9 @@ export const hsbcChatTheme: ThemeConfig = {
     // === Input 输入框组件 ===
     Input: {
       borderRadius: 0,
-      activeBorderColor: '#DB0011',
-      hoverBorderColor: '#DB0011',
-      activeShadow: '0 0 0 2px rgba(219, 0, 17, 0.1)',
+      activeBorderColor: '#333333',
+      hoverBorderColor: '#767676',
+      activeShadow: 'none',
     },
 
     // === Menu 菜单组件 ===

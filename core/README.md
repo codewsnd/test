@@ -60,6 +60,10 @@ curl -N -X POST http://127.0.0.1:8000/chat/stream \
 
 Configuration is read from `.env`. Preferred keys are:
 
+- `DEEPSEEK_API_KEY`
+- `DEEPSEEK_MODEL`
+- `DEEPSEEK_BASE_URL`
+- `LLM_PROVIDER`
 - `spring.ai.openai.base-url`
 - `spring.ai.openai.api-key`
 - `spring.ai.openai.chat.options.model`
@@ -75,6 +79,26 @@ If the configured OpenAI-compatible `base-url` has no path, the service will
 automatically normalize it to include `/v1`.
 
 Legacy `OMLX_*` aliases are still supported for backward compatibility.
+
+To use DeepSeek V4 Pro, add only the API key to `.env`:
+
+```bash
+DEEPSEEK_API_KEY=<your-deepseek-api-key>
+```
+
+With `LLM_PROVIDER=auto` (the default), the service switches to DeepSeek when
+`DEEPSEEK_API_KEY` is present. The default DeepSeek model is
+`deepseek-v4-pro`, and `deepseekv4pro` is accepted as an alias. Optional
+overrides are:
+
+```bash
+DEEPSEEK_MODEL=deepseek-v4-pro
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+```
+
+When an agent has `modelName` set to `deepseek-v4-pro` or
+`deepseek-v4-flash`, that request is routed to DeepSeek. Other agent models
+continue using the configured `spring.ai.openai.*` OpenAI-compatible endpoint.
 
 When `MCP_ENABLED=true`, the ADK agent will load tools from the
 `springboot3-backend` MCP endpoint, which defaults to

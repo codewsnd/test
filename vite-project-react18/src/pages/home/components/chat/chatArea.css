@@ -250,7 +250,7 @@
 }
 
 .chat-status-card__toggle:focus-visible {
-  outline: 2px solid rgba(219, 0, 17, 0.18);
+  outline: 2px solid rgba(0, 0, 0, 0.24);
   outline-offset: -2px;
 }
 

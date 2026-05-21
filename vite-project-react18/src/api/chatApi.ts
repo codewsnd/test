@@ -165,8 +165,7 @@ export const chatStream = (
           !content ||
           content === 'null' ||
           content === 'undefined' ||
-          content === 'Stream finished' ||
-          content.trim() === '';
+          content === 'Stream finished';
 
         if (!shouldIgnore && typeof content === 'string') {
           callbacks.onMessage(content);

@@ -48,9 +48,9 @@ class AdkChatService:
         return LocalChatAgent(
             name="chat_agent",
             model=LiteLlm(
-                model=f"openai/{agent_config.model_name}",
-                api_base=self._settings.oml_base_url,
-                api_key=self._settings.oml_api_key,
+                model=self._settings.litellm_model_name(agent_config.model_name),
+                api_base=self._settings.llm_base_url(agent_config.model_name),
+                api_key=self._settings.llm_api_key(agent_config.model_name),
                 timeout=self._settings.request_timeout_seconds,
                 drop_params=True,
                 temperature=agent_config.temperature,
@@ -396,7 +396,7 @@ class AdkChatService:
                     )
 
                 text = self._text_from_event(event)
-                if not text or not text.strip():
+                if text == "":
                     continue
 
                 if not first_chunk_sent:

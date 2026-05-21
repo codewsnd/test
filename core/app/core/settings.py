@@ -37,6 +37,35 @@ class Settings(BaseSettings):
             "OMLX_MODEL",
         ),
     )
+    llm_provider: str = Field(
+        default="auto",
+        validation_alias=AliasChoices(
+            "LLM_PROVIDER",
+            "CORE_LLM_PROVIDER",
+        ),
+    )
+    deepseek_base_url: str = Field(
+        default="https://api.deepseek.com",
+        validation_alias=AliasChoices(
+            "DEEPSEEK_BASE_URL",
+            "DEEPSEEK_API_BASE",
+            "DEEPSEEK_API_BASE_URL",
+        ),
+    )
+    deepseek_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "DEEPSEEK_API_KEY",
+            "DEEPSEEK_KEY",
+        ),
+    )
+    deepseek_model: str = Field(
+        default="deepseek-v4-pro",
+        validation_alias=AliasChoices(
+            "DEEPSEEK_MODEL",
+            "DEEPSEEK_CHAT_MODEL",
+        ),
+    )
     mcp_enabled: bool = Field(
         default=False,
         validation_alias=AliasChoices(
@@ -219,6 +248,99 @@ class Settings(BaseSettings):
             return raw_value
 
         return urlunsplit((parsed.scheme, parsed.netloc, "/v1", parsed.query, parsed.fragment))
+
+    def selected_llm_provider(self, model_name: str | None = None) -> str:
+        provider = self.llm_provider.strip().lower()
+        if provider in {"", "auto"} and self.is_deepseek_model(model_name):
+            return "deepseek"
+        if provider in {"", "auto"} and model_name:
+            return "openai"
+        if provider in {"", "auto"}:
+            return "deepseek" if self.deepseek_api_key.strip() else "openai"
+        if provider in {"openai", "oml", "omlx"}:
+            return "openai"
+        if provider == "deepseek":
+            return "deepseek"
+
+        raise RuntimeError(
+            "Unsupported LLM_PROVIDER. Use auto, openai, oml, omlx, or deepseek."
+        )
+
+    def default_model_name(self) -> str:
+        if self.selected_llm_provider() == "deepseek":
+            return self.normalize_model_name(self.deepseek_model)
+
+        return self.normalize_model_name(self.oml_model)
+
+    def llm_base_url(self, model_name: str) -> str:
+        if self.selected_llm_provider(model_name) == "deepseek":
+            return self.deepseek_base_url.strip().rstrip("/")
+
+        return self.oml_base_url
+
+    def llm_api_key(self, model_name: str) -> str:
+        if self.selected_llm_provider(model_name) != "deepseek":
+            return self.oml_api_key
+
+        api_key = self.deepseek_api_key.strip()
+        if not api_key:
+            raise RuntimeError(
+                "DEEPSEEK_API_KEY is required when using a DeepSeek model."
+            )
+        return api_key
+
+    def litellm_model_name(self, model_name: str) -> str:
+        normalized_model_name = self.normalize_model_name(model_name)
+        if self.is_deepseek_model(normalized_model_name):
+            return f"openai/{self.model_name_without_provider(normalized_model_name)}"
+
+        if "/" in normalized_model_name:
+            return normalized_model_name
+
+        return f"openai/{normalized_model_name}"
+
+    @classmethod
+    def is_deepseek_model(cls, model_name: str | None) -> bool:
+        if not model_name:
+            return False
+
+        normalized_model_name = cls.normalize_model_name(model_name)
+        provider, separator, model = normalized_model_name.partition("/")
+        candidate = model if separator else normalized_model_name
+        if provider == "deepseek":
+            return True
+
+        return candidate in {
+            "deepseek-v4-pro",
+            "deepseek-v4-flash",
+            "deepseek-chat",
+            "deepseek-reasoner",
+        }
+
+    @classmethod
+    def model_name_without_provider(cls, model_name: str) -> str:
+        normalized_model_name = cls.normalize_model_name(model_name)
+        _, separator, model = normalized_model_name.partition("/")
+        return model if separator else normalized_model_name
+
+    @staticmethod
+    def normalize_model_name(model_name: str) -> str:
+        raw_model_name = model_name.strip()
+        if not raw_model_name:
+            return raw_model_name
+
+        provider, separator, model = raw_model_name.partition("/")
+        candidate = model if separator else raw_model_name
+        normalized_candidate = candidate.lower().replace("_", "").replace("-", "")
+        aliases = {
+            "deepseekv4pro": "deepseek-v4-pro",
+            "deepseekv4flash": "deepseek-v4-flash",
+        }
+        canonical_model = aliases.get(normalized_candidate, candidate)
+
+        if separator:
+            return f"{provider}/{canonical_model}"
+        return canonical_model
 
 
 @lru_cache
