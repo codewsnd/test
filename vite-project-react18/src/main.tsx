@@ -16,7 +16,6 @@ import { getDefaultStore } from 'jotai';
 import { globalStaffIdAtom } from './atom/globalAtom';
 import { ConfigProvider, message } from 'antd';
 import { appTheme } from './styles/appTheme';
-import HtmlSharePage from './components/htmlPreview/HtmlSharePage';
 import AgentCreatePage from '@/pages/agent-create/AgentCreatePage';
 import AgentListPage from '@/pages/agent/AgentListPage';
 
@@ -43,7 +42,6 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/user" element={<User/>}/>
         <Route path="/workflow" element={<WorkflowEditor/>}/>
         <Route path="/diff" element={<StringDiffViewer/>}/>
-        <Route path="/htmlPreview/:id" element={<HtmlSharePage/>}/>
         <Route path="/agent" element={<AgentListPage />}/>
         <Route path="/agent-create" element={<AgentCreatePage />}/>
         <Route path="/agent-create/:id" element={<AgentCreatePage />}/>

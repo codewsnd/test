@@ -1,5 +1,4 @@
 import { atom } from 'jotai';
-import type {HtmlShareResponse} from '@/api/conversationHtmlPreviewApi';
 
 // HTML 预览侧边栏显示状态
 export const htmlPreviewSidebarVisibleAtom = atom<boolean>(false);
@@ -14,15 +13,6 @@ export const htmlPreviewTurnIdAtom = atom<string | null>(null);
 export const htmlPreviewContentAtom = atom<string | null>(null);
 // 本地实时预览模式（开启后不走后端预览接口）
 export const htmlPreviewLiveModeAtom = atom<boolean>(false);
-
-export type HtmlShareActionLoading = 'enable' | 'disable' | null;
-
-export interface HtmlShareState {
-  actionLoading: HtmlShareActionLoading;
-  shareInfo: HtmlShareResponse | null;
-}
-
-export const htmlShareStateMapAtom = atom<Record<string, HtmlShareState>>({});
 
 // 显示 HTML 预览侧边栏的 action
 export const showHtmlPreviewSidebarAtom = atom(

@@ -1,5 +1,5 @@
 import React from 'react';
-import {Alert, Button, Card, ConfigProvider, Dropdown, message, Popover, Space, Spin} from 'antd';
+import {Alert, Button, Card, ConfigProvider, Dropdown, message, Segmented, Space, Spin} from 'antd';
 import type {MenuProps} from 'antd';
 import {
   CloseOutlined,
@@ -7,7 +7,6 @@ import {
   FullscreenExitOutlined,
   FullscreenOutlined,
   ReloadOutlined,
-  ShareAltOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 import {useAtom, useSetAtom} from 'jotai';
@@ -24,9 +23,10 @@ import {activeConversationIdAtom} from "@/pages/home/components/conversationHist
 import {createHtmlPreviewApi, getHtmlPreviewContentApi} from '@/api/conversationHtmlPreviewApi';
 import type {HtmlPreviewResponse} from '@/api/conversationHtmlPreviewApi';
 import testCaseTheme from "@/styles/style";
-import {HtmlShare} from "@/components/htmlPreview/HtmlShare";
 import {downloadHtmlFile, downloadPngFromIframe} from '@/utils/downloadUtils';
 import {checkHtmlPreviewSecurity} from './htmlPreviewSecurityUtils';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import oneLight from 'react-syntax-highlighter/dist/cjs/styles/prism/one-light';
 
 type SecurityWarningData = Pick<
   HtmlPreviewResponse,
@@ -48,7 +48,7 @@ export const HtmlPreview: React.FC = () => {
   // 保存上一次成功加载的预览数据，避免加载时显示空白
   const [lastPreviewData, setLastPreviewData] = React.useState<HtmlPreviewResponse | null>(null);
   const [hasLoadedOnce, setHasLoadedOnce] = React.useState(false);
-  const [sharePopoverOpen, setSharePopoverOpen] = React.useState(false);
+  const [activeView, setActiveView] = React.useState<'preview' | 'code'>('preview');
 
   // 第一步：创建预览，获取 ID
   const { loading: creatingLoading, data: createResponse } = useRequest(
@@ -88,7 +88,7 @@ export const HtmlPreview: React.FC = () => {
   const currentRenderableHtmlContent = isHtmlPreviewLiveMode
     ? htmlPreviewContent
     : (loading && hasLoadedOnce && lastPreviewData?.htmlContent ? lastPreviewData.htmlContent : currentData?.htmlContent);
-  const sharePreviewId = isHtmlPreviewLiveMode ? null : (previewData?.id ?? lastPreviewData?.id ?? createResponse?.id ?? null);
+  const currentSourceHtmlContent = htmlPreviewContent ?? currentRenderableHtmlContent ?? currentData?.htmlContent ?? lastPreviewData?.htmlContent;
   const liveModeSecurityData = React.useMemo(() => {
     if (!isHtmlPreviewLiveMode || !htmlPreviewContent) {
       return null;
@@ -97,8 +97,8 @@ export const HtmlPreview: React.FC = () => {
   }, [isHtmlPreviewLiveMode, htmlPreviewContent]);
 
   React.useEffect(() => {
-    setSharePopoverOpen(false);
-  }, [sharePreviewId]);
+    setActiveView('preview');
+  }, [htmlPreviewTurnId, htmlPreviewContent]);
 
   // 刷新 iframe
   const handleRefresh = () => {
@@ -110,7 +110,7 @@ export const HtmlPreview: React.FC = () => {
     if (iframeDocument?.documentElement) {
       return `<!DOCTYPE html>\n${iframeDocument.documentElement.outerHTML}`;
     }
-    return currentRenderableHtmlContent;
+    return currentRenderableHtmlContent ?? currentSourceHtmlContent;
   };
 
   const handleDownloadHtml = () => {
@@ -147,7 +147,7 @@ export const HtmlPreview: React.FC = () => {
       {
         key: 'download-png',
         label: 'Download PNG',
-        disabled: !currentRenderableHtmlContent,
+        disabled: !currentRenderableHtmlContent || activeView !== 'preview',
       },
     ],
     onClick: ({key}) => {
@@ -158,6 +158,40 @@ export const HtmlPreview: React.FC = () => {
         void handleDownloadPng();
       }
     },
+  };
+
+  const renderCodeContent = () => {
+    if (!currentSourceHtmlContent) {
+      return (
+        <div className="flex h-full items-center justify-center text-gray-400">
+          No preview data
+        </div>
+      );
+    }
+
+    return (
+      <div className="h-full overflow-auto bg-white">
+        <SyntaxHighlighter
+          showLineNumbers
+          style={oneLight}
+          language="html"
+          wrapLongLines={false}
+          PreTag="div"
+          lineProps={{ style: { whiteSpace: 'pre' } }}
+          customStyle={{
+            margin: 0,
+            minHeight: '100%',
+            background: '#fff',
+            padding: '16px',
+            borderRadius: 0,
+            border: 0,
+            whiteSpace: 'pre'
+          }}
+        >
+          {currentSourceHtmlContent}
+        </SyntaxHighlighter>
+      </div>
+    );
   };
 
   // 渲染安全警告提示
@@ -208,6 +242,10 @@ export const HtmlPreview: React.FC = () => {
 
   // 渲染内容区域
   const renderContent = () => {
+    if (activeView === 'code') {
+      return renderCodeContent();
+    }
+
     if (isHtmlPreviewLiveMode) {
       if (!htmlPreviewContent) {
         return (
@@ -305,31 +343,15 @@ export const HtmlPreview: React.FC = () => {
         className="relative h-full w-full overflow-hidden p-4"
         extra={
           <Space>
-            {!isHtmlPreviewLiveMode && (
-              <Popover
-                trigger="click"
-                placement="bottomRight"
-                open={sharePopoverOpen}
-                onOpenChange={setSharePopoverOpen}
-                content={
-                  <HtmlShare
-                    payload={{
-                      shareKey: `sidebar:${activeConversationId ?? ''}:${htmlPreviewTurnId ?? ''}`,
-                      previewId: sharePreviewId,
-                      conversationId: activeConversationId ?? null,
-                      turnId: htmlPreviewTurnId ?? null,
-                      htmlContent: htmlPreviewContent ?? null,
-                    }}
-                  />
-                }
-              >
-                <Button
-                  type="text"
-                  icon={<ShareAltOutlined style={iconStyle} />}
-                  title="Share"
-                />
-              </Popover>
-            )}
+            <Segmented
+              size="small"
+              value={activeView}
+              options={[
+                { label: 'Preview', value: 'preview' },
+                { label: 'Code', value: 'code' },
+              ]}
+              onChange={(value) => setActiveView(value as 'preview' | 'code')}
+            />
             <Dropdown menu={downloadMenu} trigger={['click']}>
               <Button
                 type="text"

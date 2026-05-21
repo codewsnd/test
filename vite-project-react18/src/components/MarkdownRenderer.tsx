@@ -11,7 +11,7 @@ import { useSetAtom } from 'jotai';
 import { showTestCaseTableAtom } from '@/pages/home/components/testCase/testCaseAtom';
 import 'highlight.js/styles/github.css';
 import CopyDeckRenderer from './CopyDeckRenderer';
-import HtmlRenderer from './HtmlRenderer';
+import HtmlRenderer from './htmlPreview/HtmlRenderer';
 import PptGeneratorRenderer from './PptGeneratorRenderer';
 import type {ConversationTurn} from "@/pages/home/components/chat/types";
 import { Prism as SyntaxHighlighter} from 'react-syntax-highlighter';
@@ -42,6 +42,7 @@ type MarkdownAstNode = {
 };
 
 const FENCED_CODE_BLOCK_PATTERN = /^\s*```/;
+const FENCED_HTML_CODE_BLOCK_PATTERN = /(^|\n)(```|~~~)([^\n]*)\n([\s\S]*?)(?:\n\2)(?=\n|$)/g;
 const HTML_DOCUMENT_PATTERN = /(?:<!doctype\s+html|<html[\s>])/i;
 const COMPLETE_HTML_TAG_PATTERN = /^<[a-z][\w:-]*(?:\s|>|\/>)[\s\S]*<\/[a-z][\w:-]*>\s*$/i;
 
@@ -52,6 +53,23 @@ const isHtmlCodeContent = (value: string) => {
 
 const isHtmlLanguage = (language: string) =>
   ['html', 'htm', 'xhtml'].includes(language.toLowerCase());
+
+const extractHtmlCodeBlocks = (value: string) => {
+  const blocks: string[] = [];
+  const regex = new RegExp(FENCED_HTML_CODE_BLOCK_PATTERN.source, FENCED_HTML_CODE_BLOCK_PATTERN.flags);
+  let match = regex.exec(value);
+
+  while (match) {
+    const language = match[3]?.trim().split(/\s+/)[0] ?? '';
+    const code = match[4] ?? '';
+    if (isHtmlLanguage(language) || (!language && isHtmlCodeContent(code))) {
+      blocks.push(code);
+    }
+    match = regex.exec(value);
+  }
+
+  return blocks;
+};
 
 const normalizeMarkdownContent = (value: string) => {
   if (!isHtmlCodeContent(value) || FENCED_CODE_BLOCK_PATTERN.test(value)) {
@@ -71,6 +89,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   const showTestCaseTable = useSetAtom(showTestCaseTableAtom)
 
   const markdownContent = React.useMemo(() => normalizeMarkdownContent(content), [content]);
+  const htmlCodeBlocks = React.useMemo(() => extractHtmlCodeBlocks(markdownContent), [markdownContent]);
 
   // 手动解析和渲染表格
   const parseTable = (text: string) => {
@@ -276,12 +295,13 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
               if (isHtmlLanguage(language)) {
                 const htmlExpansionKey = `${turn.id}-html-${htmlBlockIndex}`;
+                const exactHtmlCodeContent = htmlCodeBlocks[htmlBlockIndex] ?? codeContent;
                 htmlBlockIndex += 1;
 
                 return (
                   <HtmlRenderer
                     blockKey={blockKey}
-                    codeContent={codeContent}
+                    codeContent={exactHtmlCodeContent}
                     expansionKey={htmlExpansionKey}
                     language={language}
                     turn={turn}
