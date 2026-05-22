@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { memo, useState } from 'react';
-import { Card, Tag, Typography } from 'antd';
+import { Card, Typography } from 'antd';
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
@@ -97,6 +97,14 @@ const getFocusedStep = (steps: ProcessStep[]) => {
   return activeStep.tooltip || activeStep.content;
 };
 
+const getCollapsedText = (summaryText: string, focusedStep: string) => {
+  if (!focusedStep) {
+    return summaryText;
+  }
+
+  return `${summaryText} 当前：${focusedStep}`;
+};
+
 const StatusCardComponent = ({ steps, responseStatus }: StatusCardProps) => {
   const [expanded, setExpanded] = useState(false);
 
@@ -109,6 +117,7 @@ const StatusCardComponent = ({ steps, responseStatus }: StatusCardProps) => {
   const completedCount = steps.filter((step) => step.status === 'completed').length;
   const summaryText = getSummaryText(overallStatus, steps);
   const focusedStep = getFocusedStep(steps);
+  const collapsedText = getCollapsedText(summaryText, focusedStep);
   const ExpandIcon = expanded ? DownOutlined : RightOutlined;
 
   return (
@@ -131,9 +140,11 @@ const StatusCardComponent = ({ steps, responseStatus }: StatusCardProps) => {
             >
               {overallMeta.icon}
             </span>
-              <span className="chat-status-card__headline-copy">
-              <span className="chat-status-card__title">Steps</span>
-              <span className="chat-status-card__summary">{summaryText}</span>
+            <span className="chat-status-card__headline-copy">
+              <span className="chat-status-card__title">Progress</span>
+              <span className="chat-status-card__summary">
+                {expanded ? summaryText : collapsedText}
+              </span>
             </span>
           </div>
 
@@ -141,28 +152,19 @@ const StatusCardComponent = ({ steps, responseStatus }: StatusCardProps) => {
             <Text className="chat-status-card__count">
               {completedCount}/{steps.length}
             </Text>
-            <Tag
-              bordered={false}
-              className={`chat-status-card__tag chat-status-card__tag--${overallStatus}`}
-            >
+            <span className={`chat-status-card__tag chat-status-card__tag--${overallStatus}`}>
               {overallMeta.label}
-            </Tag>
+            </span>
             <span className="chat-status-card__expand-indicator">
               <ExpandIcon />
             </span>
           </div>
         </div>
-
-        {!expanded && focusedStep && (
-          <div className="chat-status-card__collapsed-text">
-            {focusedStep}
-          </div>
-        )}
       </button>
 
       {expanded && (
         <div className="chat-status-card__steps">
-          {steps.map((step, index) => {
+          {steps.map((step) => {
             const meta = STATUS_META[step.status];
 
             return (
@@ -170,16 +172,11 @@ const StatusCardComponent = ({ steps, responseStatus }: StatusCardProps) => {
                 key={step.id}
                 className={`chat-status-card__step chat-status-card__step--${step.status}`}
               >
-                <div className="chat-status-card__step-icon-column">
-                  {index < steps.length - 1 && (
-                    <span className="chat-status-card__step-connector" />
-                  )}
-                  <span
-                    className={`chat-status-card__step-icon chat-status-card__step-icon--${step.status}`}
-                  >
-                    {meta.icon}
-                  </span>
-                </div>
+                <span
+                  className={`chat-status-card__step-icon chat-status-card__step-icon--${step.status}`}
+                >
+                  {meta.icon}
+                </span>
 
                 <div className="chat-status-card__step-main">
                   <div className="chat-status-card__step-row">

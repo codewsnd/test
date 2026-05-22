@@ -13,6 +13,7 @@ import {
   htmlPreviewTurnIdAtom,
   showHtmlPreviewSidebarAtom
 } from '@/components/htmlPreview/htmlPreviewAtom';
+import { stripHtmlFenceIfPresent } from '@/components/htmlPreview/htmlCodeBlockUtils';
 import type { ConversationTurn } from '@/pages/home/components/chat/types';
 
 interface HtmlRendererProps {
@@ -52,7 +53,8 @@ const HtmlRenderer: React.FC<HtmlRendererProps> = ({
   const turnWithEditedCodeBlocks = turn as ConversationTurn & {
     editedCodeBlocks?: Record<string, string>;
   };
-  const currentCodeContent = turnWithEditedCodeBlocks.editedCodeBlocks?.[blockKey] ?? codeContent;
+  const rawCurrentCodeContent = turnWithEditedCodeBlocks.editedCodeBlocks?.[blockKey] ?? codeContent;
+  const currentCodeContent = stripHtmlFenceIfPresent(rawCurrentCodeContent);
   const isReady = isAIResponseCompleted && currentCodeContent.trim().length > 0;
   const statusText = isAIResponseGenerating ? 'loading...' : (isReady ? 'Ready to preview' : 'HTML unavailable');
   const lineCount = getLineCount(currentCodeContent);

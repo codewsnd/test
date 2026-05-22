@@ -12,6 +12,12 @@ import { showTestCaseTableAtom } from '@/pages/home/components/testCase/testCase
 import 'highlight.js/styles/github.css';
 import CopyDeckRenderer from './CopyDeckRenderer';
 import HtmlRenderer from './htmlPreview/HtmlRenderer';
+import {
+  extractHtmlCodeBlocks,
+  isHtmlCodeContent,
+  isHtmlLanguage,
+  normalizeMarkdownContent
+} from './htmlPreview/htmlCodeBlockUtils';
 import PptGeneratorRenderer from './PptGeneratorRenderer';
 import type {ConversationTurn} from "@/pages/home/components/chat/types";
 import { Prism as SyntaxHighlighter} from 'react-syntax-highlighter';
@@ -39,44 +45,6 @@ type MarkdownAstNode = {
       line?: number;
     };
   };
-};
-
-const FENCED_CODE_BLOCK_PATTERN = /^\s*```/;
-const FENCED_HTML_CODE_BLOCK_PATTERN = /(^|\n)(```|~~~)([^\n]*)\n([\s\S]*?)(?:\n\2)(?=\n|$)/g;
-const HTML_DOCUMENT_PATTERN = /(?:<!doctype\s+html|<html[\s>])/i;
-const COMPLETE_HTML_TAG_PATTERN = /^<[a-z][\w:-]*(?:\s|>|\/>)[\s\S]*<\/[a-z][\w:-]*>\s*$/i;
-
-const isHtmlCodeContent = (value: string) => {
-  const trimmedValue = value.trim();
-  return HTML_DOCUMENT_PATTERN.test(trimmedValue) || COMPLETE_HTML_TAG_PATTERN.test(trimmedValue);
-};
-
-const isHtmlLanguage = (language: string) =>
-  ['html', 'htm', 'xhtml'].includes(language.toLowerCase());
-
-const extractHtmlCodeBlocks = (value: string) => {
-  const blocks: string[] = [];
-  const regex = new RegExp(FENCED_HTML_CODE_BLOCK_PATTERN.source, FENCED_HTML_CODE_BLOCK_PATTERN.flags);
-  let match = regex.exec(value);
-
-  while (match) {
-    const language = match[3]?.trim().split(/\s+/)[0] ?? '';
-    const code = match[4] ?? '';
-    if (isHtmlLanguage(language) || (!language && isHtmlCodeContent(code))) {
-      blocks.push(code);
-    }
-    match = regex.exec(value);
-  }
-
-  return blocks;
-};
-
-const normalizeMarkdownContent = (value: string) => {
-  if (!isHtmlCodeContent(value) || FENCED_CODE_BLOCK_PATTERN.test(value)) {
-    return value;
-  }
-
-  return `\`\`\`html\n${value.trimEnd()}\n\`\`\``;
 };
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
