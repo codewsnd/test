@@ -1,5 +1,6 @@
-import React, { useState } from "react";
-import { Layout, Tabs } from "antd";
+import { useState } from "react";
+import { Button, Layout, Tabs, Tooltip } from "antd";
+import { DoubleLeftOutlined, DoubleRightOutlined } from "@ant-design/icons";
 import { useAtom } from 'jotai';
 import ConversationHistoryCard from "./components/conversationHistory/ConversationHistoryCard";
 import ChatArea from "./components/chat/ChatArea";
@@ -12,6 +13,7 @@ import { HtmlPreview } from "@/components/htmlPreview/HtmlPreview";
 import {activeConversationIdAtom} from "./components/conversationHistory/conversationHistoryAtom";
 
 const { Sider, Content } = Layout;
+const HISTORY_SIDER_WIDTH = 320;
 
 // 主要的聊天应用组件
 function ChatAppContent() {
@@ -25,6 +27,7 @@ function ChatAppContent() {
 
   // 本地管理主标签页状态
   const [activeMainTab, setActiveMainTab] = useState('conversation');
+  const [historyCollapsed, setHistoryCollapsed] = useState(false);
 
   // 使用atoms中的chat区域管理逻辑来渲染ChatArea
   const renderActiveChatAreas = () => {
@@ -52,12 +55,20 @@ function ChatAppContent() {
   const hasFullscreenPanel = testCaseFullscreen || copyDeckFullscreen || htmlPreviewFullscreen;
 
   return (
-    <Layout style={{ height: "100vh" }}>
+    <Layout style={{ height: "100vh", position: "relative" }}>
       <Sider
-        width={320}
-        className="flex flex-col overflow-hidden bg-white p-4"
+        width={HISTORY_SIDER_WIDTH}
+        collapsedWidth={0}
+        collapsed={historyCollapsed}
+        trigger={null}
+        theme="light"
+        className="flex flex-col overflow-hidden bg-white"
+        style={{
+          padding: historyCollapsed ? 0 : 16,
+          transition: "all 0.2s ease",
+        }}
       >
-        <div className="flex h-full flex-col">
+        <div className="h-full flex-col" style={{ display: historyCollapsed ? "none" : "flex" }}>
           <Tabs
             activeKey={activeMainTab}
             onChange={setActiveMainTab}
@@ -66,6 +77,25 @@ function ChatAppContent() {
           />
         </div>
       </Sider>
+      <Tooltip title={historyCollapsed ? "展开历史" : "收起历史"} placement="right">
+        <Button
+          type="default"
+          shape="circle"
+          size="small"
+          aria-label={historyCollapsed ? "展开聊天历史" : "收起聊天历史"}
+          icon={historyCollapsed ? <DoubleRightOutlined /> : <DoubleLeftOutlined />}
+          onClick={() => setHistoryCollapsed((collapsed) => !collapsed)}
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: historyCollapsed ? 12 : HISTORY_SIDER_WIDTH,
+            transform: "translate(-50%, -50%)",
+            zIndex: 20,
+            boxShadow: "0 2px 8px rgba(0, 0, 0, 0.12)",
+            transition: "left 0.2s ease, box-shadow 0.2s ease",
+          }}
+        />
+      </Tooltip>
 
       <Layout>
         <Content
