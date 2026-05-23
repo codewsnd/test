@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     )
     mcp_tool_names: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [
-            "createCopyDeck",
+            "copyTestResultUpdater",
             "createTestCase",
             "createPpt",
             "queryWeather",

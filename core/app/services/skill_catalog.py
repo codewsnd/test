@@ -48,7 +48,7 @@ _BUILTIN_SKILLS = [
         content=(
             "When this skill is active, write copy in a structured deck-friendly format. "
             "Extract audience, message hierarchy, required disclaimers, tone, and review "
-            "notes. Keep copy crisp and label alternatives clearly. If createCopyDeck is "
+            "notes. Keep copy crisp and label alternatives clearly. If copyTestResultUpdater is "
             "available and the user asks to generate a copy deck, use the tool."
         ),
         triggerKeywords=[
@@ -59,7 +59,7 @@ _BUILTIN_SKILLS = [
             "marketing",
             "campaign",
         ],
-        toolNames=["createCopyDeck"],
+        toolNames=["copyTestResultUpdater"],
         tags=["Content", "Marketing"],
         installCount=1620,
         trustLevel="reviewed",

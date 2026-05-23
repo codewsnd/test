@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
 public class CopyDeckTools {
 
     @Tool(
-        name = "createCopyDeck",
+        name = "copyTestResultUpdater",
         description = "Creates a new interactive CopyDeck form for marketing copy creation. " +
             "TRIGGER KEYWORDS: Call this tool IMMEDIATELY when user input contains ANY of these keywords or phrases: " +
             "'copy deck', 'copydeck', 'copy test', 'copytest', 'copy-deck', 'copy-test'. " +
