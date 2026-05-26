@@ -294,8 +294,9 @@ mvn -Dtest=UserServiceTest,UserControllerTest test
 - Prefer the bundled parser for target-file counts when `jacoco.xml` exists:
 
 ```bash
-python3 <skill-dir>/scripts/jacoco_line_report.py target/site/jacoco/jacoco.xml src/main/java/com/acme/service/UserService.java
+node <skill-dir>/scripts/jacoco_line_report.js target/site/jacoco/jacoco.xml src/main/java/com/acme/service/UserService.java
 ```
 
-- Final output should contain the actual verification result, not a reusable table template.
-- Include the command run, target source file, test file, target-file line coverage, and remaining uncovered lines when coverage is below 90 percent.
+- Final output must print only the final line coverage for each final modified or verified file, one numbered line per file.
+- Use this format exactly: `1. Test1.java - Line coverage: 95%`
+- Do not include commands, coverage tables, uncovered lines, explanations, or summaries in the final output.

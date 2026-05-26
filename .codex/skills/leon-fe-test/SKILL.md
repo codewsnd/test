@@ -76,16 +76,22 @@ Use `.test.tsx` for JSX components and `.test.ts` for non-JSX modules unless the
 - Do not add fake-timer tests; replace timer behavior at the module boundary instead.
 - Avoid full-suite coverage when a scoped test command can verify the target.
 
+## Bundled Scripts
+
+- `scripts/vitest_line_report.js`: parse Vitest coverage JSON and print per-target line coverage.
+
 ## Coverage Output
 
-- Report actual tool output, not estimates.
+- Base final line coverage on actual tool output, not estimates.
 - Do not output reusable coverage templates.
-- Report the test command, test pass/fail state, target source file, test file, target-file line coverage percentage, and any remaining uncovered lines.
 - Treat the result as incomplete until all generated or modified tests pass and target-file line coverage is 90 percent or higher.
-- Include exact uncovered line numbers for touched source rows below 90 percent.
 - If coverage cannot run, say so and mark the result failed rather than inventing numbers.
-- Finish after the actual verification result unless the user asks for additional analysis.
+- Final response must print only the final line coverage for each final modified or verified file, one numbered line per file.
+- Use this format exactly: `1. Test1.tsx - Line coverage: 95%`
+- For multiple files, continue numbering: `2. Test2.ts - Line coverage: 95.2%`
+- Do not include commands, coverage tables, uncovered lines, explanations, or summaries in the final response.
+- If coverage cannot run for a file, print one numbered line for that file with the reason, for example: `1. Target.tsx - Line coverage unavailable: Vitest coverage did not complete successfully.`
 
 ## Reference
 
-Read [references/react18-vitest-rtl.md](references/react18-vitest-rtl.md) when you need mock patterns, synchronous test skeletons, Jotai examples, timeout safety checks, or coverage repair guidance.
+Read [references/react18-vitest-rtl.md](references/react18-vitest-rtl.md) when you need mock patterns, synchronous test skeletons, Jotai examples, timeout safety checks, coverage JSON parsing, or coverage repair guidance.

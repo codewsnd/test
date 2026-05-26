@@ -1,4 +1,4 @@
 interface:
   display_name: "Leon BE Test"
   short_description: "Java Mockito + JaCoCo tests"
-  default_prompt: "Use $leon-be-test to add correct isolated JUnit 5 and Mockito tests for this Spring Boot Maven target, use minimal mock data only, rerun until touched tests pass and target-file line coverage is at least 90 percent, then report the actual verification result."
+  default_prompt: "Use $leon-be-test to add correct isolated JUnit 5 and Mockito tests for this Spring Boot Maven target, use minimal mock data only, rerun until touched tests pass and target-file line coverage is at least 90 percent, then print only numbered per-file final line coverage."

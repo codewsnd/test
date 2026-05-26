@@ -65,14 +65,16 @@ For directory targets, default to files directly inside the requested directory 
 
 ## Coverage Output
 
-- Report actual tool output, not estimates.
+- Base final line coverage on actual tool output, not estimates.
 - Do not output reusable coverage templates.
-- Report the Maven command, test pass/fail state, target source file, test file, target-file line coverage percentage, and any remaining uncovered lines.
 - Treat the result as incomplete until all generated or modified tests pass and target-file line coverage is 90 percent or higher.
 - Use executable line counts from JaCoCo, not physical source line counts.
-- Include exact uncovered line numbers for any touched target file below 90 percent.
 - If coverage cannot run, say so and mark the result failed rather than inventing numbers.
-- Finish after the actual verification result unless the user asks for additional analysis.
+- Final response must print only the final line coverage for each final modified or verified file, one numbered line per file.
+- Use this format exactly: `1. Test1.java - Line coverage: 95%`
+- For multiple files, continue numbering: `2. Test2.java - Line coverage: 95.2%`
+- Do not include commands, coverage tables, uncovered lines, explanations, or summaries in the final response.
+- If coverage cannot run for a file, print one numbered line for that file with the reason, for example: `1. UserService.java - Line coverage unavailable: Maven command did not complete successfully.`
 
 ## Reference
 

@@ -1,4 +1,4 @@
 interface:
   display_name: "Leon FE Test"
   short_description: "Synchronous Vitest + RTL tests"
-  default_prompt: "Use $leon-fe-test to write correct synchronous Vitest + RTL tests for this target, avoid async APIs/user-event/style assertions, rerun until touched tests pass and target-file line coverage is at least 90 percent, then report the actual verification result."
+  default_prompt: "Use $leon-fe-test to write correct synchronous Vitest + RTL tests for this target, avoid async APIs/user-event/style assertions, rerun until touched tests pass and target-file line coverage is at least 90 percent, then print only numbered per-file final line coverage."

@@ -382,31 +382,36 @@ it('covers all line paths', () => {
 - Prefer the repo's existing package manager and test script first.
 - Keep the executed test scope narrow, but keep coverage behavior aligned with the repo default or the user's provided Vitest command.
 - Do not add `--coverage.include`, custom `coverage.include`, or similar narrowing flags for the final reported number unless the user explicitly asks for target-file-only coverage.
-- Prefer a text reporter that prints per-file coverage to the terminal.
+- Prefer `json-summary` coverage output when available so the bundled Node.js parser can extract the final line coverage.
 - All generated or modified tests must compile and pass. If the Vitest command fails or any touched test fails, fix the test and rerun until it passes.
 - Target-file line coverage must be at least 90 percent. If it is below 90 percent, inspect exact uncovered lines, add or adjust focused tests, and rerun until target-file line coverage reaches 90 percent or higher.
 - Remember that a single-test command can still yield an overall row for the whole executed coverage bundle or run, not just the target file.
 - If the real coverage output includes both an overall row and a target-file row, use the target-file row to decide whether the 90 percent requirement is met.
-- If any relevant target-file row is below 90 percent line coverage, capture its `Uncovered Line #s` and print them in the final result.
-- If terminal output is too coarse, rerun with a JSON coverage reporter and inspect `coverage-final.json` to recover exact uncovered line numbers quickly.
+- If any relevant target-file row is below 90 percent line coverage, capture its `Uncovered Line #s` for internal repair before rerunning.
+- If terminal output is too coarse, rerun with `--coverage.reporter=json-summary` or `--coverage.reporter=json` and use the bundled parser for final line coverage.
 
 ### Common Commands
 
 ```bash
-pnpm vitest run src/foo/__tests__/bar.test.ts --coverage --coverage.reporter=text
+pnpm vitest run src/foo/__tests__/bar.test.ts --coverage --coverage.reporter=json-summary
 ```
 
 ```bash
-npm exec -- vitest run src/foo/__tests__/bar.test.ts --coverage --coverage.reporter=text
+npm exec -- vitest run src/foo/__tests__/bar.test.ts --coverage --coverage.reporter=json-summary
 ```
 
 ```bash
-yarn vitest run src/foo/__tests__/bar.test.ts --coverage --coverage.reporter=text
+yarn vitest run src/foo/__tests__/bar.test.ts --coverage --coverage.reporter=json-summary
 ```
 
 ```bash
-npm exec -- vitest run src/api/tool/__tests__ --coverage --coverage.reporter=text
+npm exec -- vitest run src/api/tool/__tests__ --coverage --coverage.reporter=json-summary
 ```
 
-- Final output should contain the actual verification result, not a reusable table template.
-- Include the command run, target source file, test file, target-file line coverage, and remaining uncovered lines when coverage is below 90 percent.
+```bash
+node <skill-dir>/scripts/vitest_line_report.js coverage/coverage-summary.json src/foo/Target.tsx
+```
+
+- Final output must print only the final line coverage for each final modified or verified file, one numbered line per file.
+- Use this format exactly: `1. Test1.tsx - Line coverage: 95%`
+- Do not include commands, coverage tables, uncovered lines, explanations, or summaries in the final output.
