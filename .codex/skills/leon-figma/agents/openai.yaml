@@ -1,4 +1,4 @@
 interface:
   display_name: "Leon Figma"
   short_description: "Figma to AntD5 + Tailwind"
-  default_prompt: "Use $leon-figma to reuse local figma-data or fetch a Figma node with FIGMA_TOKEN and FIGMA_PROXY, then generate a 1:1 Ant Design 5 + Tailwind React component in my absolute output path."
+  default_prompt: "Use $leon-figma to reuse local figma-data or fetch a Figma node with available Figma token/proxy settings, then generate a 1:1 Ant Design 5 + Tailwind React component in my absolute output path."

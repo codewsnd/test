@@ -1,4 +1,0 @@
-interface:
-  display_name: "Leon BE UnitTest"
-  short_description: "Java Mockito + JaCoCo tests"
-  default_prompt: "Use $leon-be-unittest to add isolated JUnit 5 and Mockito tests for this Spring Boot Maven target, mirror src/test/java paths, run JaCoCo, and report exact uncovered lines."

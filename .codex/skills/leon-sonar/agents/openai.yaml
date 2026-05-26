@@ -1,4 +1,4 @@
 interface:
   display_name: "Leon Sonar"
   short_description: "Fix TS/Java Sonar issues safely"
-  default_prompt: "Use $leon-sonar to fix SonarQube-style issues in this target, preserve behavior, update tests for changed source files with $leon-be-unittest or $leon-fe-unittest, and validate narrowly."
+  default_prompt: "Use $leon-sonar to fix SonarQube-style issues in this target, preserve behavior, avoid test-file changes, validate narrowly, and summarize changed files."

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Leon FE UnitTest"
-  short_description: "Synchronous Vitest + RTL tests"
-  default_prompt: "Use $leon-fe-unittest to write synchronous Vitest + RTL tests for this target, place them in the right __tests__ folder, run real coverage, and report exact uncovered lines."

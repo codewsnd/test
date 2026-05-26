@@ -52,6 +52,8 @@ Important files include:
 
 If `asset-readiness.json` says implementation is not ready, stop and report the gap instead of building an approximate page.
 
+When the user supplies a simplified local JSON that has structure but not downloadable binary assets, continue only if the user explicitly accepts a structure-first implementation. Otherwise stop and ask for complete Figma REST artifacts or permission to refresh.
+
 ## Bundled Scripts
 
 - `scripts/fetch_figma_api_data.py`: fetches or reuses Figma REST artifacts and persists `figma-data`.
@@ -73,6 +75,8 @@ Run the fetch script before React work only in live-fetch mode. Run the inspect 
 ## React Output Rules
 
 - Write `.tsx` files.
+- If the output path is a file, write the primary component to that exact file and keep helpers and assets next to it.
+- If the output path is a directory, create the component tree inside that directory.
 - Keep generated React files and assets inside the user-provided output path unless the user asks for a wider refactor.
 - Use `Ant Design 5` primitives such as `Typography`, `Flex`, `Space`, `Card`, `Layout`, `Image`, `Button`, `Input`, `Tabs`, `Tag`, `Badge`, and `Avatar` when they preserve the Figma result.
 - Use `Tailwind` utility classes and arbitrary values for spacing, sizing, positioning, borders, shadows, radii, colors, overflow, and typography.

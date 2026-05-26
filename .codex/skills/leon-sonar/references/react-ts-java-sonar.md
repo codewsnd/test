@@ -1,25 +1,38 @@
 # React TypeScript + Java Sonar Fixes
 
+## Contents
+
+- [Triage Order](#triage-order)
+- [Target Triage](#target-triage)
+- [Brace Normalization](#brace-normalization)
+- [Complexity Reduction Heuristics](#complexity-reduction-heuristics)
+- [Keep Behavior Stable](#keep-behavior-stable)
+- [Repeated String Constants](#repeated-string-constants)
+- [Java Logging Cleanup](#java-logging-cleanup)
+- [Unused Declarations](#unused-declarations)
+- [Validation](#validation)
+- [Directory Mode](#directory-mode)
+
 ## Triage Order
 
 Process Sonar-style cleanup in this order:
 
 1. Missing braces on `if`, `else if`, `else`
-2. Complexity over 15
+2. Complexity 15 or higher
 3. Repeated strings used more than 3 times
 4. Java `System.out.println` replacement
-5. Unused imports
-6. Update or create the matching unit test
+5. Unused imports, constants, and variables
 
-This order avoids deleting imports too early and makes refactors easier to review.
+This order avoids deleting declarations too early and makes refactors easier to review.
 
 ## Target Triage
 
 Pick the lightest path that can finish the cleanup safely:
 
-- Java source file: Sonar cleanup plus mirrored `src/test/java` handoff
-- React frontend file: Sonar cleanup plus matching `__tests__` handoff
+- Java source file: Sonar cleanup only
+- React frontend file: Sonar cleanup only
 - Directory target: recurse through supported source files only, skip test folders and generated outputs
+- Skip dependency and build folders such as `node_modules`, `dist`, `build`, `coverage`, `target`, and `out`
 
 ## Brace Normalization
 
@@ -75,16 +88,17 @@ Use the smallest refactor that lowers complexity without changing behavior.
 - Extract conversion or builder logic from large service methods
 - Prefer composition through private helpers over creating new class hierarchies
 
-Stop as soon as the function or method drops to 15 or below. Do not keep refactoring after the rule is satisfied unless the user asked for a broader cleanup.
+Refactor any function or method whose complexity is 15 or higher. Stop as soon as it drops below 15. Do not keep refactoring after the rule is satisfied unless the user asked for a broader cleanup.
 
 ## Keep Behavior Stable
 
 - Apply the minimum-change principle: touch only the code required to fix the Sonar-style issue in scope
+- Do not change business logic, branch conditions, side-effect order, or data transformations when lowering complexity
 - Preserve public method signatures unless the user requested API changes
 - Preserve exception types and key messages when refactoring Java methods
 - Preserve callback order and side-effect order when refactoring React handlers
 - Prefer tiny pure helpers over broad rewrites
-- Update tests only for source files that actually changed during the run
+- Do not create or update test files in this skill
 
 ## Repeated String Constants
 
@@ -118,30 +132,20 @@ For Java source files, replace `System.out.println` with logger output.
 
 Prefer the narrowest safe logging change. Do not rewrite control flow only to change the log level.
 
-## Unused Imports
+## Unused Declarations
 
-- Delete imports only after structural refactors are finished
-- Remove both direct unused imports and imports made obsolete by helper extraction
-- Do not replace unused imports with suppression comments unless the user explicitly asks
-
-## Test Handoff
-
-After the Sonar-style code fix, update or create the matching unit test.
-
-- Java source file: use `$leon-be-unittest`
-- React frontend source file: use `$leon-fe-unittest`
-
-Prefer updating an existing test file when one already exists.
-Create a new test file only when there is no suitable existing unit test.
-For directory targets, apply the same rule per touched source file.
-Keep the final `leon-sonar` response concise even if the child unit-test workflow internally runs coverage.
+- Delete unused imports, constants, and variables only after structural refactors are finished.
+- Remove declarations made obsolete by helper extraction, constant extraction, logging cleanup, or complexity reduction.
+- For TypeScript, remove unused local variables, file-local constants, function parameters when the signature is private, and unused imports.
+- For Java, remove unused local variables, private constants, private fields, private helper methods, and imports when they are not part of a required public API or framework contract.
+- Do not replace unused declarations with suppression comments unless the user explicitly asks.
 
 ## Validation
 
-- Prefer narrow validation for the touched file or test file
-- Avoid whole-repo validation when a single-module or single-test command is enough
-- For Java, prefer narrow Maven compile or targeted test commands
-- For React frontend code, prefer local lint or test commands scoped to the touched file or its test
+- Prefer narrow validation for the touched source file.
+- Avoid whole-repo validation when a single-module compile or lint command is enough.
+- For Java, prefer narrow Maven compile commands.
+- For React frontend code, prefer local lint or type-check commands scoped to the touched source file when available.
 
 ## Directory Mode
 
@@ -149,5 +153,6 @@ For a directory target:
 
 - Recurse through supported files
 - Skip generated or dependency output folders
-- Apply the same cleanup and test-update rules consistently across the whole scope
+- Skip test folders and generated declarations such as `src/test`, `__tests__`, and `.d.ts`
+- Apply the same cleanup rules consistently across the whole scope
 - Keep changes focused on Sonar-style cleanup, not unrelated formatting churn

@@ -54,14 +54,13 @@ Use this reference when the input is a live Figma URL rather than a pre-exported
 - Null rendered image URL: the node cannot be rendered directly, often because it is invisible or has no renderable content.
 - Empty image-fill map: the node may not use raster image fills, which is fine.
 - Missing SVG render URLs for vector candidates: treat the export as incomplete and block implementation until the vector assets are resolved.
-- Stale persisted JSON: if the user expects fresh design changes, rerun with `--force-refresh`.
+- Stale persisted JSON: report that refresh is needed and use `--force-refresh` only after the user explicitly asks for a refresh.
 - Stale persisted JSON without SVG metadata: report that the local export is too old for safe reuse and refresh only when the user explicitly asks for it.
 
 ## Practical Guidance
 
 - Prefer storing the token in `FIGMA_TOKEN` instead of repeating it in commands.
 - Keep `figma-data` next to the generated component so later runs can reuse the same JSON.
-- Treat the preview image as a visual checkpoint, not as the structural source of truth.
-- Treat the preview image as a checkpoint only. Do not crop it and pretend the crop is an extracted SVG asset.
+- Treat the preview image as a visual checkpoint, not as the structural source of truth. Do not crop it and pretend the crop is an extracted SVG asset.
 - Treat `figma-api-export.json` and the summary derived from it as the structural source of truth.
 - Read `asset-readiness.json` before implementation. If it reports unresolved image refs, unresolved SVG node ids, or a missing preview, treat the work as blocked for 1:1 implementation until the data gap is resolved.

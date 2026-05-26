@@ -64,5 +64,6 @@ Look for these asset signals:
 - vector-like node types such as `VECTOR`, `BOOLEAN_OPERATION`, `STAR`, `LINE`, `ELLIPSE`, and `POLYGON`
 - any embedded SVG-like or image-like content in simplified exports
 
-If the source lacks actual binary assets, continue with structure-first React code and call out the missing assets in the handoff.
+If the source lacks actual binary assets, continue with structure-first React code only when the user explicitly accepts that reduced-fidelity mode. Otherwise stop and ask for complete persisted Figma REST artifacts or permission to refresh from Figma.
 Do not swap in placeholder assets when the source already provides real image or SVG content.
+Do not call a structure-first implementation 1:1 complete when required image or SVG assets are missing.
