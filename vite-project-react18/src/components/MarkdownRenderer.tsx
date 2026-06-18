@@ -11,6 +11,7 @@ import { useSetAtom } from 'jotai';
 import { showTestCaseTableAtom } from '@/pages/home/components/testCase/testCaseAtom';
 import 'highlight.js/styles/github.css';
 import CopyDeckRenderer from './CopyDeckRenderer';
+import CopyTestRenderer from './CopyTestRenderer';
 import HtmlRenderer from './htmlPreview/HtmlRenderer';
 import {
   extractHtmlCodeBlocks,
@@ -47,6 +48,17 @@ type MarkdownAstNode = {
   };
 };
 
+const normalizeToolName = (value?: string) => (value ?? '').trim().toLowerCase();
+
+const hasCopyTestResultUpdaterToolCall = (turn: ConversationTurn): boolean =>
+  turn.processSteps?.some((step) => {
+    const detailToolName = step.details?.find((detail) => detail.label === 'Tool')?.value;
+    return (
+      normalizeToolName(detailToolName) === 'copytestresultupdater' ||
+      normalizeToolName(step.content).includes('copytestresultupdater')
+    );
+  }) ?? false;
+
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                                                                     content,
                                                                     className,
@@ -58,6 +70,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
   const markdownContent = React.useMemo(() => normalizeMarkdownContent(content), [content]);
   const htmlCodeBlocks = React.useMemo(() => extractHtmlCodeBlocks(markdownContent), [markdownContent]);
+  const shouldUseCopyTestRenderer = hasCopyTestResultUpdaterToolCall(turn);
 
   // 手动解析和渲染表格
   const parseTable = (text: string) => {
@@ -236,7 +249,15 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
               // 处理 copydeck 格式
               if (language === 'copydeck') {
+                if (shouldUseCopyTestRenderer) {
+                  return <CopyTestRenderer />;
+                }
+
                 return <CopyDeckRenderer />;
+              }
+
+              if (language.toLowerCase() === 'copytest') {
+                return <CopyTestRenderer />;
               }
 
               // 处理 pptGenerator 格式（不区分大小写）

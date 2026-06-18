@@ -1,0 +1,183 @@
+{
+  "table_count_before": 2,
+  "table_count_after": 2,
+  "baseline_first_headers": [
+    "Copytaken|fdsaflkjds|",
+    "Copykey|key|",
+    "Row|row|",
+    "Screenname/SnagitID",
+    "mAuthHongKongCopy|values=hk_en|",
+    "TraditionalChinese|values=hk_tc|",
+    "SimplifiedChiense|values=hk_sc|",
+    "TestResult-SimplifiedChiense|values=hk_sc|",
+    "TestEvidence-SimplifiedChiense|values=hk_sc|"
+  ],
+  "after_first_headers": [
+    "Copytaken|fdsaflkjds|",
+    "Copykey|key|",
+    "Row|row|",
+    "Screenname/SnagitID",
+    "mAuthHongKongCopy|values=hk_en|",
+    "TraditionalChinese|values=hk_tc|",
+    "SimplifiedChiense|values=hk_sc|",
+    "TestResult-SimplifiedChiense|values=hk_sc|",
+    "TestEvidence-SimplifiedChiense|values=hk_sc|",
+    "TestResult-Screenname/SnagitID",
+    "TestEvidence-Screenname/SnagitID"
+  ],
+  "first_table_original_7_columns_unchanged": true,
+  "first_table_existing_simplified_generated_unchanged": true,
+  "second_table_unchanged": true,
+  "new_screen_header_pair_ok": true,
+  "new_result_all_ok": true,
+  "new_result_checks": [
+    {
+      "row": 1,
+      "rowspan": 1,
+      "statuses": [
+        "Failed:"
+      ],
+      "ok": true
+    },
+    {
+      "row": 2,
+      "rowspan": 2,
+      "statuses": [
+        "Failed:"
+      ],
+      "ok": true
+    },
+    {
+      "row": 4,
+      "rowspan": 1,
+      "statuses": [
+        "Passed:"
+      ],
+      "ok": true
+    },
+    {
+      "row": 5,
+      "rowspan": 1,
+      "statuses": [
+        "Passed:"
+      ],
+      "ok": true
+    },
+    {
+      "row": 6,
+      "rowspan": 1,
+      "statuses": [
+        "Passed:"
+      ],
+      "ok": true
+    },
+    {
+      "row": 8,
+      "rowspan": 1,
+      "statuses": [
+        "Passed:"
+      ],
+      "ok": true
+    },
+    {
+      "row": 9,
+      "rowspan": 1,
+      "statuses": [
+        "Passed:"
+      ],
+      "ok": true
+    },
+    {
+      "row": 10,
+      "rowspan": 1,
+      "statuses": [
+        "Passed:"
+      ],
+      "ok": true
+    },
+    {
+      "row": 11,
+      "rowspan": 1,
+      "statuses": [
+        "Failed:"
+      ],
+      "ok": true
+    },
+    {
+      "row": 12,
+      "rowspan": 1,
+      "statuses": [
+        "Passed:"
+      ],
+      "ok": true
+    },
+    {
+      "row": 14,
+      "rowspan": 1,
+      "statuses": [
+        "Passed:"
+      ],
+      "ok": true
+    }
+  ],
+  "new_evidence_all_ok": true,
+  "new_evidence_checks": [
+    {
+      "row": 1,
+      "rowspan": 3,
+      "labels": [
+        "Screen01",
+        "Screen02"
+      ],
+      "ok": true
+    },
+    {
+      "row": 4,
+      "rowspan": 3,
+      "labels": [
+        "Screen01",
+        "Screen02"
+      ],
+      "ok": true
+    },
+    {
+      "row": 8,
+      "rowspan": 3,
+      "labels": [
+        "Screen01",
+        "Screen02"
+      ],
+      "ok": true
+    },
+    {
+      "row": 11,
+      "rowspan": 2,
+      "labels": [
+        "Screen01",
+        "Screen02"
+      ],
+      "ok": true
+    },
+    {
+      "row": 14,
+      "rowspan": 1,
+      "labels": [
+        "Screen01"
+      ],
+      "ok": true
+    }
+  ],
+  "new_evidence_rowspans": [
+    3,
+    3,
+    3,
+    2,
+    1
+  ],
+  "generated_header_counts": {
+    "before_result": 2,
+    "before_evidence": 2,
+    "after_result": 3,
+    "after_evidence": 3
+  }
+}

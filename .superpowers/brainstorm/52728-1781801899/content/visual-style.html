@@ -1,0 +1,78 @@
+<h2>Show 的 HTML 预览要走哪种“炫酷”方向？</h2>
+<p class="subtitle">请选择一个最接近你想要的气质。这里是方向草图，不是最终视觉稿。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:230px;background:#080b12;border-radius:14px;padding:16px;color:#eaf2ff;display:grid;grid-template-rows:auto 1fr;gap:14px;overflow:hidden;position:relative">
+        <div style="position:absolute;inset:-30px;background:radial-gradient(circle at 20% 20%,rgba(25,210,255,.38),transparent 28%),radial-gradient(circle at 78% 35%,rgba(255,64,180,.28),transparent 26%)"></div>
+        <div style="position:relative;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#8fc7ff">
+          <span>show.md</span><span>01 / 08</span>
+        </div>
+        <div style="position:relative;border:1px solid rgba(143,199,255,.28);border-radius:12px;background:rgba(8,11,18,.62);padding:22px;display:grid;align-content:center;gap:14px">
+          <div style="font-size:28px;font-weight:700;line-height:1.08">Developer Neon Stage</div>
+          <div style="width:70%;height:9px;background:#21d4fd;border-radius:99px"></div>
+          <div style="width:48%;height:9px;background:#ff4ecb;border-radius:99px"></div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <span style="width:58px;height:34px;border-radius:8px;background:rgba(33,212,253,.22)"></span>
+            <span style="width:58px;height:34px;border-radius:8px;background:rgba(255,78,203,.20)"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 科技霓虹</h3>
+      <p>更像开发者发布会，适合代码、AI、工具产品。React Bits 可用 Aurora、ElectricBorder、BlurText 一类动效。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:230px;background:linear-gradient(135deg,#f7f3ea,#dfe9e5);border-radius:14px;padding:16px;color:#111827;display:grid;grid-template-rows:auto 1fr;gap:14px;overflow:hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#5e6d67">
+          <span>document.md</span><span>Preview</span>
+        </div>
+        <div style="border:1px solid rgba(17,24,39,.14);border-radius:12px;background:rgba(255,255,255,.72);padding:24px;display:grid;grid-template-columns:1.1fr .9fr;gap:18px;align-items:center">
+          <div>
+            <div style="font-size:25px;font-weight:750;line-height:1.12">Editorial Glass Deck</div>
+            <div style="margin-top:16px;width:86%;height:8px;background:#111827;border-radius:99px"></div>
+            <div style="margin-top:10px;width:58%;height:8px;background:#6b7280;border-radius:99px"></div>
+          </div>
+          <div style="height:118px;border-radius:16px;background:linear-gradient(160deg,#ffffff,#b9d3ca);box-shadow:0 20px 40px rgba(17,24,39,.16)"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 玻璃杂志感</h3>
+      <p>更优雅、清爽、内容优先，适合通用汇报和知识分享。动效克制但精致，阅读体验更稳。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:230px;background:#12100e;border-radius:14px;padding:16px;color:#fff4e6;display:grid;grid-template-rows:auto 1fr;gap:14px;overflow:hidden;position:relative">
+        <div style="position:absolute;inset:0;background:linear-gradient(115deg,rgba(255,190,80,.22),transparent 42%),linear-gradient(330deg,rgba(90,160,255,.18),transparent 48%)"></div>
+        <div style="position:relative;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#ffd69b">
+          <span>strategy.md</span><span>Export PPTX</span>
+        </div>
+        <div style="position:relative;border:1px solid rgba(255,214,155,.22);border-radius:12px;background:rgba(18,16,14,.68);padding:18px;display:grid;grid-template-columns:.9fr 1.1fr;gap:14px">
+          <div style="display:grid;gap:9px;align-content:center">
+            <div style="font-size:22px;font-weight:760;line-height:1.1">Cinematic Boardroom</div>
+            <div style="height:8px;background:#f6bd60;border-radius:99px"></div>
+            <div style="height:8px;width:70%;background:#8ecae6;border-radius:99px"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <span style="border-radius:10px;background:rgba(246,189,96,.23)"></span>
+            <span style="border-radius:10px;background:rgba(142,202,230,.18)"></span>
+            <span style="border-radius:10px;background:rgba(255,255,255,.10)"></span>
+            <span style="border-radius:10px;background:rgba(246,189,96,.16)"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 电影级商务</h3>
+      <p>更有高级发布会和咨询报告质感，适合战略、产品路演。视觉冲击强，但需要更严格控制内容密度。</p>
+    </div>
+  </div>
+</div>

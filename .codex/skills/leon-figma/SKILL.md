@@ -56,8 +56,8 @@ When the user supplies a simplified local JSON that has structure but not downlo
 
 ## Bundled Scripts
 
-- `scripts/fetch_figma_api_data.py`: fetches or reuses Figma REST artifacts and persists `figma-data`.
-- `scripts/inspect_figma_rest_json.py`: validates persisted JSON and writes implementation-oriented layout and asset hints.
+- `scripts/fetch_figma_api_data.js`: fetches or reuses Figma REST artifacts and persists `figma-data`.
+- `scripts/inspect_figma_rest_json.js`: validates persisted JSON and writes implementation-oriented layout and asset hints.
 
 Run the fetch script before React work only in live-fetch mode. Run the inspect script before React work whenever `figma-summary.json` is missing or stale.
 

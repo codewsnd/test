@@ -45,7 +45,7 @@ Use these fields to reconstruct layout before adding polish.
 Run the bundled inspector first:
 
 ```bash
-python scripts/inspect_figma_rest_json.py "C:\absolute\path\figma.json" --output "C:\absolute\path\figma-summary.json"
+node scripts/inspect_figma_rest_json.js "C:\absolute\path\figma.json" --output "C:\absolute\path\figma-summary.json"
 ```
 
 Useful options:

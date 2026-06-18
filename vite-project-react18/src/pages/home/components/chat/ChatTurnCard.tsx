@@ -2,6 +2,7 @@ import { memo, useDeferredValue } from 'react';
 import { ArrowRightOutlined } from '@ant-design/icons';
 import { Button, Card } from 'antd';
 
+import CopyTestRenderer from '@/components/CopyTestRenderer';
 import { MarkdownRenderer } from '@/components/MarkdownRenderer';
 import { StatusCard } from './StatusCard';
 import type { ConversationTurn } from './types';
@@ -22,6 +23,19 @@ const hasCreateTestCaseToolCall = (turn: ConversationTurn) =>
     );
   }) ?? false;
 
+const hasCopyTestResultUpdaterToolCall = (turn: ConversationTurn) =>
+  turn.processSteps?.some((step) => {
+    const detailToolName = step.details?.find((detail) => detail.label === 'Tool')?.value;
+    return (
+      normalizeToolName(detailToolName) === 'copytestresultupdater' ||
+      normalizeToolName(step.content).includes('copytestresultupdater')
+    );
+  }) ?? false;
+
+const hasCopyTestLauncherBlock = (content: string) => {
+  return /```(?:copydeck|copytest)\b/i.test(content);
+};
+
 const ChatTurnCardComponent = ({ turn, onShowTestCase }: ChatTurnCardProps) => {
   const isStreaming =
     turn.aiResponse.status === 'pending' || turn.aiResponse.status === 'streaming';
@@ -31,6 +45,10 @@ const ChatTurnCardComponent = ({ turn, onShowTestCase }: ChatTurnCardProps) => {
     turn.aiResponse.status === 'completed' &&
     Boolean(turn.aiResponse.content) &&
     hasCreateTestCaseToolCall(turn);
+  const shouldShowCopyTestFallback =
+    turn.aiResponse.status === 'completed' &&
+    hasCopyTestResultUpdaterToolCall(turn) &&
+    !hasCopyTestLauncherBlock(responseContent);
 
   return (
     <div className="chat-turn">
@@ -67,6 +85,8 @@ const ChatTurnCardComponent = ({ turn, onShowTestCase }: ChatTurnCardProps) => {
                 showExpandButton={true}
               />
             )}
+
+            {shouldShowCopyTestFallback && <CopyTestRenderer />}
           </div>
 
           {shouldShowExportToJira && (

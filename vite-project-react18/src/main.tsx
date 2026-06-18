@@ -18,6 +18,7 @@ import { ConfigProvider, message } from 'antd';
 import { appTheme } from './styles/appTheme';
 import AgentCreatePage from '@/pages/agent-create/AgentCreatePage';
 import AgentListPage from '@/pages/agent/AgentListPage';
+import CopyTestRoute from '@/pages/home/components/copyTest/CopyTestRoute';
 
 // 设置全局 Staff ID
 const store = getDefaultStore();
@@ -42,6 +43,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/user" element={<User/>}/>
         <Route path="/workflow" element={<WorkflowEditor/>}/>
         <Route path="/diff" element={<StringDiffViewer/>}/>
+        <Route path="/copyTest" element={<CopyTestRoute />}/>
         <Route path="/agent" element={<AgentListPage />}/>
         <Route path="/agent-create" element={<AgentCreatePage />}/>
         <Route path="/agent-create/:id" element={<AgentCreatePage />}/>
