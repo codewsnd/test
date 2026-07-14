@@ -119,6 +119,14 @@ interface TableRowRange {
   start: number;
 }
 
+/** 单个 Evidence 单元格的图片删除结果。 */
+interface EvidenceCellRemoval {
+  /** 被删除图片所在 Evidence 单元格的物理行范围。 */
+  range: TableRowRange | null;
+  /** 当前单元格是否包含并删除了目标图片实例。 */
+  removed: boolean;
+}
+
 /** 显式 Evidence 分组读取结果。 */
 interface ExplicitEvidenceRows {
   /** 这些逻辑行组合计覆盖的物理行数。 */
@@ -1010,21 +1018,28 @@ const hasEvidenceImage = (cell: Element): boolean => {
   return cell.querySelector(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`) !== null;
 };
 
-/** 判断指定行范围内是否还有 Evidence 图片。 */
-const hasEvidenceImageInRange = (
+/** 从一个 Evidence 单元格中删除精确匹配的图片实例。 */
+const removeTargetEvidenceImage = (
   model: CopyTestTableModel,
-  tableElement: Element,
-  sourceColumnKey: string,
-  range: TableRowRange
-): boolean => {
-  return getGeneratedCellsForSource(tableElement, COPY_TEST_GENERATED_EVIDENCE_TYPE, sourceColumnKey).some(
-    /** 检查每个同 ownership Evidence 单元格是否在目标范围内仍含图片。 */
-    cell => {
-      /** 当前 Evidence 单元格覆盖的物理行闭区间。 */
-      const evidenceRange = getCellRowRange(model, cell);
-      return Boolean(evidenceRange && isRowRangeIntersected(evidenceRange, range) && hasEvidenceImage(cell));
-    }
+  cell: Element,
+  target: CopyTestEvidenceDeleteTarget
+): EvidenceCellRemoval => {
+  /** 当前单元格中同时匹配图片 ID 与稳定实例 ID 的 Evidence 图片。 */
+  const imageElement = Array.from(
+    cell.querySelectorAll(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`)
+  ).find(
+    /** 图片 ID 与实例 ID 必须同时相等，避免误删重复附件的其他位置。 */
+    item => item.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE) === target.imageId
+      && item.getAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE) === target.instanceId
   );
+  if (!imageElement) {
+    return { range: null, removed: false };
+  }
+
+  /** 删除前记录 Evidence 合并单元格覆盖的物理行范围。 */
+  const range = getCellRowRange(model, cell);
+  (imageElement.closest(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`) || imageElement).remove();
+  return { range, removed: true };
 };
 
 /** 判断 Result 引用是否匹配删除目标。 */
@@ -1035,19 +1050,117 @@ const isResultReferenceTarget = (element: Element, target: CopyTestEvidenceDelet
   );
 };
 
-/** 删除空 Result 受控块。 */
-const removeEmptyResultRoot = (element: Element): void => {
-  /** 指定引用所在的 Result 受控内容根块。 */
-  const root = element.closest(`[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`);
-  if (!root) {
+/** 删除已不包含任何 Screen 引用的 Result 受控内容。 */
+const removeEmptyResultContent = (list: Element | null): void => {
+  if (!list) {
     return;
   }
-
-  /** 删除目标后该 Result 根块中是否仍有其他图片引用。 */
-  const hasRemainingReference = root.querySelector(`[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`) !== null;
-  if (!hasRemainingReference) {
-    root.remove();
+  /** 同时包含 Screen 列表和 Passed/Failed 状态的 Result 受控根块。 */
+  const root = list.closest(
+    `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+  );
+  /** 严格 Result 结构缺失根块时至少清理已经空置的列表。 */
+  const content = root || list;
+  if (content.querySelector(`[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`) === null) {
+    content.remove();
   }
+};
+
+/** 更新 Result Screen 引用开头的展示标签，同时保留其问题子列表。 */
+const updateResultScreenLabel = (reference: Element, label: string): void => {
+  /** Result 一级列表项中承载 Screen 标签的直接文本节点。 */
+  const labelNode = Array.from(reference.childNodes).find(node => node.nodeType === 3);
+  if (labelNode) {
+    labelNode.textContent = label;
+    return;
+  }
+  reference.insertBefore(reference.ownerDocument.createTextNode(label), reference.firstChild);
+};
+
+/** 按剩余卡片顺序重排一个 Evidence 单元格中的 Screen 标签。 */
+const renumberEvidenceScreens = (cell: Element): void => {
+  Array.from(cell.querySelectorAll(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`))
+    .filter(hasEvidenceImage)
+    .forEach(
+      /** Screen 只更新展示序号，稳定 image id 与 instance id 保持不变。 */
+      (card, index) => {
+        /** Evidence 卡片中显示 Screen 序号的标题节点。 */
+        const label = card.querySelector(COPY_TEST_CONTENT_LABEL_TAG);
+        if (label) {
+          label.textContent = getScreenLabel(index);
+        }
+      }
+    );
+};
+
+/** 按每个 Result 根块内的剩余引用顺序重排 Screen 标签。 */
+const renumberResultScreens = (cell: Element): void => {
+  getManagedContentElements(cell, COPY_TEST_GENERATED_RESULT_TYPE).forEach(
+    /** 每个 Result 根块独立从 Screen01 开始编号。 */
+    root => {
+      root.querySelectorAll(`[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`).forEach(
+        /** 只修改一级 Screen 文本，不覆盖失败原因子列表。 */
+        (reference, index) => updateResultScreenLabel(reference, getScreenLabel(index))
+      );
+    }
+  );
+};
+
+/** 删除 Result 中的目标 Screen 引用并重排剩余标签。 */
+const syncResultCellAfterEvidenceDelete = (
+  cell: Element,
+  target: CopyTestEvidenceDeleteTarget
+): void => {
+  cell.querySelectorAll(`[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`).forEach(
+    /** 只删除与目标 Evidence 图片实例完全对应的 Result 引用。 */
+    resultReference => {
+      if (!isResultReferenceTarget(resultReference, target)) {
+        return;
+      }
+      /** 删除引用后可能需要一并移除的 Result 一级列表。 */
+      const list = resultReference.parentElement;
+      resultReference.remove();
+      removeEmptyResultContent(list);
+    }
+  );
+  renumberResultScreens(cell);
+};
+
+/** 将已清空 Evidence 单元格恢复为来源列原子行组的跨度结构。 */
+const restoreEmptyEvidenceRange = (
+  doc: Document,
+  context: GeneratedColumnContext,
+  rowGroups: CopyTestRowGroup[],
+  range: TableRowRange
+): void => {
+  rowGroups
+    .filter(
+      /** 只重建被本次清空 Evidence 合并范围覆盖的来源原子组。 */
+      group => isRowRangeIntersected(getRowGroupRange(group), range)
+    )
+    .forEach(
+      /** 每个来源原子组只创建一个 Evidence 锚点单元格。 */
+      group => {
+        /** 与来源原子组锚点和 rowspan 对齐的空 Evidence 单元格。 */
+        const cell = ensureWritableGeneratedCell(
+          doc,
+          context.model,
+          group.anchorRowIndex,
+          context.evidenceColumnIndex,
+          COPY_TEST_GENERATED_EVIDENCE_TYPE,
+          context.sourceColumnKey
+        );
+        applyCellRowSpan(cell, group.rowSpan);
+        removeManagedContent(cell, COPY_TEST_GENERATED_EVIDENCE_TYPE);
+        removeCoveredGeneratedCells(
+          context.model,
+          group.anchorRowIndex,
+          group.rowSpan,
+          COPY_TEST_GENERATED_EVIDENCE_TYPE,
+          context.sourceColumnKey
+        );
+      }
+    );
 };
 
 /** 删除 Evidence 图片并同步当前 source column 的 Result 引用。 */
@@ -1069,28 +1182,29 @@ export const deleteCopyTestEvidenceImage = (
   const rowGroups = buildCopyTestRowGroups(refreshWorkingTable(table, ensured.html), selectedColumnIndex);
   /** 待同步删除 Result 引用的物理行范围集合。 */
   const affectedResultRanges: TableRowRange[] = [];
+  /** 删除最后一张图片后需要恢复来源原子组跨度的 Evidence 范围。 */
+  const emptiedEvidenceRanges: TableRowRange[] = [];
   let removed = false;
   getGeneratedCellsForSource(ensured.context.tableElement, COPY_TEST_GENERATED_EVIDENCE_TYPE, sourceColumnKey).forEach(
     /** 仅在当前 ownership 的 Evidence 单元格中查找目标图片实例。 */
     cell => {
-      cell.querySelectorAll(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}="${target.imageId}"]`).forEach(
-        /** 图片 ID 和实例 ID 都精确匹配时删除对应 Evidence 卡片。 */
-        imageElement => {
-          if (imageElement.getAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE) !== target.instanceId) {
-            return;
-          }
-          /** 目标 Evidence 单元格覆盖的物理行闭区间。 */
-          const evidenceRange = getCellRowRange(ensured.context.model, cell);
-          if (evidenceRange) {
-            affectedResultRanges.push(...getAffectedResultRanges(rowGroups, evidenceRange));
-          }
-          (imageElement.closest(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`) || imageElement).remove();
-          removed = true;
-        }
-      );
-      if (!cell.querySelector(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`)) {
-        removeManagedContent(cell, COPY_TEST_GENERATED_EVIDENCE_TYPE);
+      /** 当前 Evidence 单元格的精确图片删除结果。 */
+      const removal = removeTargetEvidenceImage(ensured.context.model, cell, target);
+      if (!removal.removed) {
+        return;
       }
+      removed = true;
+      if (removal.range) {
+        affectedResultRanges.push(...getAffectedResultRanges(rowGroups, removal.range));
+      }
+      if (!hasEvidenceImage(cell)) {
+        removeManagedContent(cell, COPY_TEST_GENERATED_EVIDENCE_TYPE);
+        if (removal.range) {
+          emptiedEvidenceRanges.push(removal.range);
+        }
+        return;
+      }
+      renumberEvidenceScreens(cell);
     }
   );
 
@@ -1105,32 +1219,18 @@ export const deleteCopyTestEvidenceImage = (
         return;
       }
 
-      cell.querySelectorAll(RESULT_LIST_ITEM_TAG).forEach(
-        /** 精确删除与 Evidence 图片实例对应的 Result 列表项。 */
-        resultReference => {
-          if (!isResultReferenceTarget(resultReference, target)) {
-            return;
-          }
-          /** Result 引用所属的 CopyTest 受控内容根块。 */
-          const root = resultReference.closest(
-            `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
-          );
-          resultReference.remove();
-          if (root instanceof Element) {
-            removeEmptyResultRoot(root);
-          }
-        }
-      );
-
-      /** 当前 Result 单元格覆盖的物理行闭区间。 */
-      const resultRange = getCellRowRange(ensured.context.model, cell);
-      if (
-        resultRange &&
-        !hasEvidenceImageInRange(ensured.context.model, ensured.context.tableElement, sourceColumnKey, resultRange)
-      ) {
-        removeManagedContent(cell, COPY_TEST_GENERATED_RESULT_TYPE);
-      }
+      syncResultCellAfterEvidenceDelete(cell, target);
     }
+  );
+
+  emptiedEvidenceRanges.forEach(
+    /** Result 同步完成后再恢复 Evidence 结构，避免提前改变模型坐标。 */
+    range => restoreEmptyEvidenceRange(
+      ensured.context.tableElement.ownerDocument,
+      ensured.context,
+      rowGroups,
+      range
+    )
   );
 
   /** 删除后整张工作表格中是否仍有相同附件文件的 Evidence 引用。 */

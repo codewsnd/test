@@ -309,7 +309,7 @@ working table 和导出 Storage 中的 Evidence 图片使用以下结构：
 - 删除操作必须同时匹配 image id 和 instance id，只删除目标实例及其对应 Result 项。
 - 删除后剩余 Evidence 与 Result Screen 按当前顺序重新从 `Screen01` 编号，稳定 image id 和 instance id 不变。
 - Evidence 合并组删除全部图片后，单元格恢复为来源列原子行组的 rowspan；例如来源行为 `1 / (2+3) / 4` 时恢复为 `1 / 2 / 1`，不会拆开第 2、3 行。
-- 最后一个 Screen 删除后只移除 Result 的 Screen 列表，保留原有 `Passed/Failed` 状态。
+- 最后一个 Screen 删除后移除整个 Result 受控内容，包括原有 `Passed/Failed` 状态。
 - 导入附件扫描只进入严格 schema 2 Evidence cell，并且不跨越嵌套单元格。
 - 导出只收集当前 Pair 的 Evidence 实际使用文件，并将图片尺寸规范为 `100 x 200`。
 
