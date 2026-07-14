@@ -7,7 +7,7 @@ import {
 } from '../prompt/copyTestValidationPrompt';
 
 /** Spring Boot 后端服务地址。 */
-const SPRINGBOOT3_BACKEND_API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
+const API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
 
 export interface CopyTestStorageResponse {
   storage: string;
@@ -66,7 +66,7 @@ export type CopyTestUploadProgressHandler = (percent: number) => void;
 
 /** 从 Confluence 页面读取 storage html。 */
 export const copyTestStorageApi = async (confluenceUrl: string): Promise<CopyTestStorageResponse> => {
-  const response = await axios.get<CopyTestStorageResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/api/chatbycard/copydeck/storage`, {
+  const response = await axios.get<CopyTestStorageResponse>(`${API_URL}/api/chatbycard/copydeck/storage`, {
     params: {
       confluenceUrl,
       staffId: getEmployeeId(),
@@ -80,7 +80,7 @@ export const copyTestUploadApi = async (
   data: CopyTestUploadRequest,
   onProgress?: CopyTestUploadProgressHandler
 ): Promise<void> => {
-  await axios.post(`${SPRINGBOOT3_BACKEND_API_URL}/api/chatbycard/copydeck/upload`, {
+  await axios.post(`${API_URL}/api/chatbycard/copydeck/upload`, {
     ...data,
     staffId: getEmployeeId(),
   }, {
@@ -98,7 +98,7 @@ export const copyTestUploadApi = async (
 export const copyTestAttachmentsApi = async (
   data: CopyTestAttachmentsRequest
 ): Promise<CopyTestAttachmentsResponse> => {
-  const response = await axios.post<CopyTestAttachmentsResponse>(`${SPRINGBOOT3_BACKEND_API_URL}/api/chatbycard/copydeck/getAttachments`, {
+  const response = await axios.post<CopyTestAttachmentsResponse>(`${API_URL}/api/chatbycard/copydeck/getAttachments`, {
     ...data,
     staffId: getEmployeeId(),
   });
