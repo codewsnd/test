@@ -2,87 +2,78 @@
  * 文件作用：用纯数据模型构建支持 rowspan/colspan 的二维表格网格，并投影来源列原子行组。
  */
 
-/** 构建网格时使用的物理单元格输入。 */
+/** 构建二维网格所需的物理单元格输入。 */
 export interface CopyTestGridCellInput {
+  /** 用于检测空值和重复单元格的稳定标识。 */
   cellId: string;
+  /** 单元格横向覆盖的逻辑列数，缺省时为一列。 */
   colSpan?: number;
+  /** 单元格纵向覆盖的逻辑行数，缺省时为一行。 */
   rowSpan?: number;
-  text?: string;
 }
 
-/** 单元格在二维逻辑网格中覆盖的闭区间。 */
+/** 物理单元格在二维逻辑网格中覆盖的闭区间。 */
 export interface CellRegion {
+  /** 对应输入物理单元格的稳定标识。 */
   cellId: string;
+  /** 单元格覆盖的最后一个逻辑列下标。 */
   colEnd: number;
-  colSpan: number;
+  /** 单元格覆盖的第一个逻辑列下标。 */
   colStart: number;
+  /** 单元格覆盖的最后一个逻辑行下标。 */
   rowEnd: number;
+  /** 单元格纵向覆盖的逻辑行数。 */
   rowSpan: number;
+  /** 单元格覆盖的第一个逻辑行下标。 */
   rowStart: number;
-  text: string;
 }
 
-/** 二维网格中的单个逻辑 slot。 */
+/** 二维网格中的单个逻辑位置。 */
 export interface CopyTestGridSlot {
+  /** 覆盖当前位置的物理单元格区域。 */
   cell: CellRegion;
-  colIndex: number;
-  colOffset: number;
-  isCellAnchor: boolean;
-  isColumnAnchor: boolean;
-  isRowAnchor: boolean;
-  rowIndex: number;
-  rowOffset: number;
 }
 
 /** 支持跨行、跨列单元格的稠密二维网格。 */
 export interface CopyTestSpanGrid {
+  /** 网格包含的逻辑列总数。 */
   columnCount: number;
-  regions: readonly CellRegion[];
+  /** 网格包含的物理行总数。 */
   rowCount: number;
+  /** 按逻辑行列下标访问覆盖单元格的稠密矩阵。 */
   slots: readonly (readonly CopyTestGridSlot[])[];
 }
 
-/** 来源列中不可拆分的逻辑行组。 */
+/** 来源列中必须作为整体处理的不可拆分逻辑行组。 */
 export interface RowGroup {
+  /** 行组在表格中的首个物理行下标。 */
   anchorRowIndex: number;
-  cell: CellRegion;
-  cellId: string;
+  /** 行组覆盖的全部连续物理行下标。 */
   coveredRowIndexes: readonly number[];
-  groupId: string;
-  horizontallyShared: boolean;
-  rowEnd: number;
+  /** 行组覆盖的物理行数。 */
   rowSpan: number;
-  rowStart: number;
-  selectable: boolean;
-  sourceColumnId: string;
-  sourceColumnIndex: number;
-  tableId: string;
-  text: string;
 }
 
-/** 来源列投影。每个数据行通过 groupByRow 指向所属原子组。 */
+/** 来源列按 rowspan 投影后的有序逻辑行组集合。 */
 export interface SourceProjection {
-  firstDataRowIndex: number;
-  groupByRow: readonly (RowGroup | undefined)[];
+  /** 从上到下排列且互不拆分的来源列行组。 */
   groups: readonly RowGroup[];
-  sourceColumnId: string;
-  sourceColumnIndex: number;
-  tableId: string;
 }
 
-/** 来源列投影入参。 */
+/** 来源列投影所需的网格坐标参数。 */
 export interface SourceProjectionOptions {
+  /** 首个数据行下标，缺省时跳过第零行表头。 */
   firstDataRowIndex?: number;
-  sourceColumnId: string;
+  /** 需要投影的来源逻辑列下标。 */
   sourceColumnIndex: number;
-  tableId: string;
 }
 
-/** 网格构建期间允许存在空洞的 slot 行。 */
+/** 网格构建期间允许存在空洞的逻辑行。 */
 type SparseSlotRow = Array<CopyTestGridSlot | undefined>;
 
-/** 读取并校验正整数 span。 */
+/** 读取 span，并拒绝零、负数或非整数。 */
 const readSpan = (value: number | undefined, fieldName: 'colSpan' | 'rowSpan'): number => {
+  /** 未声明 span 的普通单元格默认只覆盖一个位置。 */
   const span = value ?? 1;
   if (!Number.isInteger(span) || span < 1) {
     throw new Error(`${fieldName} must be a positive integer`);
@@ -90,7 +81,7 @@ const readSpan = (value: number | undefined, fieldName: 'colSpan' | 'rowSpan'): 
   return span;
 };
 
-/** 校验并登记单元格 ID。 */
+/** 校验物理单元格标识，并登记到当前表格的去重集合。 */
 const registerCellId = (cellId: string, cellIds: Set<string>): void => {
   if (cellId.trim() === '') {
     throw new Error('cellId must not be empty');
@@ -115,12 +106,13 @@ const isColumnRangeFree = (
   return true;
 };
 
-/** 查找一个物理单元格在当前行可落位的首个逻辑列。 */
+/** 查找物理单元格在当前行可以完整落位的首个逻辑列。 */
 const findAvailableColumn = (
   row: SparseSlotRow,
   startColumn: number,
   colSpan: number
 ): number => {
+  /** 从上一物理单元格之后开始探测，避免重复扫描已确认区域。 */
   let candidate = startColumn;
   while (!isColumnRangeFree(row, candidate, colSpan)) {
     candidate += 1;
@@ -128,15 +120,18 @@ const findAvailableColumn = (
   return candidate;
 };
 
-/** 创建单元格覆盖区域。 */
+/** 根据物理单元格及其落位坐标创建逻辑覆盖区域。 */
 const createCellRegion = (
   input: CopyTestGridCellInput,
   rowStart: number,
   colStart: number,
   rowCount: number
 ): CellRegion => {
+  /** 规范化后的横向覆盖列数。 */
   const colSpan = readSpan(input.colSpan, 'colSpan');
+  /** 规范化后的纵向覆盖行数。 */
   const rowSpan = readSpan(input.rowSpan, 'rowSpan');
+  /** 当前区域覆盖的最后一个物理行下标。 */
   const rowEnd = rowStart + rowSpan - 1;
   if (rowEnd >= rowCount) {
     throw new Error(`Cell ${input.cellId} rowspan exceeds the table row count`);
@@ -144,134 +139,111 @@ const createCellRegion = (
   return {
     cellId: input.cellId,
     colEnd: colStart + colSpan - 1,
-    colSpan,
     colStart,
     rowEnd,
     rowSpan,
     rowStart,
-    text: input.text || '',
   };
 };
 
-/** 为指定坐标创建指向同一 CellRegion 的 slot。 */
-const createGridSlot = (
-  cell: CellRegion,
-  rowIndex: number,
-  colIndex: number
-): CopyTestGridSlot => {
-  const isRowAnchor = rowIndex === cell.rowStart;
-  const isColumnAnchor = colIndex === cell.colStart;
-  return {
-    cell,
-    colIndex,
-    colOffset: colIndex - cell.colStart,
-    isCellAnchor: isRowAnchor && isColumnAnchor,
-    isColumnAnchor,
-    isRowAnchor,
-    rowIndex,
-    rowOffset: rowIndex - cell.rowStart,
-  };
-};
-
-/** 将一个 CellRegion 填入它覆盖的每个二维 slot。 */
+/** 将一个物理单元格区域写入其覆盖的全部逻辑位置。 */
 const fillRegionSlots = (rows: SparseSlotRow[], cell: CellRegion): void => {
   for (let rowIndex = cell.rowStart; rowIndex <= cell.rowEnd; rowIndex += 1) {
     for (let colIndex = cell.colStart; colIndex <= cell.colEnd; colIndex += 1) {
       if (rows[rowIndex][colIndex]) {
         throw new Error(`Cell ${cell.cellId} overlaps an occupied grid slot`);
       }
-      rows[rowIndex][colIndex] = createGridSlot(cell, rowIndex, colIndex);
+      rows[rowIndex][colIndex] = { cell };
     }
   }
 };
 
-/** 将一个物理行的单元格依次放入二维网格。 */
+/** 将一行物理单元格按原始顺序放入二维逻辑网格。 */
 const placeRowCells = (
   inputs: readonly CopyTestGridCellInput[],
   rowIndex: number,
   rows: SparseSlotRow[],
-  regions: CellRegion[],
   cellIds: Set<string>
 ): void => {
+  /** 下一单元格开始查找空闲区间的逻辑列下标。 */
   let nextColumn = 0;
-  inputs.forEach(input => {
+  for (let inputIndex = 0; inputIndex < inputs.length; inputIndex += 1) {
+    /** 当前物理行中待落位的单元格。 */
+    const input = inputs[inputIndex];
     registerCellId(input.cellId, cellIds);
+    /** 当前单元格需要连续占用的逻辑列数。 */
     const colSpan = readSpan(input.colSpan, 'colSpan');
+    /** 避开已有 rowspan 后得到的首个可用逻辑列。 */
     const colStart = findAvailableColumn(rows[rowIndex], nextColumn, colSpan);
+    /** 当前物理单元格在逻辑网格中的覆盖区域。 */
     const cell = createCellRegion(input, rowIndex, colStart, rows.length);
     fillRegionSlots(rows, cell);
-    regions.push(cell);
     nextColumn = cell.colEnd + 1;
-  });
+  }
 };
 
-/** 读取网格最大逻辑列数。 */
+/** 读取全部逻辑行中的最大列数。 */
 const getColumnCount = (rows: SparseSlotRow[]): number => {
-  return rows.reduce((maximum, row) => Math.max(maximum, row.length), 0);
+  /** 已扫描逻辑行中的最大长度。 */
+  let maximum = 0;
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    maximum = Math.max(maximum, rows[rowIndex].length);
+  }
+  return maximum;
 };
 
-/** 将构建期间的稀疏行转换为每个 slot 都有覆盖单元格的稠密行。 */
+/** 将构建期稀疏行转换为每个位置均有覆盖单元格的稠密行。 */
 const toDenseRows = (
   rows: SparseSlotRow[],
   columnCount: number
 ): CopyTestGridSlot[][] => {
-  return rows.map((row, rowIndex) => {
-    return Array.from({ length: columnCount }, (_, colIndex) => {
-      const slot = row[colIndex];
+  /** 校验并收集后的稠密逻辑行。 */
+  const denseRows: CopyTestGridSlot[][] = [];
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    /** 当前物理行对应的稠密逻辑位置集合。 */
+    const denseRow: CopyTestGridSlot[] = [];
+    for (let colIndex = 0; colIndex < columnCount; colIndex += 1) {
+      /** 当前位置由普通单元格或跨行跨列单元格提供的引用。 */
+      const slot = rows[rowIndex][colIndex];
       if (!slot) {
         throw new Error(`Grid row ${rowIndex} has an uncovered slot at column ${colIndex}`);
       }
-      return slot;
-    });
-  });
+      denseRow.push(slot);
+    }
+    denseRows.push(denseRow);
+  }
+  return denseRows;
 };
 
-/** 从物理行单元格构建纯 TypeScript 二维 span 网格。 */
+/** 从物理行单元格构建支持 rowspan 与 colspan 的稠密二维网格。 */
 export const buildCopyTestSpanGrid = (
   inputRows: readonly (readonly CopyTestGridCellInput[])[]
 ): CopyTestSpanGrid => {
-  const rows: SparseSlotRow[] = Array.from({ length: inputRows.length }, () => []);
-  const regions: CellRegion[] = [];
+  /** 与输入物理行一一对应的构建期稀疏逻辑行。 */
+  const rows: SparseSlotRow[] = [];
+  for (let rowIndex = 0; rowIndex < inputRows.length; rowIndex += 1) {
+    rows.push([]);
+  }
+  /** 用于拒绝同一表格中重复物理单元格标识的集合。 */
   const cellIds = new Set<string>();
-  inputRows.forEach((inputs, rowIndex) => {
-    placeRowCells(inputs, rowIndex, rows, regions, cellIds);
-  });
+  for (let rowIndex = 0; rowIndex < inputRows.length; rowIndex += 1) {
+    placeRowCells(inputRows[rowIndex], rowIndex, rows, cellIds);
+  }
+  /** 完成全部物理单元格落位后的逻辑列总数。 */
   const columnCount = getColumnCount(rows);
   return {
     columnCount,
-    regions,
     rowCount: rows.length,
     slots: toDenseRows(rows, columnCount),
   };
 };
 
-/** 安全读取一个二维逻辑 slot。 */
-export const getCopyTestGridSlot = (
-  grid: CopyTestSpanGrid,
-  rowIndex: number,
-  colIndex: number
-): CopyTestGridSlot | undefined => {
-  return grid.slots[rowIndex]?.[colIndex];
-};
-
-/** 构造同时包含 table/source/cell 身份的稳定组 ID。 */
-export const buildCopyTestRowGroupId = (
-  tableId: string,
-  sourceColumnId: string,
-  cellId: string
-): string => {
-  return [tableId, sourceColumnId, cellId].map(encodeURIComponent).join('/');
-};
-
-/** 校验来源列投影入参。 */
+/** 校验来源列下标和首个数据行是否位于网格范围内。 */
 const validateProjectionOptions = (
   grid: CopyTestSpanGrid,
   options: SourceProjectionOptions,
   firstDataRowIndex: number
 ): void => {
-  if (options.tableId.trim() === '' || options.sourceColumnId.trim() === '') {
-    throw new Error('tableId and sourceColumnId must not be empty');
-  }
   if (!Number.isInteger(options.sourceColumnIndex)
     || options.sourceColumnIndex < 0
     || options.sourceColumnIndex >= grid.columnCount) {
@@ -284,70 +256,47 @@ const validateProjectionOptions = (
   }
 };
 
-/** 从来源列覆盖单元格创建一个不可拆分逻辑组。 */
-const createRowGroup = (
-  cell: CellRegion,
-  options: SourceProjectionOptions
-): RowGroup => {
+/** 生成物理单元格纵向覆盖的全部连续行下标。 */
+const getCoveredRowIndexes = (cell: CellRegion): number[] => {
+  /** 按从上到下顺序收集的物理行下标。 */
+  const coveredRowIndexes: number[] = [];
+  for (let rowIndex = cell.rowStart; rowIndex <= cell.rowEnd; rowIndex += 1) {
+    coveredRowIndexes.push(rowIndex);
+  }
+  return coveredRowIndexes;
+};
+
+/** 从来源列单元格创建一个不可拆分的逻辑行组。 */
+const createRowGroup = (cell: CellRegion): RowGroup => {
   return {
     anchorRowIndex: cell.rowStart,
-    cell,
-    cellId: cell.cellId,
-    coveredRowIndexes: Array.from(
-      { length: cell.rowSpan },
-      (_, offset) => cell.rowStart + offset
-    ),
-    groupId: buildCopyTestRowGroupId(options.tableId, options.sourceColumnId, cell.cellId),
-    horizontallyShared: cell.colSpan > 1,
-    rowEnd: cell.rowEnd,
+    coveredRowIndexes: getCoveredRowIndexes(cell),
     rowSpan: cell.rowSpan,
-    rowStart: cell.rowStart,
-    selectable: cell.text.trim() !== '',
-    sourceColumnId: options.sourceColumnId,
-    sourceColumnIndex: options.sourceColumnIndex,
-    tableId: options.tableId,
-    text: cell.text,
   };
 };
 
-/** 为每个物理数据行建立到原子组的反向投影。 */
-const buildGroupByRow = (
-  rowCount: number,
-  groups: readonly RowGroup[]
-): Array<RowGroup | undefined> => {
-  const groupByRow: Array<RowGroup | undefined> = Array.from({ length: rowCount });
-  groups.forEach(group => {
-    group.coveredRowIndexes.forEach(rowIndex => {
-      groupByRow[rowIndex] = group;
-    });
-  });
-  return groupByRow;
-};
-
-/** 将一个来源逻辑列投影为按 rowspan 不可拆分的有序行组。 */
+/** 将来源逻辑列投影为按 rowspan 不可拆分且从上到下有序的行组。 */
 export const projectCopyTestSourceColumn = (
   grid: CopyTestSpanGrid,
   options: SourceProjectionOptions
 ): SourceProjection => {
+  /** 未指定时跳过第零行表头，从第一行数据开始投影。 */
   const firstDataRowIndex = options.firstDataRowIndex ?? 1;
   validateProjectionOptions(grid, options, firstDataRowIndex);
+  /** 当前来源列中已识别的不可拆分逻辑行组。 */
   const groups: RowGroup[] = [];
+  /** 下一次需要读取的来源列物理行下标。 */
   let rowIndex = firstDataRowIndex;
   while (rowIndex < grid.rowCount) {
+    /** 覆盖当前来源列位置的物理单元格区域。 */
     const cell = grid.slots[rowIndex][options.sourceColumnIndex].cell;
     if (cell.rowStart !== rowIndex) {
       throw new Error(`Source cell ${cell.cellId} crosses the data row boundary`);
     }
-    const group = createRowGroup(cell, options);
+    /** 当前单元格对应的不可拆分逻辑行组。 */
+    const group = createRowGroup(cell);
     groups.push(group);
-    rowIndex = group.rowEnd + 1;
+    rowIndex = cell.rowEnd + 1;
   }
-  return {
-    firstDataRowIndex,
-    groupByRow: buildGroupByRow(grid.rowCount, groups),
-    groups,
-    sourceColumnId: options.sourceColumnId,
-    sourceColumnIndex: options.sourceColumnIndex,
-    tableId: options.tableId,
-  };
+  return { groups };
 };

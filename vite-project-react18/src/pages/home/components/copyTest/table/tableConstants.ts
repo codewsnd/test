@@ -1,25 +1,25 @@
 /**
  * 文件作用：维护表格生成列、运行时属性和导出尺寸常量。
  */
-/** 定义 COPY_TEST_RESULT_HEADER_PREFIX 常量。 */
+/** Result 生成列标题使用的固定前缀。 */
 export const COPY_TEST_RESULT_HEADER_PREFIX = 'Test Result -';
 
-/** 定义 COPY_TEST_EVIDENCE_HEADER_PREFIX 常量。 */
+/** Evidence 生成列标题使用的固定前缀。 */
 export const COPY_TEST_EVIDENCE_HEADER_PREFIX = 'Test Evidence -';
 
-/** 定义 COPY_TEST_GENERATED_RESULT_TYPE 常量。 */
+/** Result 生成列的 metadata 类型值。 */
 export const COPY_TEST_GENERATED_RESULT_TYPE = 'result';
 
-/** 定义 COPY_TEST_GENERATED_EVIDENCE_TYPE 常量。 */
+/** Evidence 生成列的 metadata 类型值。 */
 export const COPY_TEST_GENERATED_EVIDENCE_TYPE = 'evidence';
 
-/** 定义 COPY_TEST_GENERATED_CONTENT_ATTRIBUTE 常量。 */
+/** 标记 CopyTest 管理内容根节点的属性名。 */
 export const COPY_TEST_GENERATED_CONTENT_ATTRIBUTE = 'data-copy-test-generated-content';
 
-/** 定义 COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE 常量。 */
+/** 标记生成单元格 Result/Evidence 类型的属性名。 */
 export const COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE = 'data-copy-test-column-type';
 
-/** 定义 COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE 常量。 */
+/** 记录生成单元格所属源列 key 的属性名。 */
 export const COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE = 'data-copy-test-source-column-key';
 
 /** CopyTest 生成节点的 metadata schema 属性。 */
@@ -34,38 +34,32 @@ export const COPY_TEST_OWNER_ID_ATTRIBUTE = 'data-copy-test-owner-id';
 /** 导出流水线临时标记当前目标 Pair 的属性。 */
 export const COPY_TEST_EXPORT_SCOPE_ATTRIBUTE = 'data-copy-test-export-scope';
 
-/** 定义 COPY_TEST_SOURCE_CELL_ID_ATTRIBUTE 常量。 */
-export const COPY_TEST_SOURCE_CELL_ID_ATTRIBUTE = 'data-copy-test-source-cell-id';
-
-/** 定义 COPY_TEST_EVIDENCE_CARD_ATTRIBUTE 常量。 */
+/** 标记一张 Evidence 图片卡片的属性名。 */
 export const COPY_TEST_EVIDENCE_CARD_ATTRIBUTE = 'data-copy-test-evidence-card';
 
-/** 定义 COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE 常量。 */
+/** 记录 Evidence 图片稳定 ID 的属性名。 */
 export const COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE = 'data-copy-test-evidence-image-id';
 
-/** 定义 COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE 常量。 */
+/** 区分同一 Evidence 图片多次出现实例的属性名。 */
 export const COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE = 'data-copy-test-evidence-image-instance-id';
 
-/** 定义 COPY_TEST_EVIDENCE_IMAGE_SRC_ATTRIBUTE 常量。 */
-export const COPY_TEST_EVIDENCE_IMAGE_SRC_ATTRIBUTE = 'data-copy-test-evidence-image-src';
-
-/** 定义 COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE 常量。 */
+/** 保存 Evidence 图片可访问性文本和文件名提示的属性名。 */
 export const COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE = 'data-copy-test-evidence-image-alt';
 
-/** 定义 COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE 常量。 */
+/** 记录 Result 图片引用稳定 ID 的属性名。 */
 export const COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE = 'data-copy-test-result-image-id';
 
-/** 定义 COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE 常量。 */
+/** 记录 Result 图片引用实例 ID 的属性名。 */
 export const COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE = 'data-copy-test-result-image-instance-id';
 
-/** 定义 COPY_TEST_PASSED_COLOR 常量。 */
+/** Test Result 通过状态使用的文字颜色。 */
 export const COPY_TEST_PASSED_COLOR = '#00875a';
 
-/** 定义 COPY_TEST_FAILED_COLOR 常量。 */
+/** Test Result 失败状态使用的文字颜色。 */
 export const COPY_TEST_FAILED_COLOR = '#ff0000';
 
-/** 定义 COPY_TEST_EVIDENCE_IMAGE_WIDTH 常量。 */
+/** 回写 Confluence storage 时 Evidence 图片的固定宽度。 */
 export const COPY_TEST_EVIDENCE_IMAGE_WIDTH = 100;
 
-/** 定义 COPY_TEST_EVIDENCE_IMAGE_HEIGHT 常量。 */
+/** 回写 Confluence storage 时 Evidence 图片的固定高度。 */
 export const COPY_TEST_EVIDENCE_IMAGE_HEIGHT = 200;

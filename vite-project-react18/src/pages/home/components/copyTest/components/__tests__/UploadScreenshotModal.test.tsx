@@ -9,9 +9,10 @@ vi.mock('@ant-design/icons', () => ({
 }));
 
 vi.mock('antd', () => {
-  const Button = ({ children, disabled, onClick, ...props }: { children?: React.ReactNode; disabled?: boolean; onClick?: () => void }) => (
-    <button disabled={disabled} onClick={onClick} {...props}>{children}</button>
-  );
+  const Button = ({ children, disabled, loading, onClick, ...props }: { children?: React.ReactNode; disabled?: boolean; loading?: boolean; onClick?: () => void }) => {
+    void loading;
+    return <button disabled={disabled} onClick={onClick} {...props}>{children}</button>;
+  };
   const Modal = ({ children, footer, onCancel, open, title }: { children?: React.ReactNode; footer?: React.ReactNode[]; onCancel?: () => void; open?: boolean; title?: string }) => open ? (
     <section><h2>{title}</h2><button onClick={onCancel}>modal-cancel</button>{children}<footer>{footer}</footer></section>
   ) : null;

@@ -1,15 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  deleteOwnedRawRange,
   getNonTargetRawSegments,
   getRawRangeText,
   hasUnchangedNonTargetRaw,
-  insertRawCellBeforeRowClosingTag,
-  replaceOwnedRawRange,
   replaceRangesDescending,
   scanTopLevelTableRawRanges,
-  type CopyTestRawCellRange,
-  type CopyTestRawTableRange,
 } from '../copyTestStoragePatch';
 
 const OWNED_CELL = '<td data-copy-test-column-type="result" data-copy-test-source-column-key="1:B"><div data-copy-test-generated-content="result">Old</div></td>';
@@ -38,15 +33,6 @@ const STORAGE = [
   '<p>After</p>',
 ].join('');
 
-const findCell = (table: CopyTestRawTableRange, raw: string, content: string): CopyTestRawCellRange => {
-  const cell = table.rows.flatMap(row => row.cells)
-    .find(item => getRawRangeText(raw, item).includes(content));
-  if (!cell) {
-    throw new Error(`Missing fixture cell: ${content}`);
-  }
-  return cell;
-};
-
 describe('copyTestStoragePatch', () => {
   it('scans top-level table, row, and cell raw ranges while preserving nested markup', () => {
     const tables = scanTopLevelTableRawRanges(`${STORAGE}<table /><table><tr><td>Incomplete`);
@@ -59,63 +45,6 @@ describe('copyTestStoragePatch', () => {
     expect(getRawRangeText(STORAGE, tables[0].rows[1].cells[0])).toContain(NESTED_TABLE);
     expect(tables[0].rows[1].cells.some(cell => getRawRangeText(STORAGE, cell) === '<td>Nested cell</td>')).toBe(false);
     expect(getRawRangeText(STORAGE, tables[0].rows[0].cells[1])).toContain('ac:name="x>y"');
-  });
-
-  it('inserts only before the selected row closing tag and keeps repeated insertion idempotent', () => {
-    const beforeTables = scanTopLevelTableRawRanges(STORAGE);
-    const selectedRow = beforeTables[0].rows[1];
-    const insertedCell = '<td data-copy-test-column-type="evidence" data-copy-test-source-column-key="1:B">Evidence</td>';
-    const patched = insertRawCellBeforeRowClosingTag(STORAGE, selectedRow, insertedCell);
-    const afterTables = scanTopLevelTableRawRanges(patched);
-
-    expect(afterTables[0].rows[1].cells).toHaveLength(4);
-    expect(getRawRangeText(patched, afterTables[0].rows[1])).toContain(`${insertedCell}</tr>`);
-    expect(patched).toContain(FOREIGN_CELL);
-    expect(hasUnchangedNonTargetRaw(STORAGE, [beforeTables[0]], patched, [afterTables[0]])).toBe(true);
-
-    const repeated = insertRawCellBeforeRowClosingTag(patched, afterTables[0].rows[1], insertedCell);
-    expect(repeated).toBe(patched);
-    expect(() => insertRawCellBeforeRowClosingTag(STORAGE, selectedRow, '<div>not a cell</div>')).toThrow('th or td');
-    expect(() => insertRawCellBeforeRowClosingTag(`${STORAGE}x`, {
-      ...selectedRow,
-      closeTagRange: { end: selectedRow.closeTagRange.end + 1, start: selectedRow.closeTagRange.start },
-    }, insertedCell)).toThrow('stale');
-  });
-
-  it('replaces and deletes only an exact CopyTest-owned range while preserving foreign cells', () => {
-    const table = scanTopLevelTableRawRanges(STORAGE)[0];
-    const ownedCell = findCell(table, STORAGE, 'data-copy-test-column-type="result"');
-    const replacement = '<td data-copy-test-column-type="result" data-copy-test-source-column-key="1:B"><div data-copy-test-generated-content="result">New</div></td>';
-    const replaced = replaceOwnedRawRange(STORAGE, {
-      expectedRaw: getRawRangeText(STORAGE, ownedCell),
-      range: ownedCell,
-    }, replacement);
-    const replacedTable = scanTopLevelTableRawRanges(replaced)[0];
-    const replacedCell = findCell(replacedTable, replaced, 'data-copy-test-column-type="result"');
-
-    expect(replaced).toContain(replacement);
-    expect(replaced).toContain(FOREIGN_CELL);
-    expect(replaceOwnedRawRange(replaced, {
-      expectedRaw: getRawRangeText(replaced, replacedCell),
-      range: replacedCell,
-    }, replacement)).toBe(replaced);
-
-    const deleted = deleteOwnedRawRange(STORAGE, {
-      expectedRaw: getRawRangeText(STORAGE, ownedCell),
-      range: ownedCell,
-    });
-    expect(deleted).not.toContain(OWNED_CELL);
-    expect(deleted).toContain(FOREIGN_CELL);
-
-    const foreignCell = findCell(table, STORAGE, 'data-owner="human"');
-    expect(() => deleteOwnedRawRange(STORAGE, {
-      expectedRaw: getRawRangeText(STORAGE, foreignCell),
-      range: foreignCell,
-    })).toThrow('not marked');
-    expect(() => deleteOwnedRawRange(STORAGE, {
-      expectedRaw: `${getRawRangeText(STORAGE, ownedCell)} stale`,
-      range: ownedCell,
-    })).toThrow('no longer matches');
   });
 
   it('applies descending replacements and detects non-target byte changes', () => {

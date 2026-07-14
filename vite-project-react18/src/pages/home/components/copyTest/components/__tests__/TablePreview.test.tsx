@@ -56,8 +56,8 @@ const mergedTableHtml = [
 const mergedTable = parseCopyTestStorageTables(mergedTableHtml)[0];
 
 const sharedImages = [
-  { base64: BASE64_IMAGE, fileName: 'screen-a.png', md5: 'img-shared' },
-  { base64: BASE64_IMAGE, fileName: 'screen-a-copy.png', md5: 'img-shared' },
+  { base64: BASE64_IMAGE, fileName: 'img-shared', md5: 'img-shared' },
+  { base64: BASE64_IMAGE, fileName: 'img-shared', md5: 'img-shared' },
   { base64: 'invalid-image-data', fileName: 'invalid.png', md5: 'img-invalid' },
 ];
 

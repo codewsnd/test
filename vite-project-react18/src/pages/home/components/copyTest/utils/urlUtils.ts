@@ -10,8 +10,7 @@ export const NO_VALID_TABLE_ERROR = 'No valid table found';
 /** 判断用户输入是否是可访问的 http/https URL。 */
 export const isValidConfluenceUrl = (value: string): boolean => {
   try {
-
-    /** 定义 url 常量。 */
+    /** 浏览器标准解析器生成的 URL 对象。 */
     const url = new URL(value);
     return url.protocol === 'http:' || url.protocol === 'https:';
   } catch {

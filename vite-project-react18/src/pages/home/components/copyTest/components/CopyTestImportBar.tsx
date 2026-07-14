@@ -4,13 +4,19 @@
 import React from 'react';
 import { Button, Form, Input, Space } from 'antd';
 
-/** 定义 CopyTestImportBarProps 的数据结构。 */
+/** Confluence 导入栏的展示状态与交互回调。 */
 interface CopyTestImportBarProps {
+  /** 当前输入的 Confluence 页面 URL。 */
   confluenceUrl: string;
+  /** 是否禁止编辑 URL。 */
   disabled: boolean;
+  /** URL 或表格导入失败时的提示文本。 */
   error?: string;
+  /** 是否正在导入 Confluence 页面。 */
   loading: boolean;
+  /** URL 输入变更时的回调。 */
   onConfluenceUrlChange: (value: string) => void;
+  /** 点击导入按钮时的回调。 */
   onImport: () => void;
 }
 

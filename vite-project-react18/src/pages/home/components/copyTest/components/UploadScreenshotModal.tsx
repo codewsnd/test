@@ -14,21 +14,39 @@ const { Text } = Typography;
 /** 截图缩略图尺寸。 */
 const IMAGE_PREVIEW_SIZE = 64;
 
-/** 定义 TEXT_TYPE_SECONDARY 常量。 */
+/** 截图辅助信息使用的 Ant Design 文本类型。 */
 const TEXT_TYPE_SECONDARY = 'secondary';
 
 /** 上传截图弹窗组件的入参。 */
 interface UploadScreenshotModalProps {
+  /** 当前截图集合是否满足校验前置条件。 */
   canValidate: boolean;
+  /** 关闭上传弹窗的回调。 */
   onClose: () => void;
+  /** 用户选择截图后的异步处理回调。 */
   onFilesSelected: (files: File[]) => Promise<void>;
+  /** 按照内存图片 MD5 删除截图的回调。 */
   onRemoveImage: (md5: string) => void;
+  /** 使用当前截图开始校验的回调。 */
   onValidate: () => void;
+  /** 是否显示上传弹窗。 */
   open: boolean;
+  /** 是否正在读取和预处理本地截图。 */
   preparingUpload: boolean;
+  /** 是否正在执行校验。 */
   processing: boolean;
+  /** 当前已读入内存的截图列表。 */
   uploadImages: CopyTestMemoryImage[];
+  /** 当前截图的原始字节总数。 */
   uploadTotalSize: number;
+}
+
+/** 单张上传截图行的入参。 */
+interface UploadImageRowProps {
+  /** 需要展示的内存截图。 */
+  image: CopyTestMemoryImage;
+  /** 按照内存图片 MD5 删除截图的回调。 */
+  onRemoveImage: (md5: string) => void;
 }
 
 /** 渲染截图数量和大小限制摘要。 */
@@ -52,10 +70,7 @@ const UploadLimitSummary: React.FC<Pick<
 };
 
 /** 渲染单张截图预览行。 */
-const UploadImageRow: React.FC<{
-  image: CopyTestMemoryImage;
-  onRemoveImage: (md5: string) => void;
-}> = ({
+const UploadImageRow: React.FC<UploadImageRowProps> = ({
   image,
   onRemoveImage,
 }) => {
@@ -125,21 +140,17 @@ export const UploadScreenshotModal: React.FC<UploadScreenshotModalProps> = ({
   uploadImages,
   uploadTotalSize,
 }) => {
-
-  /** 定义 fileInputRef 常量。 */
+  /** 隐藏文件输入框的 DOM 引用。 */
   const fileInputRef = useRef<HTMLInputElement>(null);
-
 
   /** 打开系统文件选择器。 */
   const handleChooseImages = (): void => {
     fileInputRef.current?.click();
   };
 
-
   /** 接收用户选择的图片文件。 */
   const handleFilesSelected = async (event: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
-
-    /** 定义 files 常量。 */
+    /** 从 FileList 复制出的可稳定传递文件数组。 */
     const files = Array.from(event.target.files || []);
     event.target.value = '';
     await onFilesSelected(files);

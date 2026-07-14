@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  buildStorageAttachmentPreviewBundle,
   getAttachmentPreviewRequest,
   getCopyTestValidationContext,
   getEmptyAttachmentPreviewBundle,
@@ -16,23 +17,21 @@ vi.mock('antd', () => ({ message: { warning: hoisted.warning } }));
 
 const storageHtml = '<table><tr><th>Target</th></tr><tr><td>copy</td></tr></table>';
 const managedEvidenceStorage = [
-  '<table><tr><td data-copy-test-column-type="evidence"',
-  ' data-copy-test-source-column-key="table-0:target">',
+  '<table><tr><td data-copy-test-schema="2" data-copy-test-column-type="evidence"',
+  ' data-copy-test-source-column-key="table-0:target" data-copy-test-owner-id="table-0:target">',
   '<ac:image><ri:attachment ri:filename="screen.png" /></ac:image>',
   '</td></tr></table>',
 ].join('');
 const parsedTable = parseCopyTestStorageTables(storageHtml)[0];
 const workingTable = applyCopyTestValidationResults(
   ensureCopyTestWorkingColumns(parsedTable, 0, 'Target'),
-  [{ passed: true, rowIndex: 0 }],
-  [],
+  [{ evidenceImages: [], evidenceRowSpan: 1, hideEvidenceCell: false, passed: true, rowIndex: 0 }],
   0,
   'Target'
 );
 const tableState = {
   buildSelectedRowsForValidation: () => [{ expected: 'copy', rowIndex: 0 }],
   originalStorageHtml: storageHtml,
-  referenceHeader: { index: 0, label: 'Reference' },
   selectedColumnIndex: 0,
   selectedHeader: { index: 0, label: 'Target' },
   selectedTable: workingTable,
@@ -62,6 +61,13 @@ describe('copyTestControllerUtils', () => {
     });
     const emptyBundle = getEmptyAttachmentPreviewBundle(storageHtml);
     expect(emptyBundle).toEqual({ images: [], storageHtml });
+    const loadAttachments = vi.fn();
+    void buildStorageAttachmentPreviewBundle({
+      confluenceUrl: 'http://wiki',
+      loadAttachments,
+      storageHtml,
+    });
+    expect(loadAttachments).not.toHaveBeenCalled();
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     expect(getFailedAttachmentPreviewBundle(storageHtml, new Error('failed'))).toEqual(emptyBundle);
     expect(errorSpy).toHaveBeenCalledWith(

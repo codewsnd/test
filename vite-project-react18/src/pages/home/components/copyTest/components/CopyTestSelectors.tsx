@@ -8,27 +8,40 @@ import { isCopyTestGeneratedHeader } from '../table/copyTestTableParser';
 import type { CopyTestHeader, CopyTestTableEntry } from '../types';
 import { getCopyTestTableOptionLabel } from '../utils/tableOptionUtils';
 
-/** 定义 { Text } 常量。 */
+/** Ant Design 文本组件的局部别名。 */
 const { Text } = Typography;
 
-/** 定义 CopyTestSelectorsProps 的数据结构。 */
+/** 表格、对比列与后续操作区的入参。 */
 interface CopyTestSelectorsProps {
+  /** 是否允许将当前修改回写到 Confluence。 */
   canExportToConfluence: boolean;
+  /** 是否允许为当前列选择截图。 */
   canUpload: boolean;
+  /** 是否正在回写 Confluence。 */
   exporting: boolean;
+  /** 打开截图选择流程的回调。 */
   onChooseImages: () => void;
+  /** 更改或清空 Comparison Column 的回调。 */
   onComparisonColumnChange: (value?: number) => void;
+  /** 开始回写 Confluence 的回调。 */
   onExportToConfluence: () => void;
+  /** 切换当前表格的回调。 */
   onTableChange: (value: number) => void;
+  /** 是否正在读取用户选择的截图。 */
   preparingUpload: boolean;
+  /** 是否正在执行 AI 校验。 */
   processing: boolean;
+  /** 当前 Comparison Column 的逻辑列下标。 */
   selectedColumnIndex?: number;
+  /** 当前选中的解析表格。 */
   selectedTable?: CopyTestTableEntry;
+  /** 当前选中表格的页面内序号。 */
   selectedTableIndex?: number;
+  /** 从 Confluence storage 解析出的可选表格。 */
   tables: CopyTestTableEntry[];
 }
 
-/** 处理 buildTableOptions 辅助逻辑。 */
+/** 将解析表格转为表格下拉框选项。 */
 const buildTableOptions = (tables: CopyTestTableEntry[]) => {
   return tables.map(table => ({
     value: table.index,
@@ -36,7 +49,7 @@ const buildTableOptions = (tables: CopyTestTableEntry[]) => {
   }));
 };
 
-/** 处理 buildComparisonOptions 辅助逻辑。 */
+/** 过滤空表头和生成列，构建 Comparison Column 选项。 */
 const buildComparisonOptions = (headers: CopyTestHeader[]) => {
   return headers
     .filter(header => header.label.trim() !== '' && !isCopyTestGeneratedHeader(header))

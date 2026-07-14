@@ -44,7 +44,6 @@ const hoisted = vi.hoisted(() => ({
       setSelectedRowIndexes: vi.fn(),
       tables: [{ headers: [], index: 0 }],
     },
-    uploadBusy: false,
     uploadModalOpen: false,
     uploadState: { preparingUpload: false, uploadImages: [], uploadTotalSize: 0 },
     validationLoading: false,

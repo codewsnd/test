@@ -37,13 +37,17 @@ import {
 
 /** 删除 Evidence 后的状态。 */
 export interface CopyTestSessionDeleteResult {
+  /** 同一图片文件是否仍被当前表格的其他 Evidence 实例引用。 */
   imageStillUsed: boolean;
+  /** 是否成功删除了目标图片实例。 */
   removed: boolean;
 }
 
 /** copyTest 会话状态 hook 的返回值。 */
 export interface UseCopyTestSessionResult {
+  /** 导入 storage 并返回解析出的有效表格数量。 */
   applyLoadedStorage: (nextStorageHtml: string, previewImages?: CopyTestImage[]) => number;
+  /** 把当前列的严格校验结果写入 working table。 */
   applyValidationResults: (
     results: CopyTestValidationResultWithEvidence[],
     images: CopyTestImage[],
@@ -51,29 +55,41 @@ export interface UseCopyTestSessionResult {
     selectedColumnLabel: string,
     tableIndex: number
   ) => void;
+  /** 生成当前选中来源原子组的 AI 校验输入。 */
   buildSelectedRowsForValidation: () => CopyTestRowInput[];
+  /** 将已成功导出的 storage 设为后续增量导出的基线。 */
   commitExportedStorage: (nextStorageHtml: string) => void;
+  /** 删除当前生成列中的一个 Evidence 图片实例。 */
   deleteEvidenceImage: (target: CopyTestEvidenceDeleteTarget) => CopyTestSessionDeleteResult;
+  /** 读取当前表格实际引用且已加载到内存的预览图片。 */
   getCurrentPreviewImages: () => CopyTestImage[];
+  /** 读取当前列最近一次校验使用的图片。 */
   getCurrentValidationImages: () => CopyTestImage[];
+  /** 切换 Comparison Column 并初始化对应生成双列。 */
   handleComparisonColumnChange: (columnIndex?: number) => void;
+  /** 切换当前操作的 Confluence 表格。 */
   handleTableChange: (value: number) => void;
+  /** 最近一次成功导入或导出后的完整 storage。 */
   originalStorageHtml: string;
-  previewColumnIndexes: number[];
-  referenceColumnIndex?: number;
-  referenceHeader?: CopyTestHeader;
-  removeEvidenceImageReference: (target: CopyTestEvidenceDeleteTarget) => CopyTestSessionDeleteResult;
-  resetLoadedData: () => void;
+  /** 清空各列保存的校验图片快照。 */
   resetValidationSnapshots: () => void;
+  /** 当前选中 Comparison Column 的解析上下文。 */
   selectedColumnContext: CopyTestColumnContext | null;
+  /** 当前选中 Comparison Column 的模型下标。 */
   selectedColumnIndex?: number;
+  /** 当前选中 Comparison Column 的表头。 */
   selectedHeader?: CopyTestHeader;
+  /** 当前选中的来源原子组锚点行下标。 */
   selectedRowIndexes: number[];
+  /** 当前操作的表格。 */
   selectedTable?: CopyTestTableEntry;
+  /** 当前生成双列是否包含可导出的内容。 */
   selectedColumnHasExportableContent: boolean;
+  /** 当前操作表格在 storage 中的下标。 */
   selectedTableIndex?: number;
+  /** 更新选中的来源原子组锚点行。 */
   setSelectedRowIndexes: (value: number[]) => void;
-  storageHtml: string;
+  /** 当前 storage 中解析出的全部有效表格。 */
   tables: CopyTestTableEntry[];
 }
 
@@ -92,12 +108,14 @@ const buildCurrentPreviewImages = (
   if (!table) {
     return EMPTY_VALIDATION_IMAGES;
   }
+  /** 以 Confluence 附件文件名索引全部可用内存图片。 */
   const imageByFileName = new Map<string, CopyTestImage>();
   importedImages.forEach(image => imageByFileName.set(image.fileName, image));
   Object.values(validationSnapshots).flat().forEach(image => {
     imageByFileName.set(image.fileName, image);
   });
   return getConfluenceStorageTableImageFileNames(table.workingHtml).flatMap(fileName => {
+    /** working table 当前附件引用对应的内存图片。 */
     const image = imageByFileName.get(fileName);
     return image ? [image] : [];
   });
@@ -117,8 +135,10 @@ const refreshOriginalTableSnapshots = (
   tables: CopyTestTableEntry[],
   nextStorageHtml: string
 ): CopyTestTableEntry[] => {
+  /** 从新 storage 解析出的最新原始表格快照。 */
   const parsedTables = parseCopyTestStorageTables(nextStorageHtml);
   return tables.map(table => {
+    /** 与当前 working table 下标一致的最新原始表格。 */
     const parsedTable = parsedTables.find(item => item.index === table.index);
     if (!parsedTable) {
       return table;
@@ -127,7 +147,6 @@ const refreshOriginalTableSnapshots = (
     return {
       ...table,
       originalHtml: parsedTable.originalHtml,
-      range: parsedTable.range,
     };
   });
 };
@@ -152,8 +171,10 @@ const hasGeneratedColumnContent = (
     return false;
   }
 
+  /** 当前生成类型的受控内容选择器。 */
   const selector = `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${generatedType}"]`;
   return table.model.rows.slice(1).some(row => {
+    /** 指定生成列在当前物理行中直接拥有的单元格。 */
     const cell = row.slots[columnIndex]?.cell.element;
     return hasElementContent(cell?.querySelector(selector) || cell);
   });
@@ -168,10 +189,10 @@ const hasSelectedColumnExportableContent = (
     return false;
   }
 
+  /** 当前 source key 对应 Result/Evidence 双列的逻辑下标。 */
   const indexes = findGeneratedColumnIndexes(
     table.headers,
-    context.sourceColumnKey,
-    context.selectedHeader.label
+    context.sourceColumnKey
   );
   return hasGeneratedColumnContent(table, indexes.result, COPY_TEST_GENERATED_RESULT_TYPE)
     || hasGeneratedColumnContent(table, indexes.evidence, COPY_TEST_GENERATED_EVIDENCE_TYPE);
@@ -179,7 +200,9 @@ const hasSelectedColumnExportableContent = (
 
 /** 管理 CopyTest 会话状态。 */
 export const useCopyTestSession = (): UseCopyTestSessionResult => {
+  /** reducer 会话状态及动作分发函数。 */
   const [state, dispatch] = useReducer(copyTestSessionReducer, copyTestSessionInitialState);
+  /** 当前操作频繁使用的会话字段。 */
   const {
     originalStorageHtml,
     selectedColumnIndex,
@@ -187,30 +210,31 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     selectedTableIndex,
     tables,
   } = state;
+  /** 最近一次成功导入的附件预览图片。 */
   const importedPreviewImagesRef = useRef<CopyTestImage[]>([]);
+  /** 按表格和来源列保存的最近校验图片快照。 */
   const validationImageSnapshotsRef = useRef<ValidationImageSnapshotMap>({});
 
+  /** 当前 selectedTableIndex 对应的工作表格。 */
   const selectedTable = useMemo(
     () => tables.find(table => table.index === selectedTableIndex),
     [selectedTableIndex, tables]
   );
 
+  /** 当前 Comparison Column 的来源 key 与原子行组上下文。 */
   const selectedColumnContext = useMemo(
     () => getCopyTestColumnContext(selectedTable, selectedColumnIndex),
     [selectedColumnIndex, selectedTable]
   );
 
+  /** 当前 Comparison Column 的表头。 */
   const selectedHeader = selectedColumnContext?.selectedHeader;
-  const referenceColumnIndex = selectedColumnContext?.referenceColumnIndex;
-  const referenceHeader = selectedColumnContext?.referenceHeader;
-  const previewColumnIndexes = useMemo(
-    () => selectedColumnIndex === undefined ? selectedTable?.headers.map(header => header.index) || [] : [],
-    [selectedColumnIndex, selectedTable]
-  );
+  /** 当前生成双列是否包含可导出的受控内容。 */
   const selectedColumnHasExportableContent = useMemo(
     () => hasSelectedColumnExportableContent(selectedTable, selectedColumnContext),
     [selectedColumnContext, selectedTable]
   );
+  /** 当前 working table 实际引用的内存预览图片。 */
   const currentPreviewImages = useMemo(
     () => buildCurrentPreviewImages(
       selectedTable,
@@ -225,18 +249,12 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     validationImageSnapshotsRef.current = {};
   };
 
-  /** 重置全部已加载数据。 */
-  const resetLoadedData = (): void => {
-    importedPreviewImagesRef.current = [];
-    dispatch({ type: 'RESET' });
-    resetValidationSnapshots();
-  };
-
   /** 应用导入的 storage。 */
   const applyLoadedStorage = (
     nextStorageHtml: string,
     previewImages: CopyTestImage[] = []
   ): number => {
+    /** 新 storage 中解析出的全部有效工作表格。 */
     const nextTables = parseCopyTestStorageTables(nextStorageHtml);
     importedPreviewImagesRef.current = [...previewImages];
     dispatch({ storageHtml: nextStorageHtml, tables: nextTables, type: 'LOADED' });
@@ -270,12 +288,14 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
       return;
     }
 
+    /** 当前逻辑列下标对应的非空表头。 */
     const header = selectedTable.headers.find(item => item.index === columnIndex);
     if (!header) {
       dispatch({ columnIndex: undefined, type: 'COLUMN_SELECTED' });
       return;
     }
 
+    /** 已确保当前 source Pair 双列存在的新工作表格。 */
     const nextTable = ensureCopyTestWorkingColumns(selectedTable, columnIndex, header.label);
     dispatch({
       columnIndex,
@@ -327,15 +347,16 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     columnLabel: string,
     tableIndex: number
   ): void => {
+    /** 校验发起时锁定的目标工作表格。 */
     const targetTable = tables.find(table => table.index === tableIndex);
     if (!targetTable) {
       return;
     }
 
+    /** 写入严格校验结果后的工作表格。 */
     const nextTable = applyCopyTestValidationResults(
       targetTable,
       results,
-      images,
       columnIndex,
       columnLabel
     );
@@ -344,11 +365,12 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
   };
 
   /** 删除当前列 Evidence 图片引用。 */
-  const removeEvidenceImageReference = (target: CopyTestEvidenceDeleteTarget): CopyTestSessionDeleteResult => {
+  const deleteEvidenceImage = (target: CopyTestEvidenceDeleteTarget): CopyTestSessionDeleteResult => {
     if (!selectedTable || !selectedHeader || selectedColumnIndex === undefined) {
       return { imageStillUsed: false, removed: false };
     }
 
+    /** 在当前 source Pair 内删除精确图片实例的结果。 */
     const result = deleteCopyTestEvidenceImage(
       selectedTable,
       target,
@@ -361,6 +383,7 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
 
     updateWorkingTable(refreshWorkingTable(result.table, result.table.workingHtml));
     if (!result.imageStillUsed) {
+      /** 当前来源列校验图片快照的稳定键。 */
       const snapshotKey = buildSnapshotKey(selectedTable.index, selectedColumnIndex, selectedHeader.label);
       validationImageSnapshotsRef.current = {
         ...validationImageSnapshotsRef.current,
@@ -381,17 +404,12 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     applyValidationResults,
     buildSelectedRowsForValidation,
     commitExportedStorage,
-    deleteEvidenceImage: removeEvidenceImageReference,
+    deleteEvidenceImage,
     getCurrentPreviewImages,
     getCurrentValidationImages,
     handleComparisonColumnChange,
     handleTableChange,
     originalStorageHtml,
-    previewColumnIndexes,
-    referenceColumnIndex,
-    referenceHeader,
-    removeEvidenceImageReference,
-    resetLoadedData,
     resetValidationSnapshots,
     selectedColumnContext,
     selectedColumnHasExportableContent,
@@ -401,7 +419,6 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     selectedTable,
     selectedTableIndex,
     setSelectedRowIndexes,
-    storageHtml: originalStorageHtml,
     tables,
   };
 };

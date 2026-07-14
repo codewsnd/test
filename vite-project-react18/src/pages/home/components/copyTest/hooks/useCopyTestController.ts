@@ -36,66 +36,98 @@ import {
 import { useCopyTestSession, type UseCopyTestSessionResult } from './useCopyTestSession';
 import { useCopyTestUpload, type UseCopyTestUploadResult } from './useCopyTestUpload';
 
-/** 定义 CopyTestControllerParams 的数据结构。 */
+/** CopyTest 控制器初始化参数。 */
 interface CopyTestControllerParams {
+  /** 主弹窗关闭后的外部回调。 */
   onClose: () => void;
 }
 
-/** 定义 CopyTestControllerState 的数据结构。 */
+/** CopyTest 页面直接消费的控制器状态。 */
 interface CopyTestControllerState {
+  /** 当前生成双列是否允许导出到 Confluence。 */
   canExportToConfluence: boolean;
+  /** 当前选择是否允许打开截图上传弹窗。 */
   canUpload: boolean;
+  /** 当前上传图片和选择状态是否允许发起校验。 */
   canValidate: boolean;
+  /** 用户输入的 Confluence 页面 URL。 */
   confluenceUrl: string;
+  /** 等待用户确认删除的 Evidence 图片实例。 */
   deleteImageTarget: CopyTestEvidenceDeleteTarget | null;
+  /** storage 导出请求是否正在执行。 */
   exportLoading: boolean;
+  /** 导入链路是否占用主操作区。 */
   importBusy: boolean;
+  /** URL 或 storage 表格校验错误。 */
   importError?: string;
+  /** storage 或附件预览是否正在导入。 */
   importLoading: boolean;
+  /** 当前打开的大图预览信息。 */
   previewImage: CopyTestEvidencePreviewInfo | null;
+  /** 表格解析、选择和写回状态。 */
   tableState: UseCopyTestSessionResult;
-  uploadBusy: boolean;
+  /** 截图上传弹窗是否打开。 */
   uploadModalOpen: boolean;
+  /** 图片准备与上传列表状态。 */
   uploadState: UseCopyTestUploadResult;
+  /** AI 校验和表格写入是否正在执行。 */
   validationLoading: boolean;
 }
 
-/** 定义 CopyTestControllerHandlers 的数据结构。 */
+/** CopyTest 页面可触发的控制器操作。 */
 interface CopyTestControllerHandlers {
+  /** 取消 Evidence 图片删除确认。 */
   handleCancelEvidenceImageDelete: () => void;
+  /** 打开截图上传弹窗。 */
   handleChooseImages: () => void;
+  /** 关闭 Evidence 大图预览。 */
   handleClosePreviewImage: () => void;
+  /** 在非忙碌状态关闭截图上传弹窗。 */
   handleCloseUploadModal: () => void;
+  /** 切换 Comparison Column。 */
   handleComparisonColumnChange: (value?: number) => void;
+  /** 确认删除一个 Evidence 图片实例。 */
   handleConfirmEvidenceImageDelete: () => void;
+  /** 更新 Confluence URL 并清除旧输入错误。 */
   handleConfluenceUrlChange: (value: string) => void;
+  /** 打开 Evidence 图片删除确认。 */
   handleEvidenceImageDelete: (target: CopyTestEvidenceDeleteTarget) => void;
+  /** 打开 Evidence 大图预览。 */
   handleEvidenceImagePreview: (previewInfo: CopyTestEvidencePreviewInfo) => void;
+  /** 打开导出确认弹窗。 */
   handleExportToConfluence: () => void;
+  /** 将用户选择的文件转换为待校验图片。 */
   handleFilesSelected: (files: File[]) => Promise<void>;
+  /** 校验 URL 并导入 Confluence storage 与附件。 */
   handleLoadTables: () => Promise<void>;
+  /** 关闭 CopyTest 主弹窗并清理临时上传状态。 */
   handleMainClose: () => void;
+  /** 从本次上传列表移除指定图片。 */
   handleRemoveUploadImage: (md5: string) => void;
+  /** 切换当前 Confluence 表格。 */
   handleTableChange: (value: number) => void;
+  /** 发起 AI 校验并写入 Result/Evidence 双列。 */
   handleValidateClick: () => Promise<void>;
 }
 
 /** 在两次 latest storage 读取中复用同一 scope 的导出结果。 */
 interface PreparedExportStorage {
+  /** 本次导出用于定位临时节点的唯一作用域。 */
   exportScope: string;
+  /** 基于最新 Confluence storage 生成的完整回写内容。 */
   storageHtml: string;
 }
 
-/** 定义 CopyTestControllerResult 的数据结构。 */
+/** 页面状态和操作组成的 CopyTest 控制器结果。 */
 export interface CopyTestControllerResult extends CopyTestControllerState, CopyTestControllerHandlers {}
 
-/** 定义 EXPORT_CONFIRM_TITLE 常量。 */
+/** 导出确认弹窗标题。 */
 const EXPORT_CONFIRM_TITLE = 'Confirm export';
 
-/** 定义 EXPORT_CONFIRM_CONTENT 常量。 */
+/** 导出确认弹窗风险提示。 */
 const EXPORT_CONFIRM_CONTENT = 'This operation will update the table in your Confluence page. Are you sure you want to proceed?';
 
-/** 定义 COPY_TEST_VALIDATION_SUCCESS_MESSAGE 常量。 */
+/** AI 校验和本地表格写入成功后的提示。 */
 const COPY_TEST_VALIDATION_SUCCESS_MESSAGE = 'Copy test validation completed';
 
 /** 等待浏览器先完成一次界面绘制。 */
@@ -116,6 +148,7 @@ const waitForNextPaint = async (): Promise<void> => {
 
 /** 读取最新 Confluence storage 作为导出基线。 */
 const loadLatestExportStorage = async (confluenceUrl: string): Promise<string> => {
+  /** 最新 Confluence storage 接口响应。 */
   const response = await copyTestStorageApi(confluenceUrl);
   return response.storage;
 };
@@ -130,11 +163,14 @@ export const mergeCopyTestExportImages = (
   snapshotImages: CopyTestImage[],
   uploadImages: CopyTestImage[]
 ): CopyTestImage[] => {
+  /** 保持首次出现顺序的图片合并结果。 */
   const mergedImages: CopyTestImage[] = [];
   [...snapshotImages, ...uploadImages].forEach(image => {
+    /** 当前图片以附件文件名表示的稳定标识。 */
     const imageId = getCopyTestImageId(image);
+    /** 与当前附件文件名标识冲突的已有位置。 */
     const existingIndex = mergedImages.findIndex(existing => {
-      return getCopyTestImageId(existing) === imageId || existing.fileName === image.fileName;
+      return getCopyTestImageId(existing) === imageId;
     });
     if (existingIndex >= 0) {
       mergedImages[existingIndex] = image;
@@ -150,17 +186,22 @@ const prepareLatestExportStorage = async (
   confluenceUrl: string,
   tableState: UseCopyTestSessionResult
 ): Promise<PreparedExportStorage | null> => {
+  /** 本次双读和 rebase 全程复用的导出作用域。 */
   const exportScope = createCopyTestExportScope();
+  /** 第一次读取的最新 storage 候选基线。 */
   const firstBase = await loadLatestExportStorage(confluenceUrl);
+  /** 在第一次候选基线上生成的当前 Pair patch。 */
   const firstPatch = getRequiredExportStorage(tableState, exportScope, firstBase);
   if (!firstPatch) {
     return null;
   }
 
+  /** POST 前确认 Confluence 未被再次修改的第二份 storage。 */
   const confirmedBase = await loadLatestExportStorage(confluenceUrl);
   if (!hasConfluenceStorageChanged(firstBase, confirmedBase)) {
     return { exportScope, storageHtml: firstPatch };
   }
+  /** storage 已变化时在第二份基线上重放的当前 Pair patch。 */
   const rebasedPatch = getRequiredExportStorage(tableState, exportScope, confirmedBase);
   return rebasedPatch ? { exportScope, storageHtml: rebasedPatch } : null;
 };
@@ -170,7 +211,7 @@ export const useCopyTestController = ({
   onClose,
 }: CopyTestControllerParams): CopyTestControllerResult => {
 
-  /** 定义 [confluenceUrl, setConfluenceUrl] 常量。 */
+  /** URL 输入框值及其更新函数。 */
   const [confluenceUrl, setConfluenceUrl] = useState('');
 
   /** 当前表格实际加载自哪个 URL。 */
@@ -179,46 +220,46 @@ export const useCopyTestController = ({
   /** URL 输入框下方的导入错误。 */
   const [importError, setImportError] = useState<string>();
 
-  /** 定义 [deleteImageTarget, setDeleteImageTarget] 常量。 */
+  /** 等待确认删除的 Evidence 图片实例及其更新函数。 */
   const [deleteImageTarget, setDeleteImageTarget] = useState<CopyTestEvidenceDeleteTarget | null>(null);
 
-  /** 定义 [uploadModalOpen, setUploadModalOpen] 常量。 */
+  /** 截图上传弹窗开关及其更新函数。 */
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
 
-  /** 定义 [validationLoading, setValidationLoading] 常量。 */
+  /** AI 校验执行状态及其更新函数。 */
   const [validationLoading, setValidationLoading] = useState(false);
 
-  /** 定义 [previewImage, setPreviewImage] 常量。 */
+  /** 当前 Evidence 大图预览及其更新函数。 */
   const [previewImage, setPreviewImage] = useState<CopyTestEvidencePreviewInfo | null>(null);
 
-  /** 定义 tableState 常量。 */
+  /** 当前 CopyTest 表格会话状态。 */
   const tableState = useCopyTestSession();
 
   /** 只允许最后一次导入请求提交状态。 */
   const importRequestIdRef = useRef(0);
 
-  /** 定义 uploadState 常量。 */
+  /** 当前截图上传列表状态。 */
   const uploadState = useCopyTestUpload();
 
-  /** 定义 storageRequest 常量。 */
+  /** 手动触发的 Confluence storage 请求状态。 */
   const storageRequest = useRequest(copyTestStorageApi, {
     manual: true,
   });
 
-  /** 定义 exportRequest 常量。 */
+  /** 手动触发的 storage 与附件导出请求状态。 */
   const exportRequest = useRequest(copyTestUploadApi, {
     manual: true,
   });
 
-  /** 定义 attachmentsRequest 常量。 */
+  /** 手动触发的已有附件预览请求状态。 */
   const attachmentsRequest = useRequest(copyTestAttachmentsApi, {
     manual: true,
   });
 
-  /** 定义 importLoading 常量。 */
+  /** storage 或附件预览任一请求的综合导入状态。 */
   const importLoading = storageRequest.loading || attachmentsRequest.loading;
 
-  /** 定义操作按钮状态常量。 */
+  /** 根据请求、选择和上传状态计算全部操作按钮权限。 */
   const {
     canExportToConfluence,
     canUpload,
@@ -239,51 +280,49 @@ export const useCopyTestController = ({
     validationLoading,
   });
 
-  /** 处理 handleClosePreviewImage 方法逻辑。 */
-
+  /** 关闭当前 Evidence 大图预览。 */
   const handleClosePreviewImage = (): void => {
     setPreviewImage(null);
   };
 
-  /** 处理 handleConfluenceUrlChange 方法逻辑。 */
-
+  /** 更新 URL 输入并清除上一轮输入校验错误。 */
   const handleConfluenceUrlChange = (value: string): void => {
     setConfluenceUrl(value);
     setImportError(undefined);
   };
 
-  /** 处理 resetImportSideEffects 方法逻辑。 */
-
+  /** 成功导入后清理与上一张表相关的临时状态。 */
   const resetImportSideEffects = (): void => {
     uploadState.resetUploadState();
     handleClosePreviewImage();
     tableState.resetValidationSnapshots();
   };
 
-  /** 处理 handleLoadTables 方法逻辑。 */
-
+  /** 校验 URL 并导入最新 storage 与所需附件。 */
   const handleLoadTables = async (): Promise<void> => {
-
-    /** 定义 trimmedUrl 常量。 */
+    /** 去除输入两端空白后的 Confluence URL。 */
     const trimmedUrl = confluenceUrl.trim();
+    /** URL 格式不合法时展示在输入框下方的错误。 */
     const urlError = getConfluenceUrlError(trimmedUrl);
     if (urlError) {
       setImportError(urlError);
       return;
     }
 
+    /** 用于丢弃过期异步响应的单调递增请求编号。 */
     const requestId = importRequestIdRef.current + 1;
     importRequestIdRef.current = requestId;
 
     try {
       setImportError(undefined);
 
-      /** 定义 response 常量。 */
+      /** 后端返回的最新 Confluence storage。 */
       const response = await storageRequest.runAsync(trimmedUrl);
       if (requestId !== importRequestIdRef.current) {
         return;
       }
 
+      /** storage 中没有有效表格时展示的输入错误。 */
       const storageError = getConfluenceTableError(parseCopyTestStorageTables(response.storage).length);
       if (storageError) {
         setImportError(storageError);
@@ -300,11 +339,12 @@ export const useCopyTestController = ({
         return;
       }
 
-      /** 定义 tableCount 常量。 */
+      /** 应用 storage 后实际保留的有效表格数量。 */
       const tableCount = tableState.applyLoadedStorage(
         previewBundle.storageHtml,
         previewBundle.images
       );
+      /** 附件预览应用后再次确认有效表格数量的错误。 */
       const previewStorageError = getConfluenceTableError(tableCount);
       if (previewStorageError) {
         setImportError(previewStorageError);
@@ -322,49 +362,30 @@ export const useCopyTestController = ({
     }
   };
 
-  /** 处理 handleTableChange 方法逻辑。 */
-
+  /** 切换表格并清理上一张表的临时上传与预览。 */
   const handleTableChange = (value: number): void => {
     tableState.handleTableChange(value);
     uploadState.resetUploadState();
     handleClosePreviewImage();
   };
 
-  /** 处理 handleComparisonColumnChange 方法逻辑。 */
-
+  /** 切换 Comparison Column 并关闭旧图片预览。 */
   const handleComparisonColumnChange = (value?: number): void => {
     tableState.handleComparisonColumnChange(value);
     handleClosePreviewImage();
   };
 
-  /** 处理 handleFilesSelected 方法逻辑。 */
-
+  /** 将文件选择结果交给上传状态准备。 */
   const handleFilesSelected = async (files: File[]): Promise<void> => {
     await uploadState.prepareUploadImages(files, uploadBusy);
   };
 
-  /** 处理 handleRemoveUploadImage 方法逻辑。 */
-
+  /** 从尚未写入表格的上传列表删除图片。 */
   const handleRemoveUploadImage = (md5: string): void => {
-
-    /** 定义 image 常量。 */
-    const image = uploadState.uploadImages.find(item => item.md5 === md5);
-    if (!image) {
-      return;
-    }
-
-    /** 定义 removedFromTable 常量。 */
-
-    const removeResult = tableState.removeEvidenceImageReference({
-      imageId: getCopyTestImageId(image),
-    });
-    if (!removeResult.removed || !removeResult.imageStillUsed) {
-      uploadState.removeUploadImage(md5);
-    }
+    uploadState.removeUploadImage(md5);
   };
 
-  /** 处理 handleChooseImages 方法逻辑。 */
-
+  /** 在当前选择允许上传时打开截图弹窗。 */
   const handleChooseImages = (): void => {
     if (!canUpload) {
       return;
@@ -373,16 +394,14 @@ export const useCopyTestController = ({
     setUploadModalOpen(true);
   };
 
-  /** 处理 exportStorageToConfluence 方法逻辑。 */
-
+  /** 基于双读最新 storage 导出当前 owned Pair。 */
   const exportStorageToConfluence = async (): Promise<void> => {
-    if (!tableState.storageHtml) {
+    if (!tableState.originalStorageHtml) {
       message.warning('No Confluence storage to export');
       return;
     }
 
-    /** 定义 trimmedUrl 常量。 */
-
+    /** 最近一次成功导入且即将用于导出的 URL。 */
     const trimmedUrl = loadedConfluenceUrl.trim();
     if (!isValidConfluenceUrl(trimmedUrl)) {
       setImportError(INVALID_CONFLUENCE_URL_ERROR);
@@ -392,25 +411,26 @@ export const useCopyTestController = ({
     try {
       await waitForNextPaint();
 
-      /** 定义 latestStorageHtml 常量。 */
+      /** 在最新 storage 上生成或 rebase 后的导出内容。 */
       const preparedStorage = await prepareLatestExportStorage(trimmedUrl, tableState);
       if (!preparedStorage) {
         message.warning('Confluence table changed. Please import the page again.');
         return;
       }
 
-      /** 定义 exportImages 常量。 */
+      /** 当前 Pair 校验快照与临时上传列表的去重合集。 */
       const exportImages = mergeCopyTestExportImages(
         tableState.getCurrentValidationImages(),
         uploadState.uploadImages
       );
 
-      /** 定义 payload 常量。 */
+      /** 当前 Comparison Column 的严格 ownership 键。 */
       const sourceColumnKey = tableState.selectedColumnContext?.sourceColumnKey;
       if (!sourceColumnKey) {
         message.warning('Please select a table and column first');
         return;
       }
+      /** 仅包含实际 Evidence 附件的最终 storage 上传数据。 */
       const payload = buildConfluenceStorageTableExportPayload(
         preparedStorage.storageHtml,
         sourceColumnKey,
@@ -430,8 +450,7 @@ export const useCopyTestController = ({
     }
   };
 
-  /** 处理 handleExportToConfluence 方法逻辑。 */
-
+  /** 打开导出确认弹窗。 */
   const handleExportToConfluence = (): void => {
     if (!canExportToConfluence) {
       return;
@@ -447,8 +466,7 @@ export const useCopyTestController = ({
     });
   };
 
-  /** 处理 handleCloseUploadModal 方法逻辑。 */
-
+  /** 非忙碌状态下关闭截图上传弹窗。 */
   const handleCloseUploadModal = (): void => {
     if (uploadBusy) {
       return;
@@ -457,22 +475,18 @@ export const useCopyTestController = ({
     setUploadModalOpen(false);
   };
 
-  /** 处理 applyValidationResults 方法逻辑。 */
-
+  /** 调用严格校验接口并把绑定后的结果写入当前表格。 */
   const applyValidationResults = async (context: CopyTestValidationContext): Promise<void> => {
-
-    /** 定义 results 常量。 */
     setValidationLoading(true);
     try {
-      // const results = await mockCopyTestValidationApi(
+      /** mock 或真实 aiChat 返回的严格校验结果。 */
       const results = await copyTestValidationApi(
         uploadState.uploadImages,
         context.rows,
-        context.selectedColumnLabel,
-        context.referenceHeader?.label
+        context.selectedColumnLabel
       );
 
-      /** 定义 boundResults 常量。 */
+      /** 按返回的附件文件名绑定本次上传内存图片后的结果。 */
       const boundResults = bindResultImages(results, uploadState.uploadImages);
 
       tableState.applyValidationResults(
@@ -487,25 +501,23 @@ export const useCopyTestController = ({
     }
   };
 
-  /** 处理 handleEvidenceImageDelete 方法逻辑。 */
-
+  /** 记录等待用户确认删除的 Evidence 图片实例。 */
   const handleEvidenceImageDelete = (target: CopyTestEvidenceDeleteTarget): void => {
     setDeleteImageTarget(target);
   };
 
-  /** 处理 handleCancelEvidenceImageDelete 方法逻辑。 */
-
+  /** 取消 Evidence 图片删除确认。 */
   const handleCancelEvidenceImageDelete = (): void => {
     setDeleteImageTarget(null);
   };
 
-  /** 处理 handleConfirmEvidenceImageDelete 方法逻辑。 */
-
+  /** 删除确认目标并同步关闭已无引用的预览。 */
   const handleConfirmEvidenceImageDelete = (): void => {
     if (!deleteImageTarget) {
       return;
     }
 
+    /** 当前 source Pair 内精确图片实例的删除结果。 */
     const result = tableState.deleteEvidenceImage(deleteImageTarget);
     if (!result.removed) {
       message.warning('Screenshot cannot be deleted from the current table');
@@ -516,17 +528,14 @@ export const useCopyTestController = ({
     setDeleteImageTarget(null);
   };
 
-  /** 处理 handleEvidenceImagePreview 方法逻辑。 */
-
+  /** 打开指定 Evidence 图片的大图预览。 */
   const handleEvidenceImagePreview = (previewInfo: CopyTestEvidencePreviewInfo): void => {
     setPreviewImage(previewInfo);
   };
 
-  /** 处理 handleValidateClick 方法逻辑。 */
-
+  /** 校验上传与选择上下文并执行一次 AI 校验。 */
   const handleValidateClick = async (): Promise<void> => {
-
-    /** 定义 context 常量。 */
+    /** 通过图片限制和表格选择校验后的请求上下文。 */
     const context = getCopyTestValidationContext(tableState, uploadState.uploadImages);
     if (!context) {
       return;
@@ -543,8 +552,7 @@ export const useCopyTestController = ({
     }
   };
 
-  /** 处理 handleMainClose 方法逻辑。 */
-
+  /** 在非忙碌状态关闭主弹窗并清理临时 UI 状态。 */
   const handleMainClose = (): void => {
     if (uploadBusy) {
       return;
@@ -585,7 +593,6 @@ export const useCopyTestController = ({
     importLoading,
     previewImage,
     tableState,
-    uploadBusy,
     uploadModalOpen,
     uploadState,
     validationLoading,

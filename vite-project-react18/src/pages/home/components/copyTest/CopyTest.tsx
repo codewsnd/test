@@ -14,22 +14,22 @@ import {
 import { useCopyTestController } from './hooks/useCopyTestController';
 import type { CopyTestProps } from './types';
 
-/** 定义 DELETE_EVIDENCE_IMAGE_CONFIRM_TITLE 常量。 */
+/** Evidence 图片删除确认弹窗的标题。 */
 const DELETE_EVIDENCE_IMAGE_CONFIRM_TITLE = 'Delete screenshot?';
 
-/** 定义 DELETE_EVIDENCE_IMAGE_CONFIRM_CONTENT 常量。 */
+/** Evidence 图片删除确认弹窗的风险提示。 */
 const DELETE_EVIDENCE_IMAGE_CONFIRM_CONTENT = 'This screenshot will be removed from Test Evidence and the matching Test Result entries.';
 
-/** 定义 COPY_TEST_MODAL_VIEWPORT_MARGIN 常量。 */
+/** CopyTest 弹窗与视口四周保留的像素间距。 */
 const COPY_TEST_MODAL_VIEWPORT_MARGIN = 20;
 
-/** 定义 COPY_TEST_MODAL_WIDTH 常量。 */
+/** 扣除视口间距后的 CopyTest 弹窗宽度。 */
 const COPY_TEST_MODAL_WIDTH = `calc(100vw - ${COPY_TEST_MODAL_VIEWPORT_MARGIN * 2}px)`;
 
-/** 定义 COPY_TEST_MODAL_HEIGHT 常量。 */
+/** 扣除视口间距后的 CopyTest 弹窗高度。 */
 const COPY_TEST_MODAL_HEIGHT = `calc(100vh - ${COPY_TEST_MODAL_VIEWPORT_MARGIN * 2}px)`;
 
-/** 定义 COPY_TEST_MODAL_OVERFLOW 常量。 */
+/** 弹窗各层容器共用的溢出策略。 */
 const COPY_TEST_MODAL_OVERFLOW = 'hidden';
 
 /** CopyTest 入口卡片唯一 className。 */
@@ -47,27 +47,28 @@ const isScopedTriggerClick = (
     return false;
   }
 
+  /** 当前 CopyTest 实例所属的渲染作用域。 */
   const scope = ownerElement.closest(`[${COPY_TEST_RENDERER_SCOPE_ATTRIBUTE}]`);
+  /** 点击目标向上匹配到的 CopyTest 入口。 */
   const trigger = target.closest(`.${COPY_TEST_TRIGGER_CLASS_NAME}`);
   return Boolean(scope && trigger && scope.contains(trigger));
 };
 
 /** 渲染 CopyTest 组件。 */
 export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
-
-  /** 定义 ownerRef 常量。 */
+  /** 用于定位当前组件所属渲染作用域的锚点。 */
   const ownerRef = useRef<HTMLSpanElement>(null);
 
-  /** 定义 [internalOpen, setInternalOpen] 常量。 */
+  /** 非受控模式下的弹窗显示状态。 */
   const [internalOpen, setInternalOpen] = useState(false);
 
-  /** 定义 controlled 常量。 */
+  /** 是否由外部 open 属性控制弹窗。 */
   const controlled = open !== undefined;
 
-  /** 定义 modalOpen 常量。 */
+  /** 结合受控与非受控模式得到的最终显示状态。 */
   const modalOpen = controlled ? Boolean(open) : internalOpen;
 
-  /** 定义 controller 常量。 */
+  /** CopyTest 业务状态与用户操作控制器。 */
   const controller = useCopyTestController({
     onClose: () => {
       if (!controlled) {
@@ -77,7 +78,7 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
     },
   });
 
-  /** 定义 { tableState, uploadState } 常量。 */
+  /** 当前表格会话与上传流程状态。 */
   const { tableState, uploadState } = controller;
 
   /** 仅在导入结果有效时展示已导入的表格工作区。 */

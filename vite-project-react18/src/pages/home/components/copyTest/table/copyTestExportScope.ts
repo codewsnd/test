@@ -11,6 +11,7 @@ const toHex = (bytes: Uint8Array): string => {
 
 /** 生成一个 128-bit 随机的单次导出 scope token。 */
 export const createCopyTestExportScope = (): string => {
+  /** 浏览器密码学随机源生成的 16 字节 token 原始值。 */
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
   return `copytest-${toHex(bytes)}`;
 };

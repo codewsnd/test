@@ -8,18 +8,6 @@ import { EvidenceImagePreview } from './EvidenceImagePreview';
 import TablePreview from './TablePreview';
 import UploadScreenshotModal from './UploadScreenshotModal';
 
-/** 保持组件聚合导出在运行时可被覆盖率识别。 */
-const COPY_TEST_COMPONENT_EXPORTS = {
-  CopyTestImportBar,
-  CopyTestLoadingBlock,
-  CopyTestSelectors,
-  EvidenceImagePreview,
-  TablePreview,
-  UploadScreenshotModal,
-};
-
-void COPY_TEST_COMPONENT_EXPORTS;
-
 export {
   CopyTestImportBar,
   CopyTestLoadingBlock,

@@ -45,7 +45,7 @@ vi.mock('../../api/copyTestApi', async importOriginal => {
   };
 });
 
-const storageHtml = '<table><tr><th>Reference|values=hk_en|</th><th>Target</th></tr><tr><td>Hello</td><td>你好</td></tr></table>';
+const storageHtml = '<table><tr><th>Reference</th><th>Target</th></tr><tr><td>Hello</td><td>你好</td></tr></table>';
 
 const installBrowserMocks = (): void => {
   class MockFileReader {
@@ -70,15 +70,22 @@ describe('useCopyTestController', () => {
   });
 
   it('covers import, upload, validate, export, evidence delete, and close flows', async () => {
-    hoisted.storageApi.mockResolvedValue({ confluenceTitle: 'Title', storage: storageHtml });
+    hoisted.storageApi.mockResolvedValue({ storage: storageHtml });
     hoisted.attachmentsApi.mockResolvedValue({ images: [] });
-    hoisted.validationApi.mockResolvedValue([{ evidenceImageFileNames: ['screen-uuid-value.png'], passed: true, rowIndex: 0 }]);
+    hoisted.validationApi.mockResolvedValue([{
+      evidenceImageFileNames: ['screen-uuid-value.png'],
+      hideEvidenceCell: false,
+      passed: true,
+      rowIndex: 0,
+    }]);
     hoisted.uploadApi.mockResolvedValue(undefined);
     const onClose = vi.fn();
     const { result } = renderHook(() => useCopyTestController({ onClose }));
 
     await act(() => result.current.handleLoadTables());
-    expect(hoisted.messageError).toHaveBeenCalledWith('Please enter a valid Confluence URL');
+    expect(result.current.importError).toBe(
+      'In valid URL format, Please enter a valid Http:// or https:// URL'
+    );
     act(() => {
       result.current.handleConfluenceUrlChange('http://wiki');
     });
@@ -101,7 +108,7 @@ describe('useCopyTestController', () => {
     expect(hoisted.confirm).toHaveBeenCalled();
     expect(hoisted.uploadApi).toHaveBeenCalled();
     act(() => {
-      result.current.handleEvidenceImageDelete({ imageId: 'missing' });
+      result.current.handleEvidenceImageDelete({ imageId: 'missing', instanceId: 'missing:1:0' });
       result.current.handleConfirmEvidenceImageDelete();
       result.current.handleCancelEvidenceImageDelete();
       result.current.handleEvidenceImagePreview({ alt: 'screen', imageId: 'id', src: 'src' });
@@ -135,7 +142,7 @@ describe('useCopyTestController', () => {
     await act(() => failingHook.result.current.handleLoadTables());
     expect(hoisted.messageError).toHaveBeenCalledWith('Failed to load Confluence tables');
 
-    hoisted.storageApi.mockResolvedValue({ confluenceTitle: 'Title', storage: storageHtml });
+    hoisted.storageApi.mockResolvedValue({ storage: storageHtml });
     hoisted.attachmentsApi.mockResolvedValue({ images: [] });
     hoisted.validationApi.mockRejectedValueOnce(new Error('validate failed'));
     const validationHook = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
@@ -154,7 +161,10 @@ describe('useCopyTestController', () => {
     act(() => {
       validationHook.result.current.handleConfirmEvidenceImageDelete();
       validationHook.result.current.handleEvidenceImagePreview({ alt: 'screen', imageId: 'missing', src: 'src' });
-      validationHook.result.current.handleEvidenceImageDelete({ imageId: 'missing' });
+      validationHook.result.current.handleEvidenceImageDelete({
+        imageId: 'missing',
+        instanceId: 'missing:1:0',
+      });
     });
     act(() => {
       validationHook.result.current.handleConfirmEvidenceImageDelete();

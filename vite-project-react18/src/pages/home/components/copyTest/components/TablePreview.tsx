@@ -14,7 +14,6 @@ import {
   COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE,
-  COPY_TEST_EVIDENCE_IMAGE_SRC_ATTRIBUTE,
   COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE,
   COPY_TEST_GENERATED_CONTENT_ATTRIBUTE,
   COPY_TEST_GENERATED_EVIDENCE_TYPE,
@@ -22,19 +21,27 @@ import {
 import type { CopyTestEvidenceDeleteTarget, CopyTestEvidencePreviewInfo, CopyTestTableEntry } from '../types';
 import { getCopyTestImageId } from '../table/copyTestImageUtils';
 
-/** 定义 CopyTestTablePreviewProps 的数据结构。 */
+/** iframe 表格预览的数据、交互状态与回调。 */
 interface CopyTestTablePreviewProps {
+  /** 是否禁止行选择和 Evidence 删除操作。 */
   disabled?: boolean;
+  /** 用于将 storage 图片映射为本地预览 URL 的内存图片。 */
   images?: CopyTestImage[];
+  /** 用户删除某个 Evidence 图片实例时的回调。 */
   onEvidenceImageDelete: (target: CopyTestEvidenceDeleteTarget) => void;
+  /** 用户打开 Evidence 大图预览时的回调。 */
   onEvidenceImagePreview: (previewInfo: CopyTestEvidencePreviewInfo) => void;
+  /** 已选逻辑行下标变更时的回调。 */
   onSelectedRowIndexesChange: (value: number[]) => void;
+  /** 当前 Comparison Column 的逻辑列下标。 */
   selectedColumnIndex?: number;
+  /** 当前已选中的数据行下标。 */
   selectedRowIndexes: number[];
+  /** 需要预览的当前工作表格。 */
   table?: CopyTestTableEntry;
 }
 
-/** 定义 DELETE_BUTTON_ATTRIBUTE 常量。 */
+/** Evidence 删除按钮的 DOM 标记属性。 */
 const DELETE_BUTTON_ATTRIBUTE = 'data-copy-test-evidence-delete-button';
 
 /** iframe 预览动作属性。 */
@@ -54,9 +61,6 @@ const PREVIEW_IMAGE_ALT_ATTRIBUTE = 'data-copy-test-preview-image-alt';
 
 /** iframe 预览中隐藏原始 Confluence 图片节点的属性。 */
 const PREVIEW_STORAGE_IMAGE_ATTRIBUTE = 'data-copy-test-preview-storage-image';
-
-/** storage 图片 base64 runtime 属性。 */
-const STORAGE_IMAGE_SRC_ATTRIBUTE = 'data-copy-test-storage-image-src';
 
 /** iframe 行选择 checkbox 属性。 */
 const SELECTION_CHECKBOX_ATTRIBUTE = 'data-copy-test-selection-checkbox';
@@ -88,7 +92,7 @@ const DISABLED_ATTRIBUTE = 'disabled';
 /** iframe 预览里目标 table 的选择器。 */
 const PREVIEW_TABLE_SELECTOR = 'table';
 
-/** 定义 PREVIEW_DOCUMENT_STYLE 常量。 */
+/** 注入 iframe 文档的表格、选择框和 Evidence 样式。 */
 const PREVIEW_DOCUMENT_STYLE = `
   html,
   body {
@@ -260,7 +264,7 @@ type PreviewFrameMessage =
   | {
     action: 'delete';
     imageId: string;
-    instanceId?: string;
+    instanceId: string;
     type: typeof PREVIEW_MESSAGE_TYPE;
   }
   | {
@@ -272,7 +276,9 @@ type PreviewFrameMessage =
 
 /** iframe 图片预览 URL 缓存。 */
 interface PreviewImageUrlBundle {
+  /** 组件卸载或缓存更新时需要释放的 Blob URL。 */
   urls: string[];
+  /** 按严格图片实例 ID 索引的预览 URL。 */
   urlsByKey: Record<string, string>;
 }
 
@@ -281,17 +287,25 @@ const EMPTY_PREVIEW_IMAGES: CopyTestImage[] = [];
 
 /** 表格横向滚动条尺寸信息。 */
 interface HorizontalScrollMetrics {
+  /** iframe 表格的实际可滚动宽度。 */
   contentWidth: number;
+  /** iframe 滚动容器当前的横向偏移。 */
   scrollLeft: number;
+  /** 表格是否溢出并需要展示固定滚动条。 */
   visible: boolean;
+  /** iframe 滚动容器的可见宽度。 */
   viewportWidth: number;
 }
 
 /** 固定横向滚动条一次拖拽的起点信息。 */
 interface HorizontalDragStart {
+  /** 按下滑块时指针的水平坐标。 */
   clientX: number;
+  /** 当前表格可滚动的最大水平偏移。 */
   maxScrollLeft: number;
+  /** 滑块在轨道内可移动的最大像素距离。 */
   maxThumbTravel: number;
+  /** 按下滑块时 iframe 的水平滚动偏移。 */
   scrollLeft: number;
 }
 
@@ -312,7 +326,7 @@ const isImagePreviewFrameMessage = (message: Record<string, unknown>): boolean =
 /** 判断 iframe message 是否是图片删除请求。 */
 const isImageDeleteFrameMessage = (message: Record<string, unknown>): boolean => {
   return typeof message.imageId === 'string'
-    && (message.instanceId === undefined || typeof message.instanceId === 'string');
+    && typeof message.instanceId === 'string';
 };
 
 /** 判断 iframe message 是否来自 CopyTest 预览。 */
@@ -321,6 +335,7 @@ const isPreviewFrameMessage = (data: unknown): data is PreviewFrameMessage => {
     return false;
   }
 
+  /** 便于按消息字段逐项校验的通用对象视图。 */
   const message = data as Record<string, unknown>;
   if (message.type !== PREVIEW_MESSAGE_TYPE || typeof message.action !== 'string') {
     return false;
@@ -343,13 +358,16 @@ const getVisibleColumnIndexes = (
     return null;
   }
 
+  /** 当前 Comparison Column 对应的表头。 */
   const selectedHeader = table.headers.find(header => header.index === selectedColumnIndex);
   if (!selectedHeader) {
     return null;
   }
 
+  /** 将原始列与其 Test 双列关联的稳定键。 */
   const sourceColumnKey = getSourceColumnKey(selectedColumnIndex, selectedHeader.label);
-  const generatedIndexes = findGeneratedColumnIndexes(table.headers, sourceColumnKey, selectedHeader.label);
+  /** 当前原始列拥有的 Test Result 和 Test Evidence 列下标。 */
+  const generatedIndexes = findGeneratedColumnIndexes(table.headers, sourceColumnKey);
   return new Set([
     selectedColumnIndex,
     generatedIndexes.result,
@@ -366,21 +384,22 @@ const getVisibleColSpan = (columnIndex: number, colSpan: number, visibleColumnIn
 
 /** 从 data url 创建 blob url。 */
 const createObjectUrlFromDataUrl = (dataUrl: string): string | null => {
+  /** data URL 中的 MIME 类型和 base64 内容。 */
   const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/);
   if (!match) {
     return null;
   }
 
+  /** 从 base64 解码得到的二进制字符串。 */
   const binary = window.atob(match[2]);
+  /** 用于构造 Blob 的字节数组。 */
   const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
   return URL.createObjectURL(new Blob([bytes], { type: match[1] }));
 };
 
-/** 生成图片 URL key。 */
-const getPreviewImageKey = (element: Element, index: number): string => {
-  return element.getAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE)
-    || element.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE)
-    || String(index);
+/** 读取当前 storage 图片的稳定实例标识。 */
+const getPreviewImageKey = (element: Element): string => {
+  return element.getAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE) || '';
 };
 
 /** 为 iframe 预览生成轻量图片 URL，避免 base64 进入 srcdoc。 */
@@ -388,15 +407,21 @@ const createPreviewImageUrlBundle = (
   tableHtml: string,
   images: CopyTestImage[]
 ): PreviewImageUrlBundle => {
+  /** 仅用于扫描 storage 图片标记的脱离 DOM 文档。 */
   const doc = document.implementation.createHTMLDocument('copy-test-preview-images');
+  /** 生命周期结束时需要释放的 Blob URL。 */
   const urls: string[] = [];
+  /** 按图片实例标识索引的 Blob URL。 */
   const urlsByKey: Record<string, string> = {};
+  /** 同一内存图片只创建一次 Blob URL 的去重缓存。 */
   const urlByImage = new Map<string, string>();
   images.forEach(image => {
+    /** 当前内存图片的稳定 ID。 */
     const imageId = getCopyTestImageId(image);
     if (urlByImage.has(imageId)) {
       return;
     }
+    /** 供 iframe 加载的轻量 Blob URL。 */
     const objectUrl = createObjectUrlFromDataUrl(image.base64);
     if (objectUrl) {
       urls.push(objectUrl);
@@ -404,21 +429,17 @@ const createPreviewImageUrlBundle = (
     }
   });
   doc.body.innerHTML = tableHtml;
-  doc.querySelectorAll(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`).forEach((element, index) => {
-    const dataUrl = element.getAttribute(COPY_TEST_EVIDENCE_IMAGE_SRC_ATTRIBUTE) || '';
-    const imageKey = element.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE) || dataUrl;
-    const cachedUrl = urlByImage.get(imageKey);
-    const objectUrl = cachedUrl || createObjectUrlFromDataUrl(dataUrl);
-    if (!objectUrl) {
+  doc.querySelectorAll(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`).forEach(element => {
+    /** storage 图片节点关联的内存图片 ID。 */
+    const imageId = element.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE) || '';
+    /** 当前 storage 图片节点的唯一实例 ID。 */
+    const instanceId = getPreviewImageKey(element);
+    /** 当前 storage 图片可用的 Blob URL。 */
+    const objectUrl = urlByImage.get(imageId);
+    if (!instanceId || !objectUrl) {
       return;
     }
-
-    if (!cachedUrl) {
-      urls.push(objectUrl);
-      urlByImage.set(imageKey, objectUrl);
-    }
-    urlsByKey[getPreviewImageKey(element, index)] = objectUrl;
-    urlsByKey[imageKey] = objectUrl;
+    urlsByKey[instanceId] = objectUrl;
   });
   return { urls, urlsByKey };
 };
@@ -449,6 +470,7 @@ const createSelectionCheckbox = (
   rowIndexes: number[],
   disabled: boolean
 ): HTMLInputElement => {
+  /** 将要插入 iframe 表格的行选择框。 */
   const checkbox = doc.createElement('input');
   checkbox.setAttribute('type', 'checkbox');
   checkbox.setAttribute(SELECTION_CHECKBOX_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
@@ -466,7 +488,9 @@ const createSelectionHeaderCell = (
   doc: Document,
   rowIndexes: number[]
 ): HTMLTableCellElement => {
+  /** 容纳全选复选框的表头单元格。 */
   const cell = doc.createElement('th');
+  /** 对当前列所有可选行生效的全选框。 */
   const checkbox = createSelectionCheckbox(
     doc,
     rowIndexes,
@@ -485,8 +509,11 @@ const createSelectionDataCell = (
   rowSpan: number,
   selectable: boolean
 ): HTMLTableCellElement => {
+  /** 排除表头后的业务数据行下标。 */
   const dataRowIndex = rowIndex - 1;
+  /** 容纳单行选择框的数据单元格。 */
   const cell = doc.createElement('td');
+  /** 当前逻辑行对应的选择框。 */
   const checkbox = createSelectionCheckbox(doc, [dataRowIndex], !selectable);
   cell.setAttribute(SELECTION_COLUMN_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
   if (rowSpan > 1) {
@@ -506,15 +533,19 @@ const applyPreviewRowSelection = (
     return;
   }
 
+  /** iframe 文档中需要增加选择列的顶层表格。 */
   const tableElement = doc.querySelector<HTMLTableElement>(PREVIEW_TABLE_SELECTOR);
   if (!tableElement) {
     return;
   }
 
+  /** 当前 Comparison Column 中可选的逻辑行首行。 */
   const selectableRows = getSelectableAnchorRowIndexes(table, selectedColumnIndex);
+  /** 排除嵌套表格后的顶层预览行。 */
   const previewRows = Array.from(tableElement.querySelectorAll<HTMLTableRowElement>('tr'))
     .filter(row => row.closest('table') === tableElement);
   table.model.rows.forEach(row => {
+    /** 当前模型行在预览 DOM 中的对应行。 */
     const previewRow = previewRows[row.index];
     if (!previewRow) {
       return;
@@ -524,12 +555,15 @@ const applyPreviewRowSelection = (
       return;
     }
 
+    /** 当前逻辑行在 Comparison Column 中的网格槽位。 */
     const slot = row.slots[selectedColumnIndex];
     if (!slot?.owned) {
       return;
     }
 
+    /** 当前逻辑行是否有可供校验的原始内容。 */
     const selectable = hasSelectableCellText(table, row.index, selectedColumnIndex);
+    /** 与原始单元格合并范围对齐的选择单元格。 */
     const cell = createSelectionDataCell(doc, row.index, slot.cell.rowSpan, selectable);
     previewRow.insertBefore(cell, previewRow.firstChild);
   });
@@ -541,11 +575,13 @@ const applyPreviewColumnVisibility = (
   table: CopyTestTableEntry,
   selectedColumnIndex?: number
 ): void => {
+  /** 当前预览需要保留的原始列和 Test 双列下标。 */
   const visibleColumnIndexes = getVisibleColumnIndexes(table, selectedColumnIndex);
   if (!visibleColumnIndexes) {
     return;
   }
 
+  /** iframe 文档中需要调整列可见性的顶层表格。 */
   const tableElement = doc.querySelector<HTMLTableElement>(PREVIEW_TABLE_SELECTOR);
   if (!tableElement) {
     return;
@@ -553,6 +589,7 @@ const applyPreviewColumnVisibility = (
 
   parseTableModel(tableElement).rows.forEach(row => {
     row.cells.forEach(cell => {
+      /** 该单元格横跨范围内仍可见的逻辑列数。 */
       const visibleColSpan = getVisibleColSpan(cell.columnIndex, cell.colSpan, visibleColumnIndexes);
       if (visibleColSpan === 0) {
         cell.element.style.display = 'none';
@@ -571,6 +608,7 @@ const stripUnsafePreviewRuntime = (doc: Document): void => {
   doc.querySelectorAll('script').forEach(script => script.remove());
   doc.querySelectorAll('*').forEach(element => {
     Array.from(element.attributes).forEach(attribute => {
+      /** 用于不区分大小写安全校验的属性名。 */
       const attributeName = attribute.name.toLowerCase();
       if (attributeName.startsWith('on')) {
         element.removeAttribute(attribute.name);
@@ -584,20 +622,20 @@ const stripUnsafePreviewRuntime = (doc: Document): void => {
 
 /** 为 Confluence ac:image 补充浏览器可见的 img 预览节点。 */
 const applyPreviewEvidenceImages = (doc: Document, previewImageUrls: Record<string, string>): void => {
-  doc.querySelectorAll(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`).forEach((element, index) => {
+  doc.querySelectorAll(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`).forEach(element => {
     if (element.tagName.toLowerCase() === 'img') {
       return;
     }
 
-    const imageId = element.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE) || '';
-    const src = previewImageUrls[getPreviewImageKey(element, index)]
-      || previewImageUrls[imageId]
-      || element.getAttribute(COPY_TEST_EVIDENCE_IMAGE_SRC_ATTRIBUTE)
-      || '';
+    /** 当前 storage 图片节点的唯一实例 ID。 */
+    const instanceId = getPreviewImageKey(element);
+    /** 严格按图片实例 ID 获取的预览 URL。 */
+    const src = previewImageUrls[instanceId] || '';
     if (!src) {
       return;
     }
 
+    /** 替代 Confluence storage 节点的可见预览图片。 */
     const image = doc.createElement('img');
     image.setAttribute(PREVIEW_ACTION_ATTRIBUTE, 'preview');
     image.setAttribute('src', src);
@@ -607,8 +645,6 @@ const applyPreviewEvidenceImages = (doc: Document, previewImageUrls: Record<stri
     image.setAttribute(PREVIEW_IMAGE_ALT_ATTRIBUTE, element.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE) || '');
     element.setAttribute(PREVIEW_STORAGE_IMAGE_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
     element.parentElement?.setAttribute(COPY_TEST_EVIDENCE_CARD_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
-    element.removeAttribute(COPY_TEST_EVIDENCE_IMAGE_SRC_ATTRIBUTE);
-    element.removeAttribute(STORAGE_IMAGE_SRC_ATTRIBUTE);
     element.insertAdjacentElement('afterend', image);
   });
 };
@@ -621,15 +657,19 @@ const isEvidenceColumnCell = (cell: Element): boolean => {
 
 /** 读取 Test Evidence 列单元格集合。 */
 const getEvidenceColumnCells = (doc: Document): Set<Element> => {
+  /** iframe 文档中承载 Evidence 内容的顶层表格。 */
   const tableElement = doc.querySelector<HTMLTableElement>(PREVIEW_TABLE_SELECTOR);
   if (!tableElement) {
     return new Set();
   }
 
+  /** 按 rowspan 和 colspan 展开后的预览表格模型。 */
   const model = parseTableModel(tableElement);
+  /** 具有 CopyTest ownership metadata 的 Evidence 逻辑列下标。 */
   const evidenceColumnIndexes = new Set(model.headers
     .filter(header => header.generatedType === COPY_TEST_GENERATED_EVIDENCE_TYPE)
     .map(header => header.index));
+  /** 所有属于 Test Evidence 列的实体单元格。 */
   const cells = model.rows.flatMap(row => row.cells
     .filter(cell => evidenceColumnIndexes.has(cell.columnIndex) || isEvidenceColumnCell(cell.element))
     .map(cell => cell.element));
@@ -638,24 +678,35 @@ const getEvidenceColumnCells = (doc: Document): Set<Element> => {
 
 /** 判断 Evidence card 是否位于 Test Evidence 列。 */
 const isCardInEvidenceColumn = (card: Element, evidenceCells: Set<Element>): boolean => {
+  /** Evidence card 实际所属的表格单元格。 */
   const cell = card.closest('td,th');
   return Boolean(cell && evidenceCells.has(cell));
 };
 
 /** 为 iframe 预览追加 Evidence 删除按钮。 */
 const appendEvidenceDeleteButtons = (doc: Document, disabled: boolean): void => {
+  /** 允许承载可删除图片的 Test Evidence 单元格。 */
   const evidenceCells = getEvidenceColumnCells(doc);
   doc.querySelectorAll(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`).forEach(card => {
     if (!isCardInEvidenceColumn(card, evidenceCells) || card.querySelector(`[${DELETE_BUTTON_ATTRIBUTE}]`)) {
       return;
     }
 
+    /** Evidence card 内携带图片标识的 storage 节点。 */
     const image = card.querySelector(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`);
+    /** 图片附件的稳定 ID。 */
+    const imageId = image?.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE) || '';
+    /** 区分同一图片多次出现位置的实例 ID。 */
+    const instanceId = image?.getAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE) || '';
+    if (!imageId || !instanceId) {
+      return;
+    }
+    /** 只作用于当前 Evidence 图片实例的删除按钮。 */
     const button = doc.createElement('button');
     button.setAttribute(DELETE_BUTTON_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
     button.setAttribute(PREVIEW_ACTION_ATTRIBUTE, 'delete');
-    button.setAttribute(PREVIEW_IMAGE_ID_ATTRIBUTE, image?.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE) || '');
-    button.setAttribute(PREVIEW_IMAGE_INSTANCE_ATTRIBUTE, image?.getAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE) || '');
+    button.setAttribute(PREVIEW_IMAGE_ID_ATTRIBUTE, imageId);
+    button.setAttribute(PREVIEW_IMAGE_INSTANCE_ATTRIBUTE, instanceId);
     button.setAttribute('type', 'button');
     if (disabled) {
       button.setAttribute(DISABLED_ATTRIBUTE, DISABLED_ATTRIBUTE);
@@ -681,6 +732,7 @@ const updateSelectedRowIndexes = (
   changedRowIndexes: number[],
   checked: boolean
 ): number[] => {
+  /** 使用 Set 去重后的下一批已选行。 */
   const nextRows = new Set(currentRowIndexes);
   changedRowIndexes.forEach(rowIndex => {
     if (checked) {
@@ -712,7 +764,7 @@ const buildPreviewRuntimeScript = (): string => {
       const post = payload => window.parent.postMessage({ type: messageType, ...payload }, '*');
       const readImagePayload = element => ({
         imageId: element.getAttribute(imageIdAttribute) || '',
-        instanceId: element.getAttribute(imageInstanceAttribute) || undefined,
+        instanceId: element.getAttribute(imageInstanceAttribute) || '',
         src: element.getAttribute(imageSrcAttribute) || element.getAttribute('src') || '',
         alt: element.getAttribute(imageAltAttribute) || '',
       });
@@ -768,7 +820,7 @@ const buildPreviewRuntimeScript = (): string => {
         }
         event.preventDefault();
         const payload = readImagePayload(actionElement);
-        if (actionElement.getAttribute(actionAttribute) === 'delete' && payload.imageId) {
+        if (actionElement.getAttribute(actionAttribute) === 'delete' && payload.imageId && payload.instanceId) {
           post({ action: 'delete', imageId: payload.imageId, instanceId: payload.instanceId });
         }
         if (actionElement.getAttribute(actionAttribute) === 'preview' && payload.imageId && payload.src) {
@@ -802,6 +854,7 @@ const buildPreviewDocumentHtml = (
   previewImageUrls: Record<string, string>,
   selectedColumnIndex?: number
 ): string => {
+  /** 用于安全改写预览表格的脱离 DOM 文档。 */
   const doc = document.implementation.createHTMLDocument('copy-test-preview');
   doc.body.innerHTML = table.workingHtml;
   stripUnsafePreviewRuntime(doc);
@@ -829,8 +882,11 @@ const getFrameScrollRoot = (iframe: HTMLIFrameElement | null): HTMLElement | nul
 
 /** 读取 iframe 内部表格实际宽度。 */
 const getFrameTableScrollWidth = (iframe: HTMLIFrameElement | null): number => {
+  /** iframe 内部文档，未加载时为空。 */
   const doc = iframe?.contentDocument;
+  /** iframe 内部纵向与横向滚动容器。 */
   const scrollRoot = getFrameScrollRoot(iframe);
+  /** 用于读取真实宽度的预览表格。 */
   const tableElement = doc?.querySelector<HTMLElement>(PREVIEW_TABLE_SELECTOR);
   return Math.max(scrollRoot?.scrollWidth || 0, tableElement?.scrollWidth || 0);
 };
@@ -856,22 +912,34 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
   selectedRowIndexes,
   table,
 }) => {
+  /** 当前表格预览 iframe 的 DOM 引用。 */
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  /** 固定横向滚动条轨道的 DOM 引用。 */
   const horizontalTrackRef = useRef<HTMLDivElement>(null);
+  /** 固定横向滚动条滑块的 DOM 引用。 */
   const horizontalThumbRef = useRef<HTMLDivElement>(null);
+  /** 当前滑块拖拽所使用的起点快照。 */
   const horizontalDragStartRef = useRef<HorizontalDragStart>({
     clientX: 0,
     maxScrollLeft: 0,
     maxThumbTravel: 1,
     scrollLeft: 0,
   });
+  /** 指针是否正在拖拽固定横向滚动条。 */
   const horizontalDraggingRef = useRef(false);
+  /** 当前已排队的横向拖拽动画帧 ID。 */
   const horizontalDragFrameRef = useRef<number | null>(null);
+  /** 高频 mousemove 事件中待消费的最新水平坐标。 */
   const pendingHorizontalDragClientXRef = useRef<number | null>(null);
+  /** 解除 iframe scroll 事件监听的清理函数。 */
   const frameScrollCleanupRef = useRef<() => void>(() => {});
+  /** 停止 iframe 尺寸监听的清理函数。 */
   const frameResizeCleanupRef = useRef<() => void>(() => {});
+  /** 供 iframe message 处理器读取的最新已选行。 */
   const selectedRowIndexesRef = useRef(selectedRowIndexes);
+  /** 供 iframe 状态同步读取的最新禁用状态。 */
   const disabledRef = useRef(disabled);
+  /** 固定横向滚动条的尺寸与位置状态。 */
   const [horizontalScrollMetrics, setHorizontalScrollMetrics] = useState<HorizontalScrollMetrics>({
     contentWidth: 0,
     scrollLeft: 0,
@@ -879,6 +947,7 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
     viewportWidth: 0,
   });
 
+  /** 当前表格 Evidence 图片的 Blob URL 缓存。 */
   const previewImageUrlBundle = useMemo(
     () => createPreviewImageUrlBundle(table?.workingHtml || '', images),
     [images, table?.workingHtml]
@@ -890,6 +959,7 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
     };
   }, [previewImageUrlBundle]);
 
+  /** 完成安全改写后供 iframe 加载的整体 HTML。 */
   const previewHtml = useMemo(
     () => table
       ? buildPreviewDocumentHtml(
@@ -918,6 +988,7 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
 
   /** 同步固定横向滚动条尺寸。 */
   const updateHorizontalScrollMetrics = useCallback((): void => {
+    /** iframe 内部的表格滚动容器。 */
     const scrollRoot = getFrameScrollRoot(iframeRef.current);
     if (!scrollRoot) {
       setHorizontalScrollMetrics({
@@ -929,8 +1000,11 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
       return;
     }
 
+    /** 结合容器和表格读取的实际内容宽度。 */
     const contentWidth = getFrameTableScrollWidth(iframeRef.current);
+    /** iframe 滚动容器的可见宽度。 */
     const viewportWidth = scrollRoot.clientWidth;
+    /** 内容宽度是否超出可见区域。 */
     const visible = contentWidth > viewportWidth + 1;
     setHorizontalScrollMetrics({
       contentWidth,
@@ -942,18 +1016,26 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
 
   /** 将一次横向拖拽位置直接写入滚动 DOM，避免 mousemove 触发 React 渲染。 */
   const applyHorizontalDragPosition = useCallback((clientX: number): void => {
+    /** iframe 内部的表格滚动容器。 */
     const scrollRoot = getFrameScrollRoot(iframeRef.current);
+    /** 固定横向滚动条的轨道节点。 */
     const track = horizontalTrackRef.current;
+    /** 固定横向滚动条的滑块节点。 */
     const thumb = horizontalThumbRef.current;
     if (!scrollRoot || !track || !thumb) {
       return;
     }
 
+    /** 按下滑块时记录的拖拽起点。 */
     const dragStart = horizontalDragStartRef.current;
+    /** 指针相对拖拽起点的水平移动距离。 */
     const deltaX = clientX - dragStart.clientX;
+    /** 按滑块移动比例换算的目标滚动偏移。 */
     const nextScrollLeft = dragStart.scrollLeft
       + (deltaX / dragStart.maxThumbTravel) * dragStart.maxScrollLeft;
+    /** 约束在当前表格可滚动范围内的偏移。 */
     const scrollLeft = clamp(nextScrollLeft, 0, dragStart.maxScrollLeft);
+    /** 滑块和表格当前的归一化滚动进度。 */
     const thumbProgress = dragStart.maxScrollLeft === 0
       ? 0
       : scrollLeft / dragStart.maxScrollLeft;
@@ -973,6 +1055,7 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
 
   /** 消费鼠标事件队列中最新的横向拖拽位置。 */
   const applyPendingHorizontalDrag = useCallback((): void => {
+    /** 下一动画帧需要应用的最新指针水平坐标。 */
     const clientX = pendingHorizontalDragClientXRef.current;
     pendingHorizontalDragClientXRef.current = null;
     if (clientX === null || !horizontalDraggingRef.current) {
@@ -1001,11 +1084,13 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
 
   /** 同步 iframe 表格和固定底部横向滚动条。 */
   const bindFrameScrollSync = useCallback((): (() => void) => {
+    /** 需要监听横向偏移的 iframe 滚动容器。 */
     const scrollRoot = getFrameScrollRoot(iframeRef.current);
     if (!scrollRoot) {
       return () => {};
     }
 
+    /** 在非拖拽场景下将 iframe 滚动位置同步给滑块。 */
     const handleFrameScroll = (): void => {
       if (horizontalDraggingRef.current) {
         return;
@@ -1023,12 +1108,15 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
 
   /** 用 ResizeObserver 监听预览内容尺寸，避免重复延时同步。 */
   const bindFrameResizeSync = useCallback((): (() => void) => {
+    /** 需要监听尺寸变化的 iframe 滚动容器。 */
     const scrollRoot = getFrameScrollRoot(iframeRef.current);
+    /** 需要监听实际内容宽度变化的预览表格。 */
     const tableElement = iframeRef.current?.contentDocument?.querySelector(PREVIEW_TABLE_SELECTOR);
     if (!scrollRoot || !tableElement || typeof ResizeObserver === 'undefined') {
       return () => {};
     }
 
+    /** 同时观察容器和表格的尺寸监听器。 */
     const observer = new ResizeObserver(updateHorizontalScrollMetrics);
     observer.observe(scrollRoot);
     observer.observe(tableElement);
@@ -1051,9 +1139,13 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
   const handleHorizontalThumbMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>): void => {
     event.preventDefault();
     event.stopPropagation();
+    /** 拖拽操作要控制的 iframe 滚动容器。 */
     const scrollRoot = getFrameScrollRoot(iframeRef.current);
+    /** 用于计算滑块可移动距离的轨道节点。 */
     const track = horizontalTrackRef.current;
+    /** 用于计算实际宽度的滑块节点。 */
     const thumb = horizontalThumbRef.current;
+    /** 拖拽开始时 iframe 滚动容器的可见宽度。 */
     const viewportWidth = scrollRoot?.clientWidth || 0;
     horizontalDragStartRef.current = {
       clientX: event.clientX,
@@ -1079,13 +1171,16 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
     : 0;
 
   useEffect(() => {
+    /** 当前滑块节点，用于卸载时清理拖拽样式。 */
     const horizontalThumb = horizontalThumbRef.current;
+    /** 将高频指针移动合并到下一动画帧。 */
     const handleMouseMove = (event: MouseEvent): void => {
       if (!horizontalDraggingRef.current) {
         return;
       }
       scheduleHorizontalDrag(event.clientX);
     };
+    /** 结束拖拽并对齐 iframe 与滑块的最终位置。 */
     const handleMouseUp = (): void => {
       if (!horizontalDraggingRef.current) {
         return;
@@ -1120,6 +1215,7 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
   }, [updateHorizontalScrollMetrics]);
 
   useEffect(() => {
+    /** 当前滑块节点，用于预览文档切换时清理样式。 */
     const horizontalThumb = horizontalThumbRef.current;
     return () => {
       frameScrollCleanupRef.current();
@@ -1134,6 +1230,7 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
   }, [cancelHorizontalDragFrame, previewHtml]);
 
   useEffect(() => {
+    /** 分发 iframe 内部行选择、图片预览和删除事件。 */
     const handleFrameMessage = (event: MessageEvent): void => {
       if (event.source !== iframeRef.current?.contentWindow || !isPreviewFrameMessage(event.data)) {
         return;

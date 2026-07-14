@@ -14,7 +14,6 @@ import {
   type CopyTestGeneratedColumnType,
   type CopyTestRowModel,
   type CopyTestTableModel,
-  type CopyTestTableRange,
 } from './tableModel';
 import {
   getSourceColumnKey,
@@ -32,52 +31,77 @@ import {
 
 /** 当前列导出入参。 */
 interface BuildCurrentColumnExportStorageParams {
+  /** 标记本次导出双列的唯一作用域值。 */
   exportScope: string;
+  /** 执行导出前刚从 Confluence 读取的最新完整 storage。 */
   originalStorageHtml: string;
+  /** 用户在导入快照中选择的 Comparison Column 下标。 */
   selectedColumnIndex: number;
+  /** 用户在导入快照中选择的 Comparison Column 标题。 */
   selectedColumnLabel: string;
+  /** 包含导入快照和本地编辑结果的目标工作表。 */
   table: CopyTestWorkingTable;
 }
 
 /** 同时持有 DOM 模型和 raw range 的单张表视图。 */
 interface RawTableView {
+  /** 从当前 raw 表格解析出的 DOM 行列模型。 */
   model: CopyTestTableModel;
+  /** 当前表格在完整 storage 顶层表格集合中的顺序。 */
   ordinal: number;
+  /** rawTable 所属的完整 storage 字符串。 */
   raw: string;
+  /** 当前表格在 raw 字符串中的绝对区间及直属行列。 */
   rawTable: CopyTestRawTableRange;
 }
 
 /** 非 managed source column 的稳定描述。 */
 interface SourceColumnDescriptor {
+  /** 规范化后的非 managed 来源列标题。 */
   label: string;
+  /** 同名非 managed 标题中当前来源列的零基序号。 */
   occurrence: number;
 }
 
 /** 单元格 patch 构造所需上下文。 */
 interface CellPatchContext {
+  /** latest 表格每个逻辑表头位置的稳定身份。 */
   baseHeaderIdentities: string[];
+  /** 作为补丁基础的 latest raw 表格视图。 */
   baseView: RawTableView;
+  /** 临时写入目标双列单元格的本次导出作用域。 */
   exportScope: string;
+  /** 当前双列已经收集的 raw 字符串替换操作。 */
   replacements: CopyTestRawReplacement[];
+  /** 当前解析的物理行下标。 */
   rowIndex: number;
+  /** 将 Result/Evidence 双列绑定到来源列的稳定键。 */
   sourceColumnKey: string;
+  /** 当前解析的是 Result 还是 Evidence 单元格。 */
   type: CopyTestGeneratedColumnType;
+  /** working 表格每个逻辑表头位置的稳定身份。 */
   workingHeaderIdentities: string[];
+  /** 含本地校验结果的 working raw 表格视图。 */
   workingView: RawTableView;
 }
 
 /** 单个 row/type 在 base 与 working 中解析出的 cell/range。 */
 interface ResolvedCellPatch {
+  /** latest 表格中已有目标 owned cell 的 raw 区间。 */
   baseRawCell?: CopyTestRawCellRange;
+  /** 期望写回 latest storage 的完整目标单元格 raw。 */
   desiredRaw: string;
 }
 
+/** 每个 Comparison Column 固定拥有的 Result 与 Evidence 类型顺序。 */
 const COPY_TEST_GENERATED_TYPES: CopyTestGeneratedColumnType[] = [
   COPY_TEST_GENERATED_RESULT_TYPE,
   COPY_TEST_GENERATED_EVIDENCE_TYPE,
 ];
 
+/** 匹配 raw 单元格开标签前缀，用于注入导出作用域属性。 */
 const RAW_CELL_OPENING_PATTERN = /^(\s*<(?:th|td)\b)/i;
+/** 匹配已存在的导出作用域属性，确保重复导出时先替换旧值。 */
 const EXPORT_SCOPE_ATTRIBUTE_PATTERN = new RegExp(
   `\\s${COPY_TEST_EXPORT_SCOPE_ATTRIBUTE}(?:\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+))?`,
   'gi'
@@ -106,14 +130,31 @@ const isTargetManagedCell = (
 
 /** 构建只包含 non-managed header、行数和 non-managed span 拓扑的定位签名。 */
 const buildTableLocatorSignature = (model: CopyTestTableModel): string => {
+  /** 保留原始顺序的全部非 managed 表头文本。 */
   const headerLabels = (model.rows[0]?.cells || [])
-    .filter(cell => !isCompleteManagedCell(cell))
-    .map(cell => normalizeSignatureText(cell.text));
-  const spanTopology = model.rows.map(row => {
-    return row.cells
-      .filter(cell => !isCompleteManagedCell(cell))
-      .map(cell => [cell.tagName, cell.colSpan, cell.rowSpan]);
-  });
+    .filter(
+      /** 排除可由 CopyTest 重建的 managed 表头。 */
+      cell => !isCompleteManagedCell(cell)
+    )
+    .map(
+      /** 将保留表头转换为忽略空白差异的定位文本。 */
+      cell => normalizeSignatureText(cell.text)
+    );
+  /** 各物理行非 managed 单元格的标签与合并拓扑。 */
+  const spanTopology = model.rows.map(
+    /** 为每个物理行保留不可重建单元格的合并形状。 */
+    row => {
+      return row.cells
+        .filter(
+          /** 排除当前或其他来源列的 managed 单元格。 */
+          cell => !isCompleteManagedCell(cell)
+        )
+        .map(
+          /** 用标签及横纵 span 表达单元格拓扑。 */
+          cell => [cell.tagName, cell.colSpan, cell.rowSpan]
+        );
+    }
+  );
   return JSON.stringify({
     headerLabels,
     rowCount: model.rows.length,
@@ -124,7 +165,10 @@ const buildTableLocatorSignature = (model: CopyTestTableModel): string => {
 /** 校验 DOM 行列与 raw scanner 结果可以一一对应。 */
 const hasAlignedRawRows = (model: CopyTestTableModel, rawTable: CopyTestRawTableRange): boolean => {
   return model.rows.length === rawTable.rows.length
-    && model.rows.every((row, index) => row.cells.length === rawTable.rows[index]?.cells.length);
+    && model.rows.every(
+      /** 要求每个 DOM 行的直属单元格数与同下标 raw 行一致。 */
+      (row, index) => row.cells.length === rawTable.rows[index]?.cells.length
+    );
 };
 
 /** 创建单张 raw table 视图。 */
@@ -133,6 +177,7 @@ const createRawTableView = (
   rawTable: CopyTestRawTableRange,
   ordinal: number
 ): RawTableView | null => {
+  /** 从当前 raw table 区间独立解析出的表格快照。 */
   const parsed = parseSingleTable(getRawRangeText(raw, rawTable));
   if (!parsed || !hasAlignedRawRows(parsed.model, rawTable)) {
     return null;
@@ -142,14 +187,19 @@ const createRawTableView = (
 
 /** 读取 storage 中全部可安全 patch 的顶层 table 视图。 */
 const createStorageTableViews = (storageHtml: string): RawTableView[] => {
-  return scanTopLevelTableRawRanges(storageHtml).flatMap((rawTable, ordinal) => {
-    const view = createRawTableView(storageHtml, rawTable, ordinal);
-    return view ? [view] : [];
-  });
+  return scanTopLevelTableRawRanges(storageHtml).flatMap(
+    /** 只保留能在 DOM 模型与 raw 行列之间安全映射的顶层表格。 */
+    (rawTable, ordinal) => {
+      /** 当前顶层表格在 DOM 模型与 raw 行列均对齐时生成的视图。 */
+      const view = createRawTableView(storageHtml, rawTable, ordinal);
+      return view ? [view] : [];
+    }
+  );
 };
 
 /** 读取 workingHtml 中唯一的顶层 table。 */
 const createWorkingTableView = (workingHtml: string): RawTableView | null => {
+  /** working html 中扫描到的全部顶层 raw 表格。 */
   const rawTables = scanTopLevelTableRawRanges(workingHtml);
   if (rawTables.length !== 1) {
     return null;
@@ -159,8 +209,17 @@ const createWorkingTableView = (workingHtml: string): RawTableView | null => {
 
 /** 让旧 index 对候选检查顺序有优先级，但不把它作为歧义时的猜测依据。 */
 const prioritizeTableViews = (views: RawTableView[], oldIndex: number): RawTableView[] => {
-  const preferred = views.find(view => view.ordinal === oldIndex);
-  return preferred ? [preferred, ...views.filter(view => view !== preferred)] : views;
+  /** 与导入时表格顺序一致的候选视图。 */
+  const preferred = views.find(
+    /** 查找仍位于导入顺序的候选表格。 */
+    view => view.ordinal === oldIndex
+  );
+  return preferred
+    ? [preferred, ...views.filter(
+      /** 将首选视图之外的候选保持原顺序追加。 */
+      view => view !== preferred
+    )]
+    : views;
 };
 
 /** 在 latest storage 中按签名唯一定位目标表。 */
@@ -169,23 +228,31 @@ const locateLatestTable = (
   oldIndex: number,
   signature: string
 ): RawTableView | null => {
+  /** latest storage 中与导入定位签名完全一致的候选表格。 */
   const matches = prioritizeTableViews(createStorageTableViews(storageHtml), oldIndex)
-    .filter(view => buildTableLocatorSignature(view.model) === signature);
+    .filter(
+      /** 只保留不可重建内容与导入快照完全一致的表格。 */
+      view => buildTableLocatorSignature(view.model) === signature
+    );
   return matches.length === 1 ? matches[0] : null;
 };
 
 /** 读取 header 中所有 non-managed 逻辑列。 */
 const getNonManagedHeaderColumns = (model: CopyTestTableModel): Array<{ index: number; label: string }> => {
+  /** 用作列身份来源的第一行表头模型。 */
   const headerRow = model.rows[0];
   if (!headerRow) {
     return [];
   }
-  return headerRow.slots.flatMap((slot, index) => {
-    if (!slot || isCompleteManagedCell(slot.cell)) {
-      return [];
+  return headerRow.slots.flatMap(
+    /** 将每个非 managed 逻辑表头投影为列下标和规范文本。 */
+    (slot, index) => {
+      if (!slot || isCompleteManagedCell(slot.cell)) {
+        return [];
+      }
+      return [{ index, label: normalizeSignatureText(slot.cell.text) }];
     }
-    return [{ index, label: normalizeSignatureText(slot.cell.text) }];
-  });
+  );
 };
 
 /** 从导入时的列选择构建不依赖 managed 列绝对位置的 source 描述。 */
@@ -194,14 +261,24 @@ const buildSourceColumnDescriptor = (
   selectedColumnIndex: number,
   selectedColumnLabel: string
 ): SourceColumnDescriptor | null => {
+  /** 导入表格中按逻辑列顺序排列的非 managed 标题。 */
   const columns = getNonManagedHeaderColumns(model);
-  const selected = columns.find(column => column.index === selectedColumnIndex);
+  /** 与用户选择的逻辑列下标一致的候选标题。 */
+  const selected = columns.find(
+    /** 按用户导入时选择的逻辑列下标定位标题。 */
+    column => column.index === selectedColumnIndex
+  );
+  /** 去除空白差异后的用户选择标题。 */
   const label = normalizeSignatureText(selectedColumnLabel);
   if (!selected || selected.label !== label) {
     return null;
   }
+  /** 当前标题在同名非 managed 来源列中的零基序号。 */
   const occurrence = columns
-    .filter(column => column.index < selectedColumnIndex && column.label === label)
+    .filter(
+      /** 统计当前列之前标题文本相同的非 managed 列。 */
+      column => column.index < selectedColumnIndex && column.label === label
+    )
     .length;
   return { label, occurrence };
 };
@@ -211,8 +288,12 @@ const resolveSourceColumnIndex = (
   model: CopyTestTableModel,
   descriptor: SourceColumnDescriptor
 ): number | undefined => {
+  /** 当前表格中标题与导入描述一致的全部非 managed 来源列。 */
   const matches = getNonManagedHeaderColumns(model)
-    .filter(column => column.label === descriptor.label);
+    .filter(
+      /** 只保留规范标题与导入描述相同的来源列。 */
+      column => column.label === descriptor.label
+    );
   return matches[descriptor.occurrence]?.index;
 };
 
@@ -221,8 +302,12 @@ const buildSourceRowGroupSignature = (
   model: CopyTestTableModel,
   columnIndex: number
 ): string | null => {
+  /** 来源列中每个 owned anchor 的文本、位置和跨行签名。 */
   const groups: Array<{ anchorRowIndex: number; rowSpan: number; text: string }> = [];
-  for (const row of model.rows.slice(1)) {
+  for (let rowIndex = 1; rowIndex < model.rows.length; rowIndex += 1) {
+    /** 当前待纳入来源列签名的数据物理行。 */
+    const row = model.rows[rowIndex];
+    /** 当前数据行在来源逻辑列上的 slot。 */
     const slot = row.slots[columnIndex];
     if (!slot) {
       return null;
@@ -246,15 +331,19 @@ const hasStableSourceColumn = (
   selectedColumnIndex: number,
   selectedColumnLabel: string
 ): boolean => {
+  /** 由导入快照中选择下标和标题确定的稳定来源列描述。 */
   const descriptor = buildSourceColumnDescriptor(originalModel, selectedColumnIndex, selectedColumnLabel);
   if (!descriptor) {
     return false;
   }
+  /** latest 表格中与导入描述对应的来源列下标。 */
   const latestIndex = resolveSourceColumnIndex(latestModel, descriptor);
+  /** working 表格中与导入描述对应的来源列下标。 */
   const workingIndex = resolveSourceColumnIndex(workingModel, descriptor);
   if (latestIndex === undefined || workingIndex === undefined) {
     return false;
   }
+  /** 导入快照中来源列的文本及合并拓扑签名。 */
   const originalSignature = buildSourceRowGroupSignature(originalModel, selectedColumnIndex);
   return originalSignature !== null
     && originalSignature === buildSourceRowGroupSignature(latestModel, latestIndex)
@@ -263,21 +352,29 @@ const hasStableSourceColumn = (
 
 /** 构建 logical header identity，用于缺失 owned cell 的稳定插入位置。 */
 const buildHeaderColumnIdentities = (model: CopyTestTableModel): string[] => {
+  /** 每个规范化非 managed 标题已经出现的次数。 */
   const occurrences = new Map<string, number>();
-  return (model.rows[0]?.slots || []).map((slot, columnIndex) => {
-    if (!slot) {
-      return `hole:${columnIndex}`;
+  return (model.rows[0]?.slots || []).map(
+    /** 为每个逻辑表头位置构建可跨版本比较的身份。 */
+    (slot, columnIndex) => {
+      if (!slot) {
+        return `hole:${columnIndex}`;
+      }
+      /** 覆盖当前逻辑表头位置的物理单元格。 */
+      const cell = slot.cell;
+      /** 当前逻辑位置相对物理单元格首列的偏移量。 */
+      const slotOffset = columnIndex - cell.columnIndex;
+      if (isCompleteManagedCell(cell)) {
+        return `managed:${cell.generatedType}:${cell.sourceColumnKey}:${slotOffset}`;
+      }
+      /** 非 managed 表头用于跨版本匹配的规范文本。 */
+      const label = normalizeSignatureText(cell.text);
+      /** 同名表头在当前位置之前已经出现的次数。 */
+      const occurrence = occurrences.get(label) || 0;
+      occurrences.set(label, occurrence + 1);
+      return `raw:${JSON.stringify(label)}:${occurrence}`;
     }
-    const cell = slot.cell;
-    const slotOffset = columnIndex - cell.columnIndex;
-    if (isCompleteManagedCell(cell)) {
-      return `managed:${cell.generatedType}:${cell.sourceColumnKey}:${slotOffset}`;
-    }
-    const label = normalizeSignatureText(cell.text);
-    const occurrence = occurrences.get(label) || 0;
-    occurrences.set(label, occurrence + 1);
-    return `raw:${JSON.stringify(label)}:${occurrence}`;
-  });
+  );
 };
 
 /** 构建目标 owned header identity。 */
@@ -294,8 +391,11 @@ const getCellRawRange = (
   rowIndex: number,
   cell: CopyTestCellModel
 ): CopyTestRawCellRange | undefined => {
+  /** 当前下标对应的 DOM 行模型。 */
   const modelRow = view.model.rows[rowIndex];
+  /** 当前下标对应的 raw 行区间。 */
   const rawRow = view.rawTable.rows[rowIndex];
+  /** 目标 DOM 单元格在物理行单元格集合中的下标。 */
   const cellIndex = modelRow?.cells.indexOf(cell) ?? -1;
   return cellIndex >= 0 ? rawRow?.cells[cellIndex] : undefined;
 };
@@ -306,11 +406,15 @@ const getTargetCells = (
   type: CopyTestGeneratedColumnType,
   sourceColumnKey: string
 ): CopyTestCellModel[] => {
-  return row?.cells.filter(cell => isTargetManagedCell(cell, type, sourceColumnKey)) || [];
+  return row?.cells.filter(
+    /** 只保留 ownership 键和 Result/Evidence 类型都匹配的单元格。 */
+    cell => isTargetManagedCell(cell, type, sourceColumnKey)
+  ) || [];
 };
 
 /** 给当前导出 pair 的 raw cell 添加临时跨模块 scope marker。 */
 const addExportScopeToRawCell = (rawCell: string, exportScope: string): string | null => {
+  /** 移除旧 scope 后等待写入本次 scope 的单元格 raw。 */
   const withoutExistingScope = rawCell.replace(EXPORT_SCOPE_ATTRIBUTE_PATTERN, '');
   if (!RAW_CELL_OPENING_PATTERN.test(withoutExistingScope)) {
     return null;
@@ -329,18 +433,28 @@ const findCellInsertionIndex = (
   workingIdentities: string[],
   targetIdentity: string
 ): number | null => {
+  /** 目标 owned header 在 working 逻辑列顺序中的下标。 */
   const targetColumnIndex = workingIdentities.indexOf(targetIdentity);
+  /** latest 表格中需要插入单元格的 DOM 行。 */
   const baseRow = baseView.model.rows[rowIndex];
+  /** latest 表格中需要插入单元格的 raw 行区间。 */
   const rawRow = baseView.rawTable.rows[rowIndex];
   if (targetColumnIndex < 0 || !baseRow || !rawRow) {
     return null;
   }
-  for (const identity of workingIdentities.slice(targetColumnIndex + 1)) {
+  /** 目标列之后的 working 表头身份，用于寻找首个稳定右侧锚点。 */
+  const followingIdentities = workingIdentities.slice(targetColumnIndex + 1);
+  for (let identityIndex = 0; identityIndex < followingIdentities.length; identityIndex += 1) {
+    /** 当前尝试作为插入右侧锚点的表头身份。 */
+    const identity = followingIdentities[identityIndex];
+    /** 当前身份在 latest 表头顺序中的逻辑列下标。 */
     const baseColumnIndex = baseIdentities.indexOf(identity);
+    /** latest 行中覆盖该逻辑列且由真实单元格拥有的 slot。 */
     const slot = baseColumnIndex >= 0 ? baseRow.slots[baseColumnIndex] : undefined;
     if (!slot?.owned) {
       continue;
     }
+    /** 右侧锚点物理单元格对应的 raw 区间。 */
     const rawCell = getCellRawRange(baseView, rowIndex, slot.cell);
     if (!rawCell) {
       return null;
@@ -356,6 +470,7 @@ const getSingleTargetCell = (
   type: CopyTestGeneratedColumnType,
   sourceColumnKey: string
 ): { cell?: CopyTestCellModel } | null => {
+  /** 当前行属于目标来源列和生成类型的 owned 单元格。 */
   const cells = getTargetCells(row, type, sourceColumnKey);
   return cells.length <= 1 ? { cell: cells[0] } : null;
 };
@@ -369,17 +484,20 @@ const resolveOptionalCellRange = (
   if (!cell) {
     return {};
   }
+  /** 可选 DOM 单元格在当前 raw 行中对应的区间。 */
   const range = getCellRawRange(view, rowIndex, cell);
   return range ? { range } : null;
 };
 
 /** 解析一个 row/type 补丁；重复 owned cell 或 raw 对齐失败时拒绝导出。 */
 const resolveCellPatch = (context: CellPatchContext): ResolvedCellPatch | null => {
+  /** latest 当前行中唯一允许存在的目标 owned 单元格。 */
   const baseCell = getSingleTargetCell(
     context.baseView.model.rows[context.rowIndex],
     context.type,
     context.sourceColumnKey
   );
+  /** working 当前行中唯一允许存在的目标 owned 单元格。 */
   const workingCell = getSingleTargetCell(
     context.workingView.model.rows[context.rowIndex],
     context.type,
@@ -388,11 +506,14 @@ const resolveCellPatch = (context: CellPatchContext): ResolvedCellPatch | null =
   if (!baseCell || !workingCell) {
     return null;
   }
+  /** latest 目标单元格的可选 raw 区间。 */
   const baseRange = resolveOptionalCellRange(context.baseView, context.rowIndex, baseCell.cell);
+  /** working 目标单元格的可选 raw 区间。 */
   const workingRange = resolveOptionalCellRange(context.workingView, context.rowIndex, workingCell.cell);
   if (!baseRange || !workingRange) {
     return null;
   }
+  /** 写入本次 export scope 后的 working 目标单元格 raw。 */
   const desiredRaw = workingRange.range
     ? addExportScopeToRawCell(
       getRawRangeText(context.workingView.raw, workingRange.range),
@@ -407,6 +528,7 @@ const appendCellInsertion = (
   context: CellPatchContext,
   desiredRaw: string
 ): boolean => {
+  /** 依据 working 表头顺序计算出的 latest raw 零宽插入点。 */
   const insertionIndex = findCellInsertionIndex(
     context.baseView,
     context.rowIndex,
@@ -426,11 +548,13 @@ const appendCellInsertion = (
 
 /** 追加单个 row/type 的替换、删除或插入 patch。 */
 const appendCellPatch = (context: CellPatchContext): boolean => {
+  /** 当前物理行和生成类型解析出的最小单元格补丁。 */
   const patch = resolveCellPatch(context);
   if (!patch) {
     return false;
   }
   if (patch.baseRawCell) {
+    /** latest 中目标 owned 单元格当前未经序列化变更的 raw。 */
     const currentRaw = getRawRangeText(context.baseView.raw, patch.baseRawCell);
     if (currentRaw !== patch.desiredRaw) {
       context.replacements.push({ range: patch.baseRawCell, replacement: patch.desiredRaw });
@@ -450,11 +574,17 @@ const buildPairReplacements = (
   if (baseView.model.rows.length !== workingView.model.rows.length) {
     return null;
   }
+  /** 当前来源列双列在全部物理行上累计的 raw replacements。 */
   const replacements: CopyTestRawReplacement[] = [];
+  /** latest 表头逻辑位置对应的稳定身份序列。 */
   const baseHeaderIdentities = buildHeaderColumnIdentities(baseView.model);
+  /** working 表头逻辑位置对应的稳定身份序列。 */
   const workingHeaderIdentities = buildHeaderColumnIdentities(workingView.model);
   for (let rowIndex = 0; rowIndex < workingView.model.rows.length; rowIndex += 1) {
-    for (const type of COPY_TEST_GENERATED_TYPES) {
+    for (let typeIndex = 0; typeIndex < COPY_TEST_GENERATED_TYPES.length; typeIndex += 1) {
+      /** 当前物理行需要解析的 Result 或 Evidence 生成类型。 */
+      const type = COPY_TEST_GENERATED_TYPES[typeIndex];
+      /** 标记当前 row/type 是否成功追加或确认无需补丁。 */
       const appended = appendCellPatch({
         baseHeaderIdentities,
         baseView,
@@ -480,24 +610,14 @@ const hasUnchangedStorageOutsideTable = (
   beforeTable: CopyTestRawTableRange,
   afterRaw: string
 ): boolean => {
+  /** raw patch 导致目标表格及其后续内容发生的总长度变化。 */
   const lengthDelta = afterRaw.length - beforeRaw.length;
+  /** 修改后目标表格在完整 storage 中对应的新绝对区间。 */
   const afterRange = {
     end: beforeTable.end + lengthDelta,
     start: beforeTable.start,
   };
   return hasUnchangedNonTargetRaw(beforeRaw, [beforeTable], afterRaw, [afterRange]);
-};
-
-/** 替换 storage 中指定 table range。 */
-export const replaceTableInStorage = (
-  storageHtml: string,
-  tableRange: CopyTestTableRange,
-  tableHtml: string
-): string => {
-  return replaceRangesDescending(storageHtml, [{
-    range: tableRange,
-    replacement: tableHtml,
-  }]);
 };
 
 /** 构建只包含当前 Comparison Column 双列改动的完整 export storage。 */
@@ -511,15 +631,19 @@ export const buildCurrentColumnExportStorage = ({
   if (!isValidCopyTestExportScope(exportScope)) {
     return null;
   }
+  /** 从导入快照重新解析的目标表格。 */
   const originalTable = parseSingleTable(table.originalHtml);
+  /** 从本地 working html 解析且 raw 行列对齐的唯一表格视图。 */
   const workingView = createWorkingTableView(table.workingHtml);
   if (!originalTable || !workingView) {
     return null;
   }
+  /** 由导入快照非 managed 内容和合并拓扑构成的表格定位签名。 */
   const locatorSignature = buildTableLocatorSignature(originalTable.model);
   if (buildTableLocatorSignature(workingView.model) !== locatorSignature) {
     return null;
   }
+  /** 在 latest storage 中唯一匹配导入定位签名的目标表格。 */
   const latestView = locateLatestTable(originalStorageHtml, table.index, locatorSignature);
   if (!latestView) {
     return null;
@@ -533,7 +657,9 @@ export const buildCurrentColumnExportStorage = ({
   )) {
     return null;
   }
+  /** 将本次 Result/Evidence 双列绑定到 Comparison Column 的稳定键。 */
   const sourceColumnKey = getSourceColumnKey(selectedColumnIndex, selectedColumnLabel);
+  /** 在 latest 目标表格上应用当前双列所需的最小 raw replacements。 */
   const replacements = buildPairReplacements(
     latestView,
     workingView,
@@ -543,6 +669,7 @@ export const buildCurrentColumnExportStorage = ({
   if (!replacements) {
     return null;
   }
+  /** 从后向前应用目标双列补丁后的完整 latest storage。 */
   const patchedStorage = replaceRangesDescending(originalStorageHtml, replacements);
   return hasUnchangedStorageOutsideTable(originalStorageHtml, latestView.rawTable, patchedStorage)
     ? patchedStorage

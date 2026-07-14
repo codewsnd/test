@@ -5,17 +5,22 @@ import type { CopyTestTableEntry } from '../types';
 
 /** CopyTest 表格会话的可归约状态。 */
 export interface CopyTestSessionState {
+  /** 最近一次成功导入或导出后的完整 storage。 */
   originalStorageHtml: string;
+  /** working table 内容变更时递增的渲染版本号。 */
   revision: number;
+  /** 当前 Comparison Column 的逻辑列下标。 */
   selectedColumnIndex?: number;
+  /** 当前选中的来源原子组锚点行下标。 */
   selectedRowIndexes: number[];
+  /** 当前表格在 storage 中的下标。 */
   selectedTableIndex?: number;
+  /** storage 中解析出的全部有效表格。 */
   tables: CopyTestTableEntry[];
 }
 
 /** CopyTest 表格会话支持的状态动作。 */
 export type CopyTestSessionAction =
-  | { type: 'RESET' }
   | { storageHtml: string; tables: CopyTestTableEntry[]; type: 'LOADED' }
   | { tableIndex: number; type: 'TABLE_SELECTED' }
   | {
@@ -54,6 +59,7 @@ const reduceColumnSelection = (
   state: CopyTestSessionState,
   action: Extract<CopyTestSessionAction, { type: 'COLUMN_SELECTED' }>
 ): CopyTestSessionState => {
+  /** 选择列被清空时同步清空，否则复制默认来源原子组选择。 */
   const selectedRowIndexes = action.columnIndex === undefined
     ? []
     : [...(action.defaultSelectedRowIndexes || [])];
@@ -80,8 +86,6 @@ export const copyTestSessionReducer = (
   action: CopyTestSessionAction
 ): CopyTestSessionState => {
   switch (action.type) {
-    case 'RESET':
-      return createEmptySessionState(state.revision + 1);
     case 'LOADED':
       return {
         originalStorageHtml: action.storageHtml,

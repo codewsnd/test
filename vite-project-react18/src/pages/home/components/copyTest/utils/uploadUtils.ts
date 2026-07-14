@@ -10,14 +10,13 @@ import {
 } from '../constants';
 import type { CopyTestMemoryImage } from '../types';
 
-/** 定义 FILE_EXTENSION_PATTERN 常量。 */
+/** 从文件名末尾提取扩展名的匹配规则。 */
 const FILE_EXTENSION_PATTERN = /(\.[^./\\]+)$/;
 
 /** 将浏览器文件读取为 base64 data url。 */
 export const readFileAsBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
-
-    /** 定义 reader 常量。 */
+    /** 承担浏览器文件转 data URL 的 FileReader 实例。 */
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ''));
     reader.onerror = reject;
@@ -82,24 +81,22 @@ export const getImageLimitError = (images: Array<{ size: number }>): string | nu
   return null;
 };
 
-/** 处理 buildUuidFileName 辅助逻辑。 */
+/** 在保留原扩展名的前提下为附件名追加 UUID。 */
 const buildUuidFileName = (fileName: string): string => {
-
-  /** 定义 uuid 常量。 */
+  /** 当前附件使用的随机 UUID。 */
   const uuid = uuidv7();
 
-  /** 定义 extension 常量。 */
+  /** 原文件名末尾的扩展名；无扩展名时为空。 */
   const extension = fileName.match(FILE_EXTENSION_PATTERN)?.[1] || '';
 
-  /** 定义 baseName 常量。 */
+  /** 移除扩展名后的原始文件名主体。 */
   const baseName = extension ? fileName.slice(0, -extension.length) : fileName;
   return `${baseName}-${uuid}${extension}`;
 };
 
 /** 将单个文件转换为内存图片对象。 */
 export const fileToMemoryImage = async (file: File): Promise<CopyTestMemoryImage> => {
-
-  /** 定义 [md5, base64] 常量。 */
+  /** 并行读取的内容摘要与浏览器预览 data URL。 */
   const [md5, base64] = await Promise.all([
     calculateFileMD5(file),
     readFileAsBase64(file),
@@ -128,16 +125,14 @@ export const appendUniqueImage = (
 
 /** 将文件批量转换为只保存在内存中的图片数据。 */
 export const filesToMemoryImages = async (files: File[]): Promise<CopyTestMemoryImage[]> => {
-
-  /** 定义 images 常量。 */
+  /** 按首次出现顺序保存的唯一内存图片。 */
   const images: CopyTestMemoryImage[] = [];
 
-  /** 定义 md5Set 常量。 */
+  /** 已加入结果的内容摘要，用于跳过重复截图。 */
   const md5Set = new Set<string>();
 
   for (const file of files) {
-
-    /** 定义 image 常量。 */
+    /** 当前浏览器文件转换得到的内存图片。 */
     const image = await fileToMemoryImage(file);
     appendUniqueImage(images, md5Set, image);
   }

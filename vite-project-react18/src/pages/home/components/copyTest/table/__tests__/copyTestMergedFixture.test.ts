@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyCopyTestValidationResults,
+  bindResultImages,
   ensureCopyTestWorkingColumns,
 } from '../copyTestTableEditor';
 import {
@@ -10,6 +11,7 @@ import {
   getSourceColumnKey,
   parseCopyTestStorageTables,
 } from '../copyTestTableParser';
+import { parseHtml } from '../tableModel';
 
 /** 构造与真实压力页相同 rowspan 拓扑的脱敏表格。 */
 const buildGroupedTable = (prefix: string, spans: number[], emptyLastGroup = false): string => {
@@ -31,7 +33,7 @@ const buildGroupedTable = (prefix: string, spans: number[], emptyLastGroup = fal
     });
   });
   return [
-    '<table><tr><th>Row ID</th><th>Context</th><th>Target|values=hk_sc|</th></tr>',
+    '<table><tr><th>Row ID</th><th>Context</th><th>Target</th></tr>',
     ...rows,
     '</table>',
   ].join('');
@@ -68,13 +70,18 @@ describe('copyTest merged Confluence fixture', () => {
     expect(groups[0]).toMatchObject({ dataRowIndexes: [0, 1, 2, 3], rowSpan: 4 });
     const validated = applyCopyTestValidationResults(
       ensureCopyTestWorkingColumns(table, 4, 'Target'),
-      [{ evidenceImageFileNames: ['screen.png'], evidenceRowSpan: 1, passed: true, rowIndex: 0 }],
-      [IMAGE],
+      bindResultImages([{
+        evidenceImageFileNames: ['screen.png'],
+        evidenceRowSpan: 1,
+        hideEvidenceCell: false,
+        passed: true,
+        rowIndex: 0,
+      }], [IMAGE]),
       4,
       'Target'
     );
     const sourceKey = getSourceColumnKey(4, 'Target');
-    const indexes = findGeneratedColumnIndexes(validated.headers, sourceKey, 'Target');
+    const indexes = findGeneratedColumnIndexes(validated.headers, sourceKey);
 
     expect(validated.model.rows[1].slots[indexes.result!]?.cell.rowSpan).toBe(4);
     expect(validated.model.rows[1].slots[indexes.evidence!]?.cell.rowSpan).toBe(4);
@@ -85,23 +92,28 @@ describe('copyTest merged Confluence fixture', () => {
   it('interprets evidenceRowSpan as complete source groups and never cuts through rowspan boundaries', () => {
     const table = parseCopyTestStorageTables(buildGroupedTable('GROUP', [3, 2]))[0];
     const validated = applyCopyTestValidationResults(
-      ensureCopyTestWorkingColumns(table, 2, 'Target|values=hk_sc|'),
-      [
-        { evidenceImageFileNames: ['screen.png'], evidenceRowSpan: 2, passed: true, rowIndex: 0 },
+      ensureCopyTestWorkingColumns(table, 2, 'Target'),
+      bindResultImages([
+        {
+          evidenceImageFileNames: ['screen.png'],
+          evidenceRowSpan: 2,
+          hideEvidenceCell: false,
+          passed: true,
+          rowIndex: 0,
+        },
         { evidenceImageFileNames: ['screen.png'], hideEvidenceCell: true, passed: true, rowIndex: 3 },
-      ],
-      [IMAGE],
+      ], [IMAGE]),
       2,
-      'Target|values=hk_sc|'
+      'Target'
     );
-    const sourceKey = getSourceColumnKey(2, 'Target|values=hk_sc|');
-    const indexes = findGeneratedColumnIndexes(validated.headers, sourceKey, 'Target|values=hk_sc|');
+    const sourceKey = getSourceColumnKey(2, 'Target');
+    const indexes = findGeneratedColumnIndexes(validated.headers, sourceKey);
 
     expect(validated.model.rows[1].slots[indexes.result!]?.cell.rowSpan).toBe(3);
     expect(validated.model.rows[4].slots[indexes.result!]?.cell.rowSpan).toBe(2);
     expect(validated.model.rows[1].slots[indexes.evidence!]?.cell.rowSpan).toBe(5);
     expect(validated.model.rows[4].slots[indexes.evidence!]?.owned).toBe(false);
-    expect(validated.model.table.querySelectorAll(
+    expect(parseHtml(validated.workingHtml).querySelectorAll(
       '[data-copy-test-generated-content="evidence"]'
     )).toHaveLength(1);
   });
@@ -110,16 +122,16 @@ describe('copyTest merged Confluence fixture', () => {
     const foreignResult = '<td rowspan="2"><strong>manual FR result</strong></td>';
     const foreignEvidence = '<td rowspan="2"><em>manual FR evidence</em></td>';
     const storage = [
-      '<table><tr><th>Row</th><th>Target|values=fr|</th>',
-      '<th>Test Result - Target|values=fr|</th><th>Test Evidence - Target|values=fr|</th>',
-      '<th>Target|values=hk_sc|</th></tr>',
+      '<table><tr><th>Row</th><th>Target FR</th>',
+      '<th>Test Result - Target FR</th><th>Test Evidence - Target FR</th>',
+      '<th>Target HK</th></tr>',
       `<tr><td>1</td><td rowspan="2">FR</td>${foreignResult}${foreignEvidence}<td rowspan="2">HK</td></tr>`,
       '<tr><td>2</td></tr></table>',
     ].join('');
     const table = parseCopyTestStorageTables(storage)[0];
-    const nextTable = ensureCopyTestWorkingColumns(table, 4, 'Target|values=hk_sc|');
-    const sourceKey = getSourceColumnKey(4, 'Target|values=hk_sc|');
-    const indexes = findGeneratedColumnIndexes(nextTable.headers, sourceKey, 'Target|values=hk_sc|');
+    const nextTable = ensureCopyTestWorkingColumns(table, 4, 'Target HK');
+    const sourceKey = getSourceColumnKey(4, 'Target HK');
+    const indexes = findGeneratedColumnIndexes(nextTable.headers, sourceKey);
 
     expect(nextTable.headers[2].generatedType).toBeUndefined();
     expect(nextTable.headers[3].generatedType).toBeUndefined();

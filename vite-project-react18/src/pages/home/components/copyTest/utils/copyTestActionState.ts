@@ -3,36 +3,52 @@
  */
 import type { CopyTestTableEntry } from '../types';
 
-/** 定义 CopyTestActionStateParams 的数据结构。 */
+/** 计算 CopyTest 操作状态所需的页面快照。 */
 export interface CopyTestActionStateParams {
+  /** 是否正在读取 Confluence Evidence 附件。 */
   attachmentsLoading: boolean;
+  /** 是否正在回写 Confluence storage。 */
   exportLoading: boolean;
+  /** 当前生成双列是否包含可导出内容。 */
   hasExportableContent: boolean;
+  /** 当前 Comparison Column 的逻辑列下标。 */
   selectedColumnIndex?: number;
+  /** 当前勾选的来源原子组数量。 */
   selectedRowCount: number;
+  /** 当前用户选中的工作表格。 */
   selectedTable?: CopyTestTableEntry;
+  /** 最近一次导入或导出后的完整 storage。 */
   storageHtml: string;
+  /** 是否正在读取 Confluence storage。 */
   storageLoading: boolean;
+  /** 当前已上传到内存的截图数量。 */
   uploadImageCount: number;
+  /** 是否正在把浏览器文件转换为内存图片。 */
   uploadPreparing: boolean;
+  /** 是否正在执行 AI 校验。 */
   validationLoading: boolean;
 }
 
-/** 定义 CopyTestActionState 的数据结构。 */
+/** CopyTest 页面各操作入口的最终可用状态。 */
 export interface CopyTestActionState {
+  /** 是否允许把当前生成双列回写到 Confluence。 */
   canExportToConfluence: boolean;
+  /** 是否允许打开截图上传流程。 */
   canUpload: boolean;
+  /** 是否允许使用已有截图发起 AI 校验。 */
   canValidate: boolean;
+  /** 导入入口及其依赖操作是否处于忙碌状态。 */
   importBusy: boolean;
+  /** 截图上传、校验或导出链是否处于忙碌状态。 */
   uploadBusy: boolean;
 }
 
-/** 处理 hasSelectedComparisonColumn 辅助逻辑。 */
+/** 判断用户是否已经选择 Comparison Column。 */
 const hasSelectedComparisonColumn = (selectedColumnIndex?: number): boolean => {
   return selectedColumnIndex !== undefined;
 };
 
-/** 处理 isCopyTestUploadBusy 辅助逻辑。 */
+/** 汇总会阻止截图上传和校验入口的忙碌状态。 */
 const isCopyTestUploadBusy = (
   validationLoading: boolean,
   uploadPreparing: boolean,
@@ -41,7 +57,7 @@ const isCopyTestUploadBusy = (
   return validationLoading || uploadPreparing || exportLoading;
 };
 
-/** 处理 isCopyTestImportBusy 辅助逻辑。 */
+/** 汇总会阻止重新导入 Confluence 页面的忙碌状态。 */
 const isCopyTestImportBusy = (
   storageLoading: boolean,
   attachmentsLoading: boolean,
@@ -56,7 +72,7 @@ const isCopyTestImportBusy = (
     || uploadPreparing;
 };
 
-/** 处理 canUseSelectedTable 辅助逻辑。 */
+/** 判断当前表格和 Comparison Column 是否可用于后续操作。 */
 const canUseSelectedTable = (
   selectedTable: CopyTestTableEntry | undefined,
   selectedColumnIndex: number | undefined,
@@ -67,7 +83,7 @@ const canUseSelectedTable = (
     && !busy;
 };
 
-/** 处理 canUploadScreenshots 辅助逻辑。 */
+/** 判断当前选择是否允许进入截图上传流程。 */
 const canUploadScreenshots = (
   selectedTable: CopyTestTableEntry | undefined,
   selectedColumnIndex: number | undefined,
@@ -77,7 +93,7 @@ const canUploadScreenshots = (
   return canUseSelectedTable(selectedTable, selectedColumnIndex, busy) && selectedRowCount > 0;
 };
 
-/** 处理 canWriteConfluenceStorage 辅助逻辑。 */
+/** 判断当前生成结果是否满足 Confluence 回写条件。 */
 const canWriteConfluenceStorage = (
   hasExportableContent: boolean,
   storageHtml: string,
@@ -92,7 +108,7 @@ const canWriteConfluenceStorage = (
     && !uploadBusy;
 };
 
-/** 处理 buildCopyTestActionState 辅助逻辑。 */
+/** 根据当前页面快照一次性计算全部操作入口状态。 */
 export const buildCopyTestActionState = ({
   attachmentsLoading,
   exportLoading,
@@ -107,10 +123,10 @@ export const buildCopyTestActionState = ({
   validationLoading,
 }: CopyTestActionStateParams): CopyTestActionState => {
 
-  /** 定义 uploadBusy 常量。 */
+  /** 会阻止上传、校验和导出的组合忙碌状态。 */
   const uploadBusy = isCopyTestUploadBusy(validationLoading, uploadPreparing, exportLoading);
 
-  /** 定义 importBusy 常量。 */
+  /** 会阻止重新导入页面的组合忙碌状态。 */
   const importBusy = isCopyTestImportBusy(
     storageLoading,
     attachmentsLoading,
@@ -119,7 +135,7 @@ export const buildCopyTestActionState = ({
     uploadPreparing
   );
 
-  /** 定义 canUpload 常量。 */
+  /** 上传和校验入口共同依赖的选择可用状态。 */
   const canUpload = canUploadScreenshots(selectedTable, selectedColumnIndex, selectedRowCount, uploadBusy);
 
   return {

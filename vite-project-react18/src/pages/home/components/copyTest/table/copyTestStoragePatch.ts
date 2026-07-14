@@ -4,84 +4,109 @@
 
 /** raw 字符串中的半开区间。 */
 export interface CopyTestRawRange {
+  /** 半开区间中不包含在结果内的结束偏移量。 */
   end: number;
+  /** 半开区间中包含在结果内的起始偏移量。 */
   start: number;
 }
 
 /** table、tr、th、td 共用的 raw 元素区间。 */
 export interface CopyTestRawElementRange extends CopyTestRawRange {
+  /** 元素关闭标签在完整 storage 中的绝对区间。 */
   closeTagRange: CopyTestRawRange;
+  /** 元素打开标签在完整 storage 中的绝对区间。 */
   openTagRange: CopyTestRawRange;
+  /** raw 扫描器支持记录的表格元素标签名。 */
   tagName: 'table' | 'tr' | 'th' | 'td';
 }
 
 /** th/td 的 raw 区间。 */
 export interface CopyTestRawCellRange extends CopyTestRawElementRange {
+  /** 当前单元格实际使用的表头或数据标签名。 */
   tagName: 'th' | 'td';
 }
 
 /** tr 的 raw 区间及其直属单元格。 */
 export interface CopyTestRawRowRange extends CopyTestRawElementRange {
+  /** 当前行直属且不属于嵌套表格的单元格区间。 */
   cells: CopyTestRawCellRange[];
+  /** 将该元素范围收窄为表格行。 */
   tagName: 'tr';
 }
 
 /** 顶层 table 的 raw 区间及其直属行。 */
 export interface CopyTestRawTableRange extends CopyTestRawElementRange {
+  /** 当前顶层表格直属且不属于嵌套表格的行区间。 */
   rows: CopyTestRawRowRange[];
+  /** 将该元素范围收窄为表格。 */
   tagName: 'table';
 }
 
 /** 一次 raw range 替换。 */
 export interface CopyTestRawReplacement {
+  /** 需要在原 storage 中替换的绝对半开区间。 */
   range: CopyTestRawRange;
+  /** 写入目标区间的新 raw storage 片段。 */
   replacement: string;
 }
 
-/** 带旧值校验的 CopyTest owned range。 */
-export interface CopyTestOwnedRawTarget {
-  expectedRaw: string;
-  range: CopyTestRawRange;
-}
-
+/** raw 标签扫描得到的轻量不可变 token。 */
 interface RawTagToken {
+  /** 标记当前 token 是否为关闭标签。 */
   closing: boolean;
+  /** 已统一为小写的原始标签名。 */
   name: string;
+  /** 完整标签在 storage 中的绝对区间。 */
   range: CopyTestRawRange;
+  /** 标记打开标签是否在同一个 token 内自闭合。 */
   selfClosing: boolean;
 }
 
+/** 尚未读取关闭标签的 raw 元素公共构建状态。 */
 interface RawElementBuilder {
+  /** 已读取打开标签的绝对区间。 */
   openTagRange: CopyTestRawRange;
+  /** 元素完整 raw 区间的起始偏移量。 */
   start: number;
 }
 
+/** 尚未完成的 th 或 td 单元格扫描状态。 */
 interface RawCellBuilder extends RawElementBuilder {
+  /** 当前扫描单元格的真实标签名。 */
   tagName: 'th' | 'td';
 }
 
+/** 尚未完成的顶层表格直属行扫描状态。 */
 interface RawRowBuilder extends RawElementBuilder {
+  /** 当前行中已经完成扫描的直属单元格区间。 */
   cells: CopyTestRawCellRange[];
 }
 
+/** 尚未完成的顶层表格扫描状态。 */
 interface RawTableBuilder extends RawElementBuilder {
+  /** 当前表格中已经完成扫描的直属行区间。 */
   rows: CopyTestRawRowRange[];
 }
 
+/** 单次线性 storage 扫描持有的可变上下文。 */
 interface RawStorageScanState {
+  /** 当前尚未闭合的直属单元格。 */
   cell?: RawCellBuilder;
+  /** 当前尚未闭合的顶层表格直属行。 */
   row?: RawRowBuilder;
+  /** 当前尚未闭合的顶层表格。 */
   table?: RawTableBuilder;
+  /** 当前 token 所处的 table 嵌套深度。 */
   tableDepth: number;
+  /** 已完成扫描的全部顶层表格区间。 */
   tables: CopyTestRawTableRange[];
 }
 
+/** Confluence 标签名允许使用的字符。 */
 const RAW_TAG_NAME_CHARACTER_PATTERN = /[A-Za-z0-9:_-]/;
+/** 用于跳过标签名周围空白的单字符模式。 */
 const RAW_WHITESPACE_PATTERN = /\s/;
-const RAW_CELL_START_PATTERN = /^\s*<(?:th|td)\b/i;
-const RAW_ROW_CLOSE_PATTERN = /^<\/tr\s*>$/i;
-const COPY_TEST_OWNERSHIP_PATTERN = /\bdata-copy-test-(?:column-type|generated-content|owner|pair-id|source-column-key)\s*=/i;
-
+/** 扫描时必须整体跳过、不能解释为表格标签的特殊 raw block。 */
 const SPECIAL_RAW_BLOCKS = [
   { prefix: '<!--', suffix: '-->' },
   { prefix: '<![CDATA[', suffix: ']]>' },
@@ -89,6 +114,7 @@ const SPECIAL_RAW_BLOCKS = [
 
 /** 校验 range 是否可用于给定 raw 字符串。 */
 const assertValidRawRange = (raw: string, range: CopyTestRawRange): void => {
+  /** 标记区间边界是否为整数、有序且完全位于 raw 字符串内。 */
   const valid = Number.isInteger(range.start)
     && Number.isInteger(range.end)
     && range.start >= 0
@@ -110,20 +136,34 @@ const assertNonOverlappingRanges = (ranges: CopyTestRawRange[]): void => {
 
 /** 复制、校验并按起点升序排列 ranges。 */
 const prepareRanges = (raw: string, ranges: CopyTestRawRange[]): CopyTestRawRange[] => {
-  const sortedRanges = ranges.map(range => ({ ...range }))
-    .sort((left, right) => left.start - right.start || left.end - right.end);
-  sortedRanges.forEach(range => assertValidRawRange(raw, range));
+  /** 复制后按起点和终点排序的区间，避免修改调用方数组。 */
+  const sortedRanges = ranges.map(
+    /** 复制每个区间，避免排序过程修改调用方持有的对象。 */
+    range => ({ ...range })
+  ).sort(
+    /** 先按起点、再按终点升序稳定排列区间。 */
+    (left, right) => left.start - right.start || left.end - right.end
+  );
+  sortedRanges.forEach(
+    /** 在检查相互重叠前逐个验证区间边界。 */
+    range => assertValidRawRange(raw, range)
+  );
   assertNonOverlappingRanges(sortedRanges);
   return sortedRanges;
 };
 
 /** 查找 comment 或 CDATA block 的结束位置。 */
 const getSpecialRawBlockEnd = (raw: string, start: number): number | undefined => {
-  const block = SPECIAL_RAW_BLOCKS.find(item => raw.startsWith(item.prefix, start));
+  /** 与当前位置前缀匹配的注释或 CDATA 语法。 */
+  const block = SPECIAL_RAW_BLOCKS.find(
+    /** 选择前缀与当前位置 raw 内容匹配的特殊块语法。 */
+    item => raw.startsWith(item.prefix, start)
+  );
   if (!block) {
     return undefined;
   }
 
+  /** 特殊块结束标记在 storage 中的起始偏移量。 */
   const suffixIndex = raw.indexOf(block.suffix, start + block.prefix.length);
   return suffixIndex < 0 ? raw.length : suffixIndex + block.suffix.length;
 };
@@ -132,6 +172,7 @@ const getSpecialRawBlockEnd = (raw: string, start: number): number | undefined =
 const findRawTagEnd = (raw: string, start: number): number => {
   let quote = '';
   for (let index = start + 1; index < raw.length; index += 1) {
+    /** 当前待判断的标签字符。 */
     const character = raw[index];
     if (quote) {
       if (character === quote) {
@@ -154,6 +195,7 @@ const readRawTagNameStart = (raw: string, start: number, end: number): { closing
   while (index < end && RAW_WHITESPACE_PATTERN.test(raw[index])) {
     index += 1;
   }
+  /** 标记标签名之前是否存在关闭斜杠。 */
   const closing = raw[index] === '/';
   if (closing) {
     index += 1;
@@ -184,7 +226,9 @@ const isSelfClosingRawTag = (raw: string, start: number, end: number): boolean =
 
 /** 把一个完整 raw 标签解析成轻量 token。 */
 const parseRawTagToken = (raw: string, start: number, end: number): RawTagToken | null => {
+  /** 标签名的起点以及是否为关闭标签。 */
   const nameStart = readRawTagNameStart(raw, start, end);
+  /** 标签名最后一个字符之后的偏移量。 */
   const nameEnd = readRawTagNameEnd(raw, nameStart.index, end);
   if (nameEnd === nameStart.index) {
     return null;
@@ -202,19 +246,23 @@ const parseRawTagToken = (raw: string, start: number, end: number): RawTagToken 
 const readNextRawTag = (raw: string, cursor: number): RawTagToken | null => {
   let nextCursor = cursor;
   while (nextCursor < raw.length) {
+    /** 下一个可能打开 raw 标签的位置。 */
     const start = raw.indexOf('<', nextCursor);
     if (start < 0) {
       return null;
     }
+    /** 若当前位置是注释或 CDATA，则记录其整体结束位置。 */
     const specialEnd = getSpecialRawBlockEnd(raw, start);
     if (specialEnd !== undefined) {
       nextCursor = specialEnd;
       continue;
     }
+    /** 忽略属性引号后得到的完整标签结束位置。 */
     const end = findRawTagEnd(raw, start);
     if (end < 0) {
       return null;
     }
+    /** 当前完整标签解析得到的轻量 token。 */
     const token = parseRawTagToken(raw, start, end);
     if (token) {
       return token;
@@ -352,6 +400,7 @@ const applyRawTagToken = (state: RawStorageScanState, token: RawTagToken): void 
 
 /** 扫描 storage 中所有顶层 table，并记录 table/tr/th/td 的绝对 raw range。 */
 export const scanTopLevelTableRawRanges = (storageHtml: string): CopyTestRawTableRange[] => {
+  /** 当前 table 深度、未闭合元素和完成结果组成的扫描状态。 */
   const state: RawStorageScanState = { tableDepth: 0, tables: [] };
   let cursor = 0;
   let token = readNextRawTag(storageHtml, cursor);
@@ -374,67 +423,28 @@ export const replaceRangesDescending = (
   raw: string,
   replacements: CopyTestRawReplacement[]
 ): string => {
-  const sortedReplacements = [...replacements]
-    .sort((left, right) => left.range.start - right.range.start || left.range.end - right.range.end);
-  const ranges = prepareRanges(raw, sortedReplacements.map(item => item.range));
-  const normalized = sortedReplacements.map((item, index) => ({ ...item, range: ranges[index] })).reverse();
-  return normalized.reduce((nextRaw, item) => {
-    return `${nextRaw.slice(0, item.range.start)}${item.replacement}${nextRaw.slice(item.range.end)}`;
-  }, raw);
-};
-
-/** 只在指定 row 的关闭标签之前插入一个 raw cell；相同尾部 cell 已存在时保持幂等。 */
-export const insertRawCellBeforeRowClosingTag = (
-  raw: string,
-  row: CopyTestRawRowRange,
-  rawCell: string
-): string => {
-  assertValidRawRange(raw, row.closeTagRange);
-  if (!RAW_ROW_CLOSE_PATTERN.test(getRawRangeText(raw, row.closeTagRange))) {
-    throw new Error('Row closing tag range is stale');
-  }
-  if (!RAW_CELL_START_PATTERN.test(rawCell)) {
-    throw new Error('Inserted raw content must be a th or td cell');
-  }
-
-  const insertionIndex = row.closeTagRange.start;
-  const existingStart = insertionIndex - rawCell.length;
-  if (existingStart >= row.openTagRange.end && raw.slice(existingStart, insertionIndex) === rawCell) {
-    return raw;
-  }
-  return replaceRangesDescending(raw, [{
-    range: { end: insertionIndex, start: insertionIndex },
-    replacement: rawCell,
-  }]);
-};
-
-/** 校验 owned target 的旧值和 ownership marker。 */
-const assertOwnedRawTarget = (raw: string, target: CopyTestOwnedRawTarget): void => {
-  const currentRaw = getRawRangeText(raw, target.range);
-  if (currentRaw !== target.expectedRaw) {
-    throw new Error('Owned raw range no longer matches the expected content');
-  }
-  if (!COPY_TEST_OWNERSHIP_PATTERN.test(currentRaw)) {
-    throw new Error('Raw range is not marked as CopyTest-owned');
-  }
-};
-
-/** 替换指定且仍匹配旧值的 CopyTest-owned raw range。 */
-export const replaceOwnedRawRange = (
-  raw: string,
-  target: CopyTestOwnedRawTarget,
-  replacement: string
-): string => {
-  assertOwnedRawTarget(raw, target);
-  if (target.expectedRaw === replacement) {
-    return raw;
-  }
-  return replaceRangesDescending(raw, [{ range: target.range, replacement }]);
-};
-
-/** 删除指定且仍匹配旧值的 CopyTest-owned raw range。 */
-export const deleteOwnedRawRange = (raw: string, target: CopyTestOwnedRawTarget): string => {
-  return replaceOwnedRawRange(raw, target, '');
+  /** 按原始起点排序的 replacement 副本。 */
+  const sortedReplacements = [...replacements].sort(
+    /** 先按目标起点、再按终点稳定排列 replacement。 */
+    (left, right) => left.range.start - right.range.start || left.range.end - right.range.end
+  );
+  /** 已完成边界和重叠校验的规范区间。 */
+  const ranges = prepareRanges(raw, sortedReplacements.map(
+    /** 提取每个 replacement 的待校验目标区间。 */
+    item => item.range
+  ));
+  /** 绑定规范区间并按降序执行的 replacement 列表。 */
+  const normalized = sortedReplacements.map(
+    /** 将排序后的 replacement 与完成校验的同下标区间重新绑定。 */
+    (item, index) => ({ ...item, range: ranges[index] })
+  ).reverse();
+  return normalized.reduce(
+    /** 从较大 offset 向前替换，确保尚未处理区间的坐标保持有效。 */
+    (nextRaw, item) => {
+      return `${nextRaw.slice(0, item.range.start)}${item.replacement}${nextRaw.slice(item.range.end)}`;
+    },
+    raw
+  );
 };
 
 /** 读取排除目标 ranges 后的所有原始字符串片段。 */
@@ -442,13 +452,18 @@ export const getNonTargetRawSegments = (
   raw: string,
   targetRanges: CopyTestRawRange[]
 ): string[] => {
+  /** 经过排序和重叠校验的目标区间。 */
   const ranges = prepareRanges(raw, targetRanges);
+  /** 按原始顺序收集的全部非目标字符串片段。 */
   const segments: string[] = [];
   let cursor = 0;
-  ranges.forEach(range => {
-    segments.push(raw.slice(cursor, range.start));
-    cursor = range.end;
-  });
+  ranges.forEach(
+    /** 收集当前游标到目标区间起点之间的非目标原始片段。 */
+    range => {
+      segments.push(raw.slice(cursor, range.start));
+      cursor = range.end;
+    }
+  );
   segments.push(raw.slice(cursor));
   return segments;
 };
@@ -460,8 +475,13 @@ export const hasUnchangedNonTargetRaw = (
   afterRaw: string,
   afterTargetRanges: CopyTestRawRange[]
 ): boolean => {
+  /** 修改前排除目标区间后的原始片段。 */
   const beforeSegments = getNonTargetRawSegments(beforeRaw, beforeTargetRanges);
+  /** 修改后排除目标区间后的原始片段。 */
   const afterSegments = getNonTargetRawSegments(afterRaw, afterTargetRanges);
   return beforeSegments.length === afterSegments.length
-    && beforeSegments.every((segment, index) => segment === afterSegments[index]);
+    && beforeSegments.every(
+      /** 要求每个非目标片段都与修改后同位置片段逐字节一致。 */
+      (segment, index) => segment === afterSegments[index]
+    );
 };

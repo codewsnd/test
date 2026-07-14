@@ -10,10 +10,8 @@ const COPY_TEST_ROUTE_BACKGROUND_TEXT = 'Copy Test is open in the modal.';
 
 /** 通过 /copyTest 直接访问 CopyTest 弹窗的路由页。 */
 export const CopyTestRoute: React.FC = () => {
-
-  /** 定义 navigate 常量。 */
+  /** 用于在弹窗关闭后切换回聊天路由的导航函数。 */
   const navigate = useNavigate();
-
 
   /** 关闭直达弹窗时返回聊天工作区。 */
   const handleClose = (): void => {

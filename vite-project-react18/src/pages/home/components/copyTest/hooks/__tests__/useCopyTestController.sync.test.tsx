@@ -15,16 +15,14 @@ const hoisted = vi.hoisted(() => ({
     uploadBusy: false,
   },
   messageWarning: vi.fn(),
-  removeEvidenceImageReference: vi.fn(() => ({ imageStillUsed: false, removed: true })),
   removeUploadImage: vi.fn(),
   sessionState: {
-    originalStorageHtml: '<table></table>',
+    originalStorageHtml: '',
     selectedColumnContext: null,
     selectedColumnHasExportableContent: true,
     selectedColumnIndex: 0,
     selectedRowIndexes: [0],
     selectedTable: { index: 0 },
-    storageHtml: '',
   },
   uploadState: {
     preparingUpload: false,
@@ -76,9 +74,6 @@ vi.mock('../useCopyTestSession', () => ({
     getCurrentValidationImages: vi.fn(() => []),
     handleComparisonColumnChange: vi.fn(),
     handleTableChange: vi.fn(),
-    previewColumnIndexes: [],
-    removeEvidenceImageReference: hoisted.removeEvidenceImageReference,
-    resetLoadedData: vi.fn(),
     resetValidationSnapshots: vi.fn(),
     setSelectedRowIndexes: vi.fn(),
     tables: [],
@@ -98,7 +93,7 @@ vi.mock('../useCopyTestUpload', () => ({
 describe('useCopyTestController synchronous guards', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    hoisted.sessionState.storageHtml = '';
+    hoisted.sessionState.originalStorageHtml = '';
   });
 
   it('covers export storage and loaded URL guards', () => {
@@ -110,7 +105,7 @@ describe('useCopyTestController synchronous guards', () => {
     expect(hoisted.messageWarning).toHaveBeenCalledWith('No Confluence storage to export');
     emptyStorageHook.unmount();
 
-    hoisted.sessionState.storageHtml = '<table></table>';
+    hoisted.sessionState.originalStorageHtml = '<table></table>';
     const invalidUrlHook = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
 
     act(() => {
@@ -126,7 +121,7 @@ describe('useCopyTestController synchronous guards', () => {
     expect(hasConfluenceStorageChanged('<table></table>', '<table><tr></tr></table>')).toBe(true);
   });
 
-  it('merges validated snapshots with new uploads and deduplicates stable id or file name', () => {
+  it('merges validated snapshots with new uploads and deduplicates by attachment file name', () => {
     const snapshotA = { base64: 'snapshot-a', fileName: 'a.png', md5: 'a-id' };
     const uploadB = { base64: 'upload-b', fileName: 'b.png', md5: 'b-id' };
     expect(mergeCopyTestExportImages([snapshotA], [uploadB])).toEqual([snapshotA, uploadB]);
@@ -135,15 +130,14 @@ describe('useCopyTestController synchronous guards', () => {
     expect(mergeCopyTestExportImages([snapshotA], [replacedA])).toEqual([replacedA]);
   });
 
-  it('removes an uploaded image after clearing its table reference', () => {
-    hoisted.sessionState.storageHtml = '<table></table>';
+  it('removes an image that only exists in the current upload list', () => {
+    hoisted.sessionState.originalStorageHtml = '<table></table>';
     const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
 
     act(() => {
       result.current.handleRemoveUploadImage('screen-md5');
     });
 
-    expect(hoisted.removeEvidenceImageReference).toHaveBeenCalledWith({ imageId: 'screen-md5' });
     expect(hoisted.removeUploadImage).toHaveBeenCalledWith('screen-md5');
   });
 });

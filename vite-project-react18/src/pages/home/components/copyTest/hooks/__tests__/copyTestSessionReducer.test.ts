@@ -9,7 +9,6 @@ import {
 const createTable = (index: number, workingHtml = `table-${index}`): CopyTestTableEntry => {
   return {
     headers: [],
-    html: workingHtml,
     index,
     model: {} as CopyTestTableEntry['model'],
     originalHtml: workingHtml,
@@ -94,7 +93,7 @@ describe('copyTestSessionReducer', () => {
     expect(originalTable.workingHtml).toBe('table-0');
   });
 
-  it('commits exported storage and resets structural state with increasing revisions', () => {
+  it('commits exported storage with an increasing revision', () => {
     const loaded = copyTestSessionReducer(copyTestSessionInitialState, {
       storageHtml: 'storage-v1',
       tables: [createTable(0)],
@@ -106,20 +105,10 @@ describe('copyTestSessionReducer', () => {
       storageHtml: 'storage-v2',
       type: 'EXPORT_COMMITTED',
     });
-    const reset = copyTestSessionReducer(exported, { type: 'RESET' });
-
     expect(exported).toMatchObject({
       originalStorageHtml: 'storage-v2',
       revision: 2,
       tables: exportedTables,
-    });
-    expect(reset).toEqual({
-      originalStorageHtml: '',
-      revision: 3,
-      selectedColumnIndex: undefined,
-      selectedRowIndexes: [],
-      selectedTableIndex: undefined,
-      tables: [],
     });
   });
 });

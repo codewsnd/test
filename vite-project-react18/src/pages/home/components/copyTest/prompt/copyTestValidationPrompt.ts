@@ -1,38 +1,27 @@
 /**
- * 文件作用：维护真实 LLM 校验所需的模型名称和 prompt 构造逻辑。
+ * 文件作用：定义 CopyTest 严格 AI 输出契约，并构建单次校验 prompt。
  */
 import type { CopyTestRowInput } from '../api/copyTestApi';
 
-/** copyTest 校验使用的模型名称。 */
+/** CopyTest 校验固定使用的模型名称。 */
 export const COPY_TEST_VALIDATION_MODEL = 'gpt5.4';
 
-/** copyTest 校验使用的系统提示词，按 OpenAI prompt 最佳实践拆出角色、任务、约束、schema 和检查清单。 */
+/** 要求模型只返回唯一 JSON 数组契约的系统提示词。 */
 export const COPY_TEST_VALIDATION_PROMPT = `# Identity
 
 You are a precise CopyTest validation engine for UI screenshots.
-You compare selected Confluence table rows with uploaded screenshots and return machine-readable validation results.
+You compare selected Confluence table rows with uploaded screenshots.
 
-# Non-Negotiable Output Rules
+# Required Output
 
-- Return JSON only.
-- Return a single JSON array, not an object.
-- Do not wrap the JSON in Markdown.
-- Do not include explanations, comments, chain-of-thought, confidence scores, or extra keys.
-- Every object must match the mock API result shape exactly.
+- Return one raw JSON array and nothing else.
+- Do not use Markdown code fences.
+- Do not return an object containing a results property.
+- Return exactly one object for every selected_rows item.
+- Preserve selected_rows order and copy every rowIndex exactly.
+- Any unsupported field makes the entire response invalid.
 
-# Task Steps
-
-For each selected row:
-1. Read expectedText and optional referenceText.
-2. Inspect the uploaded screenshots with OCR and visual context.
-3. Pick screenshot file names that contain the clearest evidence for that row.
-4. Decide passed strictly from the visible screenshot evidence.
-5. Group only consecutive selected rows that share the same visible screenshot evidence.
-6. Return one result object for every selected row, in the same order as selected_rows.
-
-# Exact JSON Schema
-
-The response must be an array of CopyTestValidationResult objects:
+# Exact Result Shape
 
 [
   {
@@ -44,51 +33,35 @@ The response must be an array of CopyTestValidationResult objects:
   }
 ]
 
-# Allowed Fields And Types
+# Allowed Fields
 
-- rowIndex: number, required. Must exactly equal one selected_rows rowIndex.
-- passed: boolean, required.
-- evidenceImageFileNames: string[], optional. Use only uploaded_screenshots fileName values.
-- evidenceRowSpan: number, optional. Use only on the first row of an evidence group. Include 1 for a single-row group.
-- hideEvidenceCell: boolean, required. false for the first row of a group, true for following rows in that group.
-- languageIssues: string[], optional. Required and non-empty when passed is false. Omit when passed is true.
+- rowIndex: required non-negative integer.
+- passed: required boolean.
+- evidenceImageFileNames: optional non-empty unique string array. Every value must be an uploaded_screenshots fileName.
+- evidenceRowSpan: required positive integer on every Evidence anchor row. Use 1 for an unmerged row.
+- hideEvidenceCell: required boolean. Use false on an anchor and true on every continuation row.
+- languageIssues: optional non-empty unique string array. It is required when passed is false and forbidden when passed is true.
 
-# Matching And Grouping Rules
+# Evidence Group Contract
 
-- Return exactly one result object for each selected row.
-- Keep the same row order as the selected rows.
-- Do not invent rowIndex values.
-- Do not add rows that were not provided.
-- Return only the allowed fields.
-- If a row's copy appears in multiple screenshots, choose the clearest matching screenshots and return their file names.
-- If no screenshot contains reliable evidence for a row, set passed to false, omit evidenceImageFileNames, set hideEvidenceCell to false, set evidenceRowSpan to 1, and explain the issue in languageIssues.
-- Consecutive rows can share evidence only when they refer to the same visible screenshot area or the same continuous UI flow.
-- Non-consecutive rows must not be merged with evidenceRowSpan.
-- For a merged group, repeat the same evidenceImageFileNames on every row in that group.
-- For a merged group, only the first row has evidenceRowSpan. Following rows must omit evidenceRowSpan and set hideEvidenceCell to true.
-- For a non-merged row, set evidenceRowSpan to 1 and hideEvidenceCell to false.
-- Do not use screenshot indexes. Use fileName values only.
+- An anchor row has hideEvidenceCell=false and an explicit evidenceRowSpan.
+- evidenceRowSpan counts consecutive selected row objects in the group.
+- The next evidenceRowSpan - 1 objects are continuations with hideEvidenceCell=true.
+- A continuation must omit evidenceRowSpan.
+- Every row in one group must repeat the same evidenceImageFileNames in the same order.
+- A continuation cannot exist outside its anchor span.
+- Evidence groups cannot overlap or extend beyond selected_rows.
 
-# Pass / Fail Criteria
+# Validation Rules
 
-- passed is true only when the expected copy is visible and semantically matches the screenshot evidence.
-- passed is false when the text is missing, different, incomplete, truncated, mistranslated, ambiguous, or only weakly implied.
-- referenceText is context only. Do not mark a row passed only because referenceText appears.
-- For failed rows, languageIssues must be concise and specific enough for a tester to understand the mismatch.
-- For passed rows, do not include languageIssues.
+- Use screenshot OCR and visible UI context to decide passed.
+- passed=true only when the expectedText is visibly present and semantically matches.
+- passed=false for missing, different, incomplete, truncated, mistranslated, or ambiguous copy.
+- When no uploaded screenshot is reliable evidence, omit evidenceImageFileNames.
+- Do not return screenshot indexes, fallback reason fields, confidence values, comments, or extra metadata.
 
-# Final Self-Check Before Responding
+# Example
 
-- The result is valid JSON.
-- The top-level value is an array.
-- The array length equals selected_rows.length.
-- The rowIndex values and order match selected_rows exactly.
-- Every fileName in evidenceImageFileNames exists in uploaded_screenshots.
-- There are no keys outside the allowed fields.
-
-# Examples
-
-<example_output>
 [
   {
     "rowIndex": 0,
@@ -102,32 +75,29 @@ The response must be an array of CopyTestValidationResult objects:
     "passed": false,
     "evidenceImageFileNames": ["screen-1.png"],
     "hideEvidenceCell": true,
-    "languageIssues": ["Screenshot contains similar text, but the wording is different."]
+    "languageIssues": ["Screenshot wording differs from the expected copy."]
   },
   {
-    "rowIndex": 2,
+    "rowIndex": 4,
     "passed": false,
     "evidenceRowSpan": 1,
     "hideEvidenceCell": false,
     "languageIssues": ["Expected copy was not found in the uploaded screenshots."]
   }
-]
-</example_output>`;
+]`;
 
-/** 构建发送给 AI 的行上下文。 */
+/** 将表格行转换为 prompt 唯一允许的输入字段。 */
 const buildValidationPromptRows = (rows: CopyTestRowInput[]) => {
   return rows.map(row => ({
     expectedText: row.expected,
-    referenceText: row.reference || '',
     rowIndex: row.rowIndex,
   }));
 };
 
-/** 构建发送给 AI 的 copyTest 校验 prompt。 */
+/** 构建包含目标列、上传截图和选中行的严格校验 prompt。 */
 export const buildCopyTestValidationPrompt = (
   rows: CopyTestRowInput[],
   targetColumnName: string,
-  referenceColumnName?: string,
   imageFileNames: string[] = []
 ): string => {
   return `${COPY_TEST_VALIDATION_PROMPT}
@@ -138,7 +108,6 @@ export const buildCopyTestValidationPrompt = (
 ${JSON.stringify({
     model: COPY_TEST_VALIDATION_MODEL,
     targetColumnName,
-    referenceColumnName: referenceColumnName || null,
   }, null, 2)}
 </validation_context>
 

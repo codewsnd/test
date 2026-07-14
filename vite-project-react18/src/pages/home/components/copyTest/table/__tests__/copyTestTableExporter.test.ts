@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { COPY_TEST_EXPORT_SCOPE_ATTRIBUTE } from '../tableConstants';
-import { parseCopyTestStorageTables } from '../copyTestTableParser';
 import {
-  buildCurrentColumnExportStorage,
-  replaceTableInStorage,
-} from '../copyTestTableExporter';
+  COPY_TEST_EXPORT_SCOPE_ATTRIBUTE,
+  COPY_TEST_OWNER_ID_ATTRIBUTE,
+  COPY_TEST_SCHEMA_ATTRIBUTE,
+  COPY_TEST_SCHEMA_VERSION,
+} from '../tableConstants';
+import { parseCopyTestStorageTables } from '../copyTestTableParser';
+import { buildCurrentColumnExportStorage } from '../copyTestTableExporter';
 import {
   hasUnchangedNonTargetRaw,
   scanTopLevelTableRawRanges,
@@ -36,7 +38,9 @@ interface AColumnOptions {
 }
 
 const buildOwnedAttributes = (type: 'result' | 'evidence', sourceColumnKey: string): string => {
-  return `data-copy-test-column-type="${type}" data-copy-test-source-column-key="${sourceColumnKey}"`;
+  return `data-copy-test-column-type="${type}" data-copy-test-source-column-key="${sourceColumnKey}" `
+    + `${COPY_TEST_OWNER_ID_ATTRIBUTE}="${sourceColumnKey}" `
+    + `${COPY_TEST_SCHEMA_ATTRIBUTE}="${COPY_TEST_SCHEMA_VERSION}"`;
 };
 
 const buildOwnedHeader = (type: 'result' | 'evidence', sourceColumnKey: string, label: string): string => {
@@ -368,7 +372,5 @@ describe('copyTestTableExporter', () => {
     const duplicateHeader = buildOwnedHeader('result', FRENCH_SOURCE_KEY, 'Duplicate Result');
     const duplicateOwnedWorking = importedTarget.replace('</tr>', `${duplicateHeader}</tr>`);
     expect(buildExport(importStorage, duplicateOwnedWorking)).toBeNull();
-    expect(replaceTableInStorage('aa<table></table>zz', { end: 17, start: 2 }, '<table><tr /></table>'))
-      .toBe('aa<table><tr /></table>zz');
   });
 });

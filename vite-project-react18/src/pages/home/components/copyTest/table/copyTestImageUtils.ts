@@ -3,7 +3,7 @@
  */
 import type { CopyTestImage } from '../api/copyTestApi';
 
-/** 获取 CopyTest 图片稳定 ID。 */
+/** 使用附件文件名作为 CopyTest 图片的唯一稳定 ID。 */
 export const getCopyTestImageId = (image: CopyTestImage): string => {
-  return image.md5 || image.fileName;
+  return image.fileName;
 };
