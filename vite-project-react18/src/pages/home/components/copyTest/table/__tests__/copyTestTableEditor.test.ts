@@ -346,7 +346,7 @@ describe('copyTestTableEditor', () => {
     )))).toHaveLength(1);
   });
 
-  it('replans a middle-rowspan table after deleting the connecting Screen01', () => {
+  it('keeps rows 2 and 3 atomic when all four physical rows are validated and replanned', () => {
     const table = parseCopyTestStorageTables(middleMergedStorageHtml)[0];
     const results = bindResultImages([
       {
@@ -371,7 +371,21 @@ describe('copyTestTableEditor', () => {
     const validated = applyCopyTestValidationResults(table, results, 1, 'Target', images);
     const sourceKey = getSourceColumnKey(1, 'Target');
     const initialIndexes = findGeneratedColumnIndexes(validated.headers, sourceKey);
+    const initialResultCells = [1, 2, 4].map(rowIndex => {
+      return validated.model.rows[rowIndex].slots[initialIndexes.result!]?.cell.element;
+    });
+
+    expect(initialResultCells.map(cell => Number(cell?.getAttribute('rowspan') || 1))).toEqual([1, 2, 1]);
+    expect(validated.model.rows[3].slots[initialIndexes.result!]?.owned).toBe(false);
+    expect(initialResultCells.map(getResultImageIds)).toEqual([
+      [SCREEN_1.fileName],
+      [SCREEN_1.fileName],
+      [SCREEN_1.fileName, SCREEN_2.fileName],
+    ]);
     expect(validated.model.rows[1].slots[initialIndexes.evidence!]?.cell.rowSpan).toBe(4);
+    expect([2, 3, 4].map(rowIndex => {
+      return validated.model.rows[rowIndex].slots[initialIndexes.evidence!]?.owned;
+    })).toEqual([false, false, false]);
 
     const firstImageId = getCopyTestImageId(SCREEN_1);
     const deleted = deleteCopyTestEvidenceImage(

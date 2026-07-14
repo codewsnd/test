@@ -112,7 +112,7 @@ describe('useCopyTestSession', () => {
     expect(result.current.getCurrentPreviewImages()).toEqual([importedImage]);
   });
 
-  it('keeps a middle rowspan source group atomic when session selection receives covered rows', () => {
+  it('normalizes four selected physical rows into three atomic source groups', () => {
     const { result } = renderHook(() => useCopyTestSession());
     act(() => {
       result.current.applyLoadedStorage(middleMergedStorageHtml);
@@ -123,11 +123,12 @@ describe('useCopyTestSession', () => {
 
     expect(result.current.selectedRowIndexes).toEqual([0, 1, 3]);
     act(() => {
-      result.current.setSelectedRowIndexes([3, 2, 1, 2]);
+      result.current.setSelectedRowIndexes([0, 1, 2, 3]);
     });
 
-    expect(result.current.selectedRowIndexes).toEqual([1, 3]);
+    expect(result.current.selectedRowIndexes).toEqual([0, 1, 3]);
     expect(result.current.buildSelectedRowsForValidation()).toEqual([
+      { expected: 'copy 1', rowIndex: 0 },
       { expected: 'copy 2 and 3', rowIndex: 1 },
       { expected: 'copy 4', rowIndex: 3 },
     ]);

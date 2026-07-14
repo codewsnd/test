@@ -406,7 +406,7 @@ const buildValidationRequest = (
 
 /** 判断当前运行环境是否应该返回随机 Mock 校验结果。 */
 const shouldUseCopyTestAiChatMock = (): boolean => {
-  return COPY_TEST_AI_CHAT_MOCK_ENABLED && import.meta.env.MODE !== 'test';
+  return COPY_TEST_AI_CHAT_MOCK_ENABLED;
 };
 
 /** 在返回随机 Mock 前保留短暂且可感知的异步 loading。 */
