@@ -4,7 +4,7 @@
 import type { CopyTestRowInput } from '../api/copyTestApi';
 
 /** CopyTest 校验固定使用的模型名称。 */
-export const COPY_TEST_VALIDATION_MODEL = 'gpt5.4';
+export const COPY_TEST_VALIDATION_MODEL = 'gpt-5.4';
 
 /** 要求模型只返回唯一 JSON 数组契约的系统提示词。 */
 export const COPY_TEST_VALIDATION_PROMPT = `# Identity
