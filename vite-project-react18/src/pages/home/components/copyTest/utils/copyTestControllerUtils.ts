@@ -55,16 +55,6 @@ export const getEmptyAttachmentPreviewBundle = (
   storageHtml: string
 ): CopyTestStorageImagePreviewBundle => ({ images: [], storageHtml });
 
-/** 统一附件预览失败的降级结果。 */
-export const getFailedAttachmentPreviewBundle = (
-  storageHtml: string,
-  error: unknown
-): CopyTestStorageImagePreviewBundle => {
-  console.error('Failed to load Confluence attachment previews:', error);
-  message.warning('Failed to load existing evidence image previews');
-  return getEmptyAttachmentPreviewBundle(storageHtml);
-};
-
 /** 校验当前表格选择并构建只包含目标双列改动的 export storage。 */
 export const getRequiredExportStorage = (
   tableState: UseCopyTestSessionResult,
@@ -97,8 +87,7 @@ export const buildStorageAttachmentPreviewBundle = ({
     return Promise.resolve(getEmptyAttachmentPreviewBundle(storageHtml));
   }
   return Promise.resolve().then(() => loadAttachments(request))
-    .then(response => buildConfluenceStorageTableImagePreviewBundle(storageHtml, response.images))
-    .catch(error => getFailedAttachmentPreviewBundle(storageHtml, error));
+    .then(response => buildConfluenceStorageTableImagePreviewBundle(storageHtml, response.images));
 };
 
 /** 校验截图和表格选择并冻结本次 AI 校验所需上下文。 */

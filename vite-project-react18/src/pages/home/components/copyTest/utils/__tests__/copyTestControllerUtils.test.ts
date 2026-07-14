@@ -4,7 +4,6 @@ import {
   getAttachmentPreviewRequest,
   getCopyTestValidationContext,
   getEmptyAttachmentPreviewBundle,
-  getFailedAttachmentPreviewBundle,
   getRequiredExportStorage,
 } from '../copyTestControllerUtils';
 import { applyCopyTestValidationResults, ensureCopyTestWorkingColumns } from '../../table/copyTestTableEditor';
@@ -53,7 +52,7 @@ describe('copyTestControllerUtils', () => {
     expect(getCopyTestValidationContext(tableState, [{ base64: 'x', fileName: 'a.png', md5: 'm', size: 1 }])?.rows).toHaveLength(1);
   });
 
-  it('builds attachment preview requests and synchronous fallback values', () => {
+  it('builds attachment preview requests and propagates attachment failures', async () => {
     expect(getAttachmentPreviewRequest('http://wiki', storageHtml)).toBeNull();
     expect(getAttachmentPreviewRequest('http://wiki', managedEvidenceStorage)).toEqual({
       confluenceUrl: 'http://wiki',
@@ -62,19 +61,18 @@ describe('copyTestControllerUtils', () => {
     const emptyBundle = getEmptyAttachmentPreviewBundle(storageHtml);
     expect(emptyBundle).toEqual({ images: [], storageHtml });
     const loadAttachments = vi.fn();
-    void buildStorageAttachmentPreviewBundle({
+    await expect(buildStorageAttachmentPreviewBundle({
       confluenceUrl: 'http://wiki',
       loadAttachments,
       storageHtml,
-    });
+    })).resolves.toEqual(emptyBundle);
     expect(loadAttachments).not.toHaveBeenCalled();
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    expect(getFailedAttachmentPreviewBundle(storageHtml, new Error('failed'))).toEqual(emptyBundle);
-    expect(errorSpy).toHaveBeenCalledWith(
-      'Failed to load Confluence attachment previews:',
-      expect.any(Error)
-    );
-    expect(hoisted.warning).toHaveBeenCalledWith('Failed to load existing evidence image previews');
-    errorSpy.mockRestore();
+
+    const attachmentError = new Error('failed');
+    await expect(buildStorageAttachmentPreviewBundle({
+      confluenceUrl: 'http://wiki',
+      loadAttachments: vi.fn().mockRejectedValue(attachmentError),
+      storageHtml: managedEvidenceStorage,
+    })).rejects.toBe(attachmentError);
   });
 });

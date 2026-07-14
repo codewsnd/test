@@ -47,6 +47,17 @@ vi.mock('../../api/copyTestApi', async importOriginal => {
 
 const storageHtml = '<table><tr><th>Reference</th><th>Target</th></tr><tr><td>Hello</td><td>你好</td></tr></table>';
 
+/** 包含严格托管 Evidence 附件引用的有效 storage。 */
+const managedEvidenceStorage = [
+  '<table><tr><th>Target</th><th data-copy-test-schema="2"',
+  ' data-copy-test-column-type="evidence" data-copy-test-source-column-key="table-0:target"',
+  ' data-copy-test-owner-id="table-0:target">Test Evidence - Target</th></tr>',
+  '<tr><td>copy</td><td data-copy-test-schema="2" data-copy-test-column-type="evidence"',
+  ' data-copy-test-source-column-key="table-0:target" data-copy-test-owner-id="table-0:target">',
+  '<ac:image><ri:attachment ri:filename="screen.png" /></ac:image>',
+  '</td></tr></table>',
+].join('');
+
 const installBrowserMocks = (): void => {
   class MockFileReader {
     onload: (() => void) | null = null;
@@ -91,6 +102,7 @@ describe('useCopyTestController', () => {
     });
     await act(() => result.current.handleLoadTables());
     expect(result.current.tableState.tables).toHaveLength(1);
+    expect(hoisted.messageSuccess).not.toHaveBeenCalled();
     act(() => {
       result.current.handleComparisonColumnChange(1);
     });
@@ -140,7 +152,20 @@ describe('useCopyTestController', () => {
       failingHook.result.current.handleConfluenceUrlChange('http://wiki');
     });
     await act(() => failingHook.result.current.handleLoadTables());
-    expect(hoisted.messageError).toHaveBeenCalledWith('Failed to load Confluence tables');
+    expect(failingHook.result.current.importError).toBe('Failed to load Confluence tables');
+    expect(hoisted.messageError).not.toHaveBeenCalled();
+    failingHook.unmount();
+
+    hoisted.storageApi.mockResolvedValue({ storage: managedEvidenceStorage });
+    hoisted.attachmentsApi.mockRejectedValueOnce(new Error('attachment failed'));
+    const attachmentHook = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
+    act(() => {
+      attachmentHook.result.current.handleConfluenceUrlChange('http://wiki');
+    });
+    await act(() => attachmentHook.result.current.handleLoadTables());
+    expect(attachmentHook.result.current.importError).toBe('Failed to load Confluence tables');
+    expect(hoisted.messageError).not.toHaveBeenCalled();
+    attachmentHook.unmount();
 
     hoisted.storageApi.mockResolvedValue({ storage: storageHtml });
     hoisted.attachmentsApi.mockResolvedValue({ images: [] });

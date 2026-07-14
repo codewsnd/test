@@ -19,6 +19,7 @@ import {
   findGeneratedColumnIndexes,
   getCopyTestColumnContext,
   getSelectableCopyTestRowIndexes,
+  normalizeCopyTestSelectedRowIndexes,
   parseCopyTestStorageTables,
   refreshWorkingTable,
   type CopyTestColumnContext,
@@ -396,7 +397,12 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
 
   /** 更新当前选中的来源原子组首行。 */
   const setSelectedRowIndexes = (value: number[]): void => {
-    dispatch({ selectedRowIndexes: value, type: 'ROWS_SELECTED' });
+    /** 将组内任意行统一映射到来源原子组锚点的规范化下标。 */
+    const normalizedRowIndexes = normalizeCopyTestSelectedRowIndexes(
+      selectedColumnContext?.rowGroups || [],
+      value
+    );
+    dispatch({ selectedRowIndexes: normalizedRowIndexes, type: 'ROWS_SELECTED' });
   };
 
   return {

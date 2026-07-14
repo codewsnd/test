@@ -130,6 +130,9 @@ const EXPORT_CONFIRM_CONTENT = 'This operation will update the table in your Con
 /** AI 校验和本地表格写入成功后的提示。 */
 const COPY_TEST_VALIDATION_SUCCESS_MESSAGE = 'Copy test validation completed';
 
+/** Confluence storage 或附件导入失败时显示在输入框下方的文案。 */
+const CONFLUENCE_IMPORT_ERROR = 'Failed to load Confluence tables';
+
 /** 等待浏览器先完成一次界面绘制。 */
 const waitForNextPaint = async (): Promise<void> => {
   await new Promise<void>(resolve => {
@@ -352,13 +355,12 @@ export const useCopyTestController = ({
       }
       setLoadedConfluenceUrl(trimmedUrl);
       resetImportSideEffects();
-      message.success(`Loaded ${tableCount} table${tableCount === 1 ? '' : 's'}`);
     } catch (error) {
       if (requestId !== importRequestIdRef.current) {
         return;
       }
       console.error('Failed to load Confluence tables:', error);
-      message.error('Failed to load Confluence tables');
+      setImportError(CONFLUENCE_IMPORT_ERROR);
     }
   };
 

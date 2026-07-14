@@ -260,6 +260,22 @@ export const getSelectableCopyTestRowIndexes = (
   );
 };
 
+/** 将来源原子组内任意行下标规范为锚点，并按表格顺序去重。 */
+export const normalizeCopyTestSelectedRowIndexes = (
+  rowGroups: CopyTestRowGroup[],
+  selectedRowIndexes: number[]
+): number[] => {
+  /** 便于快速判断某个原子组是否含有任意已选物理行。 */
+  const selectedRows = new Set(selectedRowIndexes);
+  return rowGroups.flatMap(group => {
+    /** 当前来源原子组对外唯一使用的业务锚点下标。 */
+    const anchorRowIndex = group.dataRowIndexes[0];
+    /** 组内任意行被选中时，整个原子组统一映射为锚点。 */
+    const groupSelected = group.dataRowIndexes.some(rowIndex => selectedRows.has(rowIndex));
+    return anchorRowIndex === undefined || !groupSelected ? [] : [anchorRowIndex];
+  });
+};
+
 /** 构建发给校验接口的行输入。 */
 export const buildCopyTestRowsForValidation = (
   table: CopyTestWorkingTable | undefined,
@@ -270,5 +286,7 @@ export const buildCopyTestRowsForValidation = (
     return [];
   }
 
-  return buildRowsForValidation(table, context.selectedColumnIndex, selectedRowIndexes);
+  /** 只包含来源原子组锚点且按表格顺序排列的选中下标。 */
+  const normalizedRowIndexes = normalizeCopyTestSelectedRowIndexes(context.rowGroups, selectedRowIndexes);
+  return buildRowsForValidation(table, context.selectedColumnIndex, normalizedRowIndexes);
 };

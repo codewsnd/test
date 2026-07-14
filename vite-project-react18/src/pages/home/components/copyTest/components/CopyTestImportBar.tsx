@@ -10,7 +10,7 @@ interface CopyTestImportBarProps {
   confluenceUrl: string;
   /** 是否禁止编辑 URL。 */
   disabled: boolean;
-  /** URL 或表格导入失败时的提示文本。 */
+  /** Import 失败时显示在 URL 输入框下方的提示文本。 */
   error?: string;
   /** 是否正在导入 Confluence 页面。 */
   loading: boolean;

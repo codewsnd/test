@@ -12,6 +12,16 @@ const storageHtml = [
   '</table>',
 ].join('');
 
+/** Target 列中间两个数据行合并的四行会话回归表格。 */
+const middleMergedStorageHtml = [
+  '<table><tr><th>ID</th><th>Target</th></tr>',
+  '<tr><td>1</td><td>copy 1</td></tr>',
+  '<tr><td>2</td><td rowspan="2">copy 2 and 3</td></tr>',
+  '<tr><td>3</td></tr>',
+  '<tr><td>4</td><td>copy 4</td></tr>',
+  '</table>',
+].join('');
+
 const importedImage = { base64: 'data:image/png;base64,SU1QT1JURUQ=', fileName: 'imported.png' };
 const unrelatedBusinessImage = { base64: 'data:image/png;base64,QlVTSU5FU1M=', fileName: 'business.png' };
 const importedStorageHtml = [
@@ -100,5 +110,26 @@ describe('useCopyTestSession', () => {
       result.current.resetValidationSnapshots();
     });
     expect(result.current.getCurrentPreviewImages()).toEqual([importedImage]);
+  });
+
+  it('keeps a middle rowspan source group atomic when session selection receives covered rows', () => {
+    const { result } = renderHook(() => useCopyTestSession());
+    act(() => {
+      result.current.applyLoadedStorage(middleMergedStorageHtml);
+    });
+    act(() => {
+      result.current.handleComparisonColumnChange(1);
+    });
+
+    expect(result.current.selectedRowIndexes).toEqual([0, 1, 3]);
+    act(() => {
+      result.current.setSelectedRowIndexes([3, 2, 1, 2]);
+    });
+
+    expect(result.current.selectedRowIndexes).toEqual([1, 3]);
+    expect(result.current.buildSelectedRowsForValidation()).toEqual([
+      { expected: 'copy 2 and 3', rowIndex: 1 },
+      { expected: 'copy 4', rowIndex: 3 },
+    ]);
   });
 });

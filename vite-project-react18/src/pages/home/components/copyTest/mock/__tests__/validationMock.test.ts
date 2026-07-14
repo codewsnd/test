@@ -57,16 +57,18 @@ describe('validationMock strict contract', () => {
     randomSpy.mockRestore();
   });
 
-  it('never merges rows whose rowIndex values are not consecutive', () => {
+  it('merges selected logical rows by array order when physical anchor indexes contain gaps', () => {
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.99);
 
     const result = mockCopyTestValidationApi(images, [
       { expected: 'copy 1', rowIndex: 0 },
-      { expected: 'copy 2', rowIndex: 3 },
+      { expected: 'copy 2 and 3', rowIndex: 1 },
+      { expected: 'copy 4', rowIndex: 3 },
     ]);
 
-    expect(result.map(item => item.evidenceRowSpan)).toEqual([1, 1]);
-    expect(result.every(item => item.hideEvidenceCell === false)).toBe(true);
+    expect(result.map(item => item.rowIndex)).toEqual([0, 1, 3]);
+    expect(result.map(item => item.evidenceRowSpan)).toEqual([3, undefined, undefined]);
+    expect(result.map(item => item.hideEvidenceCell)).toEqual([false, true, true]);
     randomSpy.mockRestore();
   });
 });

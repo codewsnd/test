@@ -47,8 +47,9 @@ URL 只接受可由浏览器 `URL` 解析的 `http:` 或 `https:` 地址。错�
 | --- | --- |
 | URL 格式无效 | `In valid URL format, Please enter a valid Http:// or https:// URL` |
 | Storage 中没有有效表格 | `No valid table found` |
+| Storage 或附件导入失败 | `Failed to load Confluence tables` |
 
-有效表格至少包含一行 header、一行数据、一个逻辑列，并且存在一个非空 header。输入框存在 URL/表格错误时，表格选择器和预览区整体隐藏。用户修改输入并清除错误后，已加载的工作状态可重新显示。导出只使用最后一次成功导入的 URL；输入已变更但尚未重新导入时，导出按钮不可用。
+所有 Import 错误统一显示在 URL 输入框底部，不使用全局 message。成功导入也不显示 `Loaded N table(s)` 提示。有效表格至少包含一行 header、一行数据、一个逻辑列，并且存在一个非空 header。输入框存在 URL/表格错误时，表格选择器和预览区整体隐藏。用户修改输入并清除错误后，已加载的工作状态可重新显示。导出只使用最后一次成功导入的 URL；输入已变更但尚未重新导入时，导出按钮不可用。
 
 ## 4. 架构与职责
 
@@ -247,7 +248,7 @@ export const COPY_TEST_AI_CHAT_MOCK_ENABLED = true;
 随机 Mock 的行为包括：
 
 - 每行以 65% 概率通过。
-- 只在连续 `rowIndex` 内构建 Evidence 分组，每组最多覆盖 3 个请求行。
+- 只按 `selected_rows` 中连续的来源原子组构建 Evidence 分组，每组最多覆盖 3 个请求行；物理 `rowIndex` 因 rowspan 跳号不会中断逻辑分组。
 - 有上传图片时，每组随机选择 1～2 张不重复图片；无图片时省略图片字段。
 - 失败行会从真实测试问题文案中随机选择一条。
 - 锚点/续行、图片列表和 `evidenceRowSpan` 始终符合严格分组规则。
@@ -306,6 +307,9 @@ working table 和导出 Storage 中的 Evidence 图片使用以下结构：
 - 只有 `ac:image` 的直接子元素 `ri:attachment` 上的非空 `ri:filename` 会被读取。
 - 附件文件名同时是稳定 image id；instance id 用于区分同一图片在不同 Evidence 位置的出现。
 - 删除操作必须同时匹配 image id 和 instance id，只删除目标实例及其对应 Result 项。
+- 删除后剩余 Evidence 与 Result Screen 按当前顺序重新从 `Screen01` 编号，稳定 image id 和 instance id 不变。
+- Evidence 合并组删除全部图片后，单元格恢复为来源列原子行组的 rowspan；例如来源行为 `1 / (2+3) / 4` 时恢复为 `1 / 2 / 1`，不会拆开第 2、3 行。
+- 最后一个 Screen 删除后只移除 Result 的 Screen 列表，保留原有 `Passed/Failed` 状态。
 - 导入附件扫描只进入严格 schema 2 Evidence cell，并且不跨越嵌套单元格。
 - 导出只收集当前 Pair 的 Evidence 实际使用文件，并将图片尺寸规范为 `100 x 200`。
 

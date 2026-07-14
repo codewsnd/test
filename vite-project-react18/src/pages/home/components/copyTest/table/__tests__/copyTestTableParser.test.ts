@@ -7,6 +7,7 @@ import {
   getSelectableCopyTestRowIndexes,
   getSourceColumnKey,
   isCopyTestGeneratedHeader,
+  normalizeCopyTestSelectedRowIndexes,
   parseCopyTestStorageTables,
   refreshWorkingTable,
 } from '../copyTestTableParser';
@@ -19,6 +20,16 @@ const storageHtml = [
   '<tr><td>hello</td><td rowspan="2">你好</td><td></td><td></td></tr>',
   '<tr><td>world</td></tr>',
   '<tr><td>submit</td><td>提交</td><td></td><td></td></tr>',
+  '</table>',
+].join('');
+
+/** A 列第 2、3 个数据行合并的四行回归表格。 */
+const middleMergedStorageHtml = [
+  '<table><tr><th>ID</th><th>A</th></tr>',
+  '<tr><td>1</td><td>copy 1</td></tr>',
+  '<tr><td>2</td><td rowspan="2">copy 2 and 3</td></tr>',
+  '<tr><td>3</td></tr>',
+  '<tr><td>4</td><td>copy 4</td></tr>',
   '</table>',
 ].join('');
 
@@ -85,5 +96,19 @@ describe('copyTestTableParser', () => {
     expect(buildCopyTestRowGroups(holeTable, 1)).toEqual([]);
     expect(crossingHeaderTable.model.spanGrid).toBeDefined();
     expect(buildCopyTestRowGroups(crossingHeaderTable, 1)).toEqual([]);
+  });
+
+  it('normalizes every selected row in a middle rowspan group to its anchor', () => {
+    const table = parseCopyTestStorageTables(middleMergedStorageHtml)[0];
+    const context = getCopyTestColumnContext(table, 1);
+
+    expect(context?.rowGroups.map(group => group.dataRowIndexes)).toEqual([[0], [1, 2], [3]]);
+    expect(getSelectableCopyTestRowIndexes(table, 1)).toEqual([0, 1, 3]);
+    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [3, 2, 1, 99, 0, 2]))
+      .toEqual([0, 1, 3]);
+    expect(buildCopyTestRowsForValidation(table, context, [2, 3, 1])).toEqual([
+      { expected: 'copy 2 and 3', rowIndex: 1 },
+      { expected: 'copy 4', rowIndex: 3 },
+    ]);
   });
 });

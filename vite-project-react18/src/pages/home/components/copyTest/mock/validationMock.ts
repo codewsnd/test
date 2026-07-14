@@ -70,21 +70,6 @@ const getImageFileNames = (images: CopyTestImage[]): string[] | undefined => {
   return fileNames.length > 0 ? fileNames : undefined;
 };
 
-/** 计算当前位置允许合并的连续 rowIndex 数量。 */
-const getMaxConsecutiveGroupSize = (rows: CopyTestRowInput[], startIndex: number): number => {
-  /** 同时受剩余行数和随机分组上限约束的最大跨度。 */
-  const maxSize = Math.min(MAX_RANDOM_GROUP_SIZE, rows.length - startIndex);
-  /** 从当前锚点开始已确认连续的逻辑行数量。 */
-  let groupSize = 1;
-  while (
-    groupSize < maxSize
-    && rows[startIndex + groupSize]?.rowIndex === rows[startIndex].rowIndex + groupSize
-  ) {
-    groupSize += 1;
-  }
-  return groupSize;
-};
-
 /** 将所有请求行随机划分为互不重叠的合法 Evidence 分组。 */
 const buildRandomMergePlans = (
   rows: CopyTestRowInput[],
@@ -95,8 +80,8 @@ const buildRandomMergePlans = (
   /** 下一个尚未加入随机分组的请求行位置。 */
   let rowOffset = 0;
   while (rowOffset < rows.length) {
-    /** 当前锚点可覆盖的最大连续逻辑行数量。 */
-    const maxGroupSize = getMaxConsecutiveGroupSize(rows, rowOffset);
+    /** 按 selected_rows 顺序计算当前锚点可覆盖的最大逻辑行数量。 */
+    const maxGroupSize = Math.min(MAX_RANDOM_GROUP_SIZE, rows.length - rowOffset);
     /** 当前分组在合法范围内随机选出的跨度。 */
     const groupSize = getRandomInt(1, maxGroupSize);
     plans.push({
