@@ -11,8 +11,10 @@ import type {
 } from '../types';
 import {
   applyCopyTestValidationResults,
+  bindResultImages,
   deleteCopyTestEvidenceImage,
   ensureCopyTestWorkingColumns,
+  type CopyTestValidationSnapshot,
 } from '../table/copyTestTableEditor';
 import {
   buildCopyTestRowsForValidation,
@@ -24,7 +26,6 @@ import {
   refreshWorkingTable,
   type CopyTestColumnContext,
 } from '../table/copyTestTableParser';
-import { getCopyTestImageId } from '../table/copyTestImageUtils';
 import { getConfluenceStorageTableImageFileNames } from '../table/copyTestTableImages';
 import {
   COPY_TEST_GENERATED_CONTENT_ATTRIBUTE,
@@ -96,6 +97,9 @@ export interface UseCopyTestSessionResult {
 
 /** 校验图片快照集合。 */
 type ValidationImageSnapshotMap = Record<string, CopyTestImage[]>;
+
+/** 逐来源原子行校验结果快照集合。 */
+type ValidationResultSnapshotMap = Record<string, CopyTestValidationResultWithEvidence[]>;
 
 /** 未产生校验图片时复用稳定空数组。 */
 const EMPTY_VALIDATION_IMAGES: CopyTestImage[] = [];
@@ -215,6 +219,8 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
   const importedPreviewImagesRef = useRef<CopyTestImage[]>([]);
   /** 按表格和来源列保存的最近校验图片快照。 */
   const validationImageSnapshotsRef = useRef<ValidationImageSnapshotMap>({});
+  /** 按表格和来源列保存的最近逐行校验结果快照。 */
+  const validationResultSnapshotsRef = useRef<ValidationResultSnapshotMap>({});
 
   /** 当前 selectedTableIndex 对应的工作表格。 */
   const selectedTable = useMemo(
@@ -248,6 +254,7 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
   /** 重置校验图片快照。 */
   const resetValidationSnapshots = (): void => {
     validationImageSnapshotsRef.current = {};
+    validationResultSnapshotsRef.current = {};
   };
 
   /** 应用导入的 storage。 */
@@ -311,16 +318,23 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     return buildCopyTestRowsForValidation(selectedTable, selectedColumnContext, selectedRowIndexes);
   };
 
-  /** 保存当前列最近一次校验图片。 */
-  const saveValidationImages = (
+  /** 保存当前列最近一次图片顺序和逐行校验关系。 */
+  const saveValidationSnapshot = (
     tableIndex: number,
     columnIndex: number,
     columnLabel: string,
-    images: CopyTestImage[]
+    images: CopyTestImage[],
+    results: CopyTestValidationResultWithEvidence[]
   ): void => {
+    /** 当前表格与来源列共用的快照键。 */
+    const snapshotKey = buildSnapshotKey(tableIndex, columnIndex, columnLabel);
     validationImageSnapshotsRef.current = {
       ...validationImageSnapshotsRef.current,
-      [buildSnapshotKey(tableIndex, columnIndex, columnLabel)]: images,
+      [snapshotKey]: images,
+    };
+    validationResultSnapshotsRef.current = {
+      ...validationResultSnapshotsRef.current,
+      [snapshotKey]: results,
     };
   };
 
@@ -359,10 +373,11 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
       targetTable,
       results,
       columnIndex,
-      columnLabel
+      columnLabel,
+      images
     );
     updateWorkingTable(nextTable);
-    saveValidationImages(tableIndex, columnIndex, columnLabel, images);
+    saveValidationSnapshot(tableIndex, columnIndex, columnLabel, images, results);
   };
 
   /** 删除当前列 Evidence 图片引用。 */
@@ -371,25 +386,46 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
       return { imageStillUsed: false, removed: false };
     }
 
+    /** 当前表格与来源列共用的校验快照键。 */
+    const snapshotKey = buildSnapshotKey(selectedTable.index, selectedColumnIndex, selectedHeader.label);
+    /** 当前来源列最近一次逐行关系与图片顺序快照。 */
+    const snapshot: CopyTestValidationSnapshot | undefined = validationResultSnapshotsRef.current[snapshotKey]
+      ? {
+          images: validationImageSnapshotsRef.current[snapshotKey] || [],
+          results: validationResultSnapshotsRef.current[snapshotKey],
+        }
+      : undefined;
     /** 在当前 source Pair 内删除精确图片实例的结果。 */
     const result = deleteCopyTestEvidenceImage(
       selectedTable,
       target,
       selectedColumnIndex,
-      selectedHeader.label
+      selectedHeader.label,
+      snapshot
     );
     if (!result.removed) {
       return { imageStillUsed: false, removed: false };
     }
 
     updateWorkingTable(refreshWorkingTable(result.table, result.table.workingHtml));
-    if (!result.imageStillUsed) {
-      /** 当前来源列校验图片快照的稳定键。 */
-      const snapshotKey = buildSnapshotKey(selectedTable.index, selectedColumnIndex, selectedHeader.label);
+    if (result.validationResults) {
+      /** 优先使用本会话原图；DOM 恢复路径则复用当前已加载预览图片。 */
+      const availableImages = snapshot?.images
+        || (currentPreviewImages.length > 0 ? currentPreviewImages : result.validationImages || []);
+      /** 把 DOM 恢复的轻量文件名重新绑定到浏览器内真实图片。 */
+      const validationResults = bindResultImages(result.validationResults, availableImages);
+      validationResultSnapshotsRef.current = {
+        ...validationResultSnapshotsRef.current,
+        [snapshotKey]: validationResults,
+      };
+      /** 删除后当前来源列仍实际引用的图片文件名。 */
+      const remainingFileNames = new Set(
+        validationResults.flatMap(item => item.evidenceImageFileNames)
+      );
       validationImageSnapshotsRef.current = {
         ...validationImageSnapshotsRef.current,
-        [snapshotKey]: (validationImageSnapshotsRef.current[snapshotKey] || [])
-          .filter(image => getCopyTestImageId(image) !== target.imageId),
+        [snapshotKey]: availableImages
+          .filter(image => remainingFileNames.has(image.fileName)),
       };
     }
     return { imageStillUsed: result.imageStillUsed, removed: true };

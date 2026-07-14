@@ -72,13 +72,13 @@ describe('copyTest merged Confluence fixture', () => {
       ensureCopyTestWorkingColumns(table, 4, 'Target'),
       bindResultImages([{
         evidenceImageFileNames: ['screen.png'],
-        evidenceRowSpan: 1,
-        hideEvidenceCell: false,
+        languageIssues: [],
         passed: true,
         rowIndex: 0,
       }], [IMAGE]),
       4,
-      'Target'
+      'Target',
+      [IMAGE]
     );
     const sourceKey = getSourceColumnKey(4, 'Target');
     const indexes = findGeneratedColumnIndexes(validated.headers, sourceKey);
@@ -89,22 +89,27 @@ describe('copyTest merged Confluence fixture', () => {
     expect(validated.model.rows[2].slots[indexes.evidence!]?.owned).toBe(false);
   });
 
-  it('interprets evidenceRowSpan as complete source groups and never cuts through rowspan boundaries', () => {
+  it('merges shared Evidence across complete source groups without cutting rowspan boundaries', () => {
     const table = parseCopyTestStorageTables(buildGroupedTable('GROUP', [3, 2]))[0];
     const validated = applyCopyTestValidationResults(
       ensureCopyTestWorkingColumns(table, 2, 'Target'),
       bindResultImages([
         {
           evidenceImageFileNames: ['screen.png'],
-          evidenceRowSpan: 2,
-          hideEvidenceCell: false,
+          languageIssues: [],
           passed: true,
           rowIndex: 0,
         },
-        { evidenceImageFileNames: ['screen.png'], hideEvidenceCell: true, passed: true, rowIndex: 3 },
+        {
+          evidenceImageFileNames: ['screen.png'],
+          languageIssues: [],
+          passed: true,
+          rowIndex: 3,
+        },
       ], [IMAGE]),
       2,
-      'Target'
+      'Target',
+      [IMAGE]
     );
     const sourceKey = getSourceColumnKey(2, 'Target');
     const indexes = findGeneratedColumnIndexes(validated.headers, sourceKey);

@@ -85,7 +85,7 @@ describe('useCopyTestController', () => {
     hoisted.attachmentsApi.mockResolvedValue({ images: [] });
     hoisted.validationApi.mockResolvedValue([{
       evidenceImageFileNames: ['screen-uuid-value.png'],
-      hideEvidenceCell: false,
+      languageIssues: [],
       passed: true,
       rowIndex: 0,
     }]);
@@ -120,7 +120,10 @@ describe('useCopyTestController', () => {
     expect(hoisted.confirm).toHaveBeenCalled();
     expect(hoisted.uploadApi).toHaveBeenCalled();
     act(() => {
-      result.current.handleEvidenceImageDelete({ imageId: 'missing', instanceId: 'missing:1:0' });
+      result.current.handleEvidenceImageDelete({
+        imageId: 'missing',
+        instanceId: '1:Target:1:missing',
+      });
       result.current.handleConfirmEvidenceImageDelete();
       result.current.handleCancelEvidenceImageDelete();
       result.current.handleEvidenceImagePreview({ alt: 'screen', imageId: 'id', src: 'src' });
@@ -188,7 +191,7 @@ describe('useCopyTestController', () => {
       validationHook.result.current.handleEvidenceImagePreview({ alt: 'screen', imageId: 'missing', src: 'src' });
       validationHook.result.current.handleEvidenceImageDelete({
         imageId: 'missing',
-        instanceId: 'missing:1:0',
+        instanceId: '1:Target:1:missing',
       });
     });
     act(() => {

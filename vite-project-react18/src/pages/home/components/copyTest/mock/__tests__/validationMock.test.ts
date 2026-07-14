@@ -1,74 +1,130 @@
-import { describe, expect, it, vi } from 'vitest';
-import { mockCopyTestValidationApi } from '../validationMock';
+import { aiChat, type AiChatRequest } from '@/api';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
+import { buildCopyTestValidationPrompt } from '../../prompt/copyTestValidationPrompt';
+import {
+  buildMockCopyTestAiChatResponse,
+  createMockCopyTestAiChat,
+  mockCopyTestAiChat,
+} from '../validationMock';
 
-const images = [
-  { base64: 'data:image/png;base64,QUJD', fileName: 'screen-a.png' },
-  { base64: 'data:image/png;base64,REVG', fileName: 'screen-b.png' },
-];
+const buildRequest = (
+  imageFileNames: string[] = ['screen-a.png', 'screen-b.png'],
+  rows = [
+    { expected: '你好', rowIndex: 0 },
+    { expected: '我在', rowIndex: 1 },
+  ]
+): AiChatRequest => ({
+  documents: [{ base64url: [], type: 'image' }],
+  messages: [
+    { content: 'stable rules', role: 'system' },
+    {
+      content: buildCopyTestValidationPrompt(rows, 'Target', imageFileNames),
+      role: 'user',
+    },
+  ],
+  modelName: 'gpt-5.4',
+});
 
-describe('validationMock strict contract', () => {
-  it('returns a deterministic explicit group when random values are controlled', () => {
-    const randomSpy = vi.spyOn(Math, 'random')
-      .mockReturnValueOnce(0.99)
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0.1)
-      .mockReturnValueOnce(0.9)
-      .mockReturnValueOnce(0);
+describe('validationMock aiChat boundary', () => {
+  it('has the exact aiChat signature and returns its complete response envelope', () => {
+    expectTypeOf(mockCopyTestAiChat).toEqualTypeOf(aiChat);
+    expectTypeOf(createMockCopyTestAiChat({ random: () => 0.4 })).toEqualTypeOf(aiChat);
 
-    const result = mockCopyTestValidationApi(images, [
-      { expected: 'copy 1', rowIndex: 0 },
-      { expected: 'copy 2', rowIndex: 1 },
-    ]);
-
-    expect(result).toEqual([
-      {
-        evidenceImageFileNames: ['screen-a.png'],
-        evidenceRowSpan: 2,
-        hideEvidenceCell: false,
-        passed: true,
-        rowIndex: 0,
-      },
-      {
-        evidenceImageFileNames: ['screen-a.png'],
-        hideEvidenceCell: true,
-        languageIssues: ['OCR text does not match the selected comparison copy.'],
-        passed: false,
-        rowIndex: 1,
-      },
-    ]);
-    expect(Object.prototype.hasOwnProperty.call(result[1], 'evidenceRowSpan')).toBe(false);
-    randomSpy.mockRestore();
-  });
-
-  it('omits image fields when no screenshots are uploaded', () => {
-    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.9);
-
-    const result = mockCopyTestValidationApi([], [{ expected: 'copy', rowIndex: 4 }]);
-
-    expect(result[0]).toMatchObject({
-      evidenceRowSpan: 1,
-      hideEvidenceCell: false,
-      passed: false,
-      rowIndex: 4,
+    const response = buildMockCopyTestAiChatResponse(buildRequest(), {
+      now: () => new Date('2026-07-14T01:02:03.000Z'),
+      random: () => 0.4,
     });
-    expect(result[0].languageIssues).toHaveLength(1);
-    expect(Object.prototype.hasOwnProperty.call(result[0], 'evidenceImageFileNames')).toBe(false);
-    randomSpy.mockRestore();
+    const content = response.data?.content || '';
+
+    expect(response).toEqual({
+      success: true,
+      data: {
+        characterCount: content.length,
+        content,
+        modelName: 'gpt-5.4',
+        timestamp: '2026-07-14T01:02:03.000Z',
+      },
+    });
+    expect(JSON.parse(content)).toEqual({
+      results: [
+        {
+          evidenceImageFileNames: ['screen-a.png'],
+          languageIssues: [],
+          passed: true,
+          rowIndex: 0,
+        },
+        {
+          evidenceImageFileNames: ['screen-a.png'],
+          languageIssues: [],
+          passed: true,
+          rowIndex: 1,
+        },
+      ],
+    });
   });
 
-  it('merges selected logical rows by array order when physical anchor indexes contain gaps', () => {
-    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.99);
+  it('can create a failed row with multiple related images', () => {
+    const randomValues = [0.99, 0, 0, 0.9, 0.5];
+    const random = vi.fn(() => randomValues.shift() || 0);
+    const response = buildMockCopyTestAiChatResponse(
+      buildRequest(['screen-a.png', 'screen-b.png'], [{ expected: '吃饭', rowIndex: 4 }]),
+      {
+        now: () => new Date('2026-07-14T00:00:00.000Z'),
+        random,
+      }
+    );
 
-    const result = mockCopyTestValidationApi(images, [
-      { expected: 'copy 1', rowIndex: 0 },
-      { expected: 'copy 2 and 3', rowIndex: 1 },
-      { expected: 'copy 4', rowIndex: 3 },
-    ]);
+    expect(JSON.parse(response.data?.content || '')).toEqual({
+      results: [
+        {
+          evidenceImageFileNames: ['screen-a.png', 'screen-b.png'],
+          languageIssues: ['Screenshot contains related text, but the visible wording is different.'],
+          passed: false,
+          rowIndex: 4,
+        },
+      ],
+    });
+  });
 
-    expect(result.map(item => item.rowIndex)).toEqual([0, 1, 3]);
-    expect(result.map(item => item.evidenceRowSpan)).toEqual([3, undefined, undefined]);
-    expect(result.map(item => item.hideEvidenceCell)).toEqual([false, true, true]);
-    randomSpy.mockRestore();
+  it('uses empty Evidence and a non-empty issue when no screenshots exist', () => {
+    const response = buildMockCopyTestAiChatResponse(
+      buildRequest([], [{ expected: 'copy', rowIndex: 7 }]),
+      {
+        now: () => new Date('2026-07-14T00:00:00.000Z'),
+        random: () => 0,
+      }
+    );
+
+    expect(JSON.parse(response.data?.content || '')).toEqual({
+      results: [
+        {
+          evidenceImageFileNames: [],
+          languageIssues: ['OCR text does not match the selected comparison copy.'],
+          passed: false,
+          rowIndex: 7,
+        },
+      ],
+    });
+  });
+
+  it('supports deterministic injection through the same-signature factory', () => {
+    const random = vi.fn(() => 0.4);
+    const mockAiChat = createMockCopyTestAiChat({
+      now: () => new Date('2026-07-14T00:00:00.000Z'),
+      random,
+    });
+
+    void mockAiChat(buildRequest(['screen-a.png'], [{ expected: 'copy', rowIndex: 3 }]));
+
+    expect(random).toHaveBeenCalled();
+  });
+
+  it('rejects requests without a valid runtime user message', () => {
+    expect(() => buildMockCopyTestAiChatResponse({
+      messages: [{ content: 'rules', role: 'system' }],
+    })).toThrow('requires a user runtime message');
+    expect(() => buildMockCopyTestAiChatResponse({
+      messages: [{ content: '{}', role: 'user' }],
+    })).toThrow('invalid runtime JSON');
   });
 });

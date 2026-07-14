@@ -1,20 +1,27 @@
 import axios from '@/api/axios';
-import { aiChat, type AiChatRequest } from '@/api';
+import {
+  aiChat,
+  type AiChatRequest,
+  type AiChatResponse,
+  type ApiResponse,
+} from '@/api';
 import { getEmployeeId } from '@/utils/userUtils';
 import {
   buildCopyTestValidationPrompt,
   COPY_TEST_VALIDATION_MODEL,
+  COPY_TEST_VALIDATION_SYSTEM_PROMPT,
 } from '../prompt/copyTestValidationPrompt';
-import { mockCopyTestValidationApi } from '../mock/validationMock';
+import { mockCopyTestAiChat } from '../mock/validationMock';
 
 /** Spring Boot 后端服务地址。 */
 const API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
 
-/** CopyTest AI 返回值允许出现的字段。 */
+/** CopyTest AI 根对象唯一允许出现的字段。 */
+const VALIDATION_PAYLOAD_FIELDS = new Set(['results']);
+
+/** CopyTest AI 单行结果必须且只允许出现的字段。 */
 const VALIDATION_RESULT_FIELDS = new Set([
   'evidenceImageFileNames',
-  'evidenceRowSpan',
-  'hideEvidenceCell',
   'languageIssues',
   'passed',
   'rowIndex',
@@ -26,7 +33,7 @@ const INVALID_AI_CONTENT_PREFIX = 'AI validation returned invalid content';
 /** AI 请求接受的图片 data URL 格式。 */
 const IMAGE_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i;
 
-/** 随机 mock 保持 loading 可感知的最短等待时间。 */
+/** 随机 Mock 保持 loading 可感知的最短等待时间。 */
 const MOCK_VALIDATION_DELAY_MS = 300;
 
 /** 临时启用随机 AI 校验结果；设为 false 后恢复真实 aiChat。 */
@@ -54,20 +61,16 @@ export interface CopyTestRowInput {
   expected: string;
 }
 
-/** CopyTest AI 与随机 mock 共用的唯一校验结果结构。 */
+/** CopyTest AI 与随机 Mock 共用的逐行校验结果。 */
 export interface CopyTestValidationResult {
   /** 与请求行完全一致的逻辑行下标。 */
   rowIndex: number;
-  /** 截图证据是否与期望文案一致。 */
+  /** 至少一张相关截图是否可靠支持期望文案。 */
   passed: boolean;
-  /** Evidence 使用的上传图片文件名。 */
-  evidenceImageFileNames?: string[];
-  /** Evidence 锚点覆盖的连续逻辑行数。 */
-  evidenceRowSpan?: number;
-  /** 当前行是否隐藏 Evidence 单元格并归入前一个锚点。 */
-  hideEvidenceCell: boolean;
-  /** 校验失败时给测试人员的具体问题说明。 */
-  languageIssues?: string[];
+  /** 当前行真正相关的上传图片文件名；没有相关图片时为空数组。 */
+  evidenceImageFileNames: string[];
+  /** 校验失败时的问题说明；通过时为空数组。 */
+  languageIssues: string[];
 }
 
 /** 上传 CopyTest storage 与 Evidence 图片的请求结构。 */
@@ -98,14 +101,19 @@ export interface CopyTestAttachmentsResponse {
 export type CopyTestUploadProgressHandler = (percent: number) => void;
 
 /** 从 Confluence 页面读取 storage HTML。 */
-export const copyTestStorageApi = async (confluenceUrl: string): Promise<CopyTestStorageResponse> => {
+export const copyTestStorageApi = async (
+  confluenceUrl: string
+): Promise<CopyTestStorageResponse> => {
   /** 后端返回的当前 Confluence 页面 storage。 */
-  const response = await axios.get<CopyTestStorageResponse>(`${API_URL}/api/chatbycard/copydeck/storage`, {
-    params: {
-      confluenceUrl,
-      staffId: getEmployeeId(),
-    },
-  });
+  const response = await axios.get<CopyTestStorageResponse>(
+    `${API_URL}/api/chatbycard/copydeck/storage`,
+    {
+      params: {
+        confluenceUrl,
+        staffId: getEmployeeId(),
+      },
+    }
+  );
   return response as unknown as CopyTestStorageResponse;
 };
 
@@ -114,18 +122,21 @@ export const copyTestUploadApi = async (
   data: CopyTestUploadRequest,
   onProgress?: CopyTestUploadProgressHandler
 ): Promise<void> => {
-  await axios.post(`${API_URL}/api/chatbycard/copydeck/upload`, {
-    ...data,
-    staffId: getEmployeeId(),
-  }, {
-    onUploadProgress: progressEvent => {
-      if (!onProgress || !progressEvent.total) {
-        return;
-      }
-
-      onProgress(Math.round((progressEvent.loaded / progressEvent.total) * 100));
+  await axios.post(
+    `${API_URL}/api/chatbycard/copydeck/upload`,
+    {
+      ...data,
+      staffId: getEmployeeId(),
     },
-  });
+    {
+      onUploadProgress: progressEvent => {
+        if (!onProgress || !progressEvent.total) {
+          return;
+        }
+        onProgress(Math.round((progressEvent.loaded / progressEvent.total) * 100));
+      },
+    }
+  );
 };
 
 /** 获取 Confluence 已有附件图片，供本地 storage 预览使用。 */
@@ -133,10 +144,13 @@ export const copyTestAttachmentsApi = async (
   data: CopyTestAttachmentsRequest
 ): Promise<CopyTestAttachmentsResponse> => {
   /** 后端按规范附件文件名返回的内存图片集合。 */
-  const response = await axios.post<CopyTestAttachmentsResponse>(`${API_URL}/api/chatbycard/copydeck/getAttachments`, {
-    ...data,
-    staffId: getEmployeeId(),
-  });
+  const response = await axios.post<CopyTestAttachmentsResponse>(
+    `${API_URL}/api/chatbycard/copydeck/getAttachments`,
+    {
+      ...data,
+      staffId: getEmployeeId(),
+    }
+  );
   return response as unknown as CopyTestAttachmentsResponse;
 };
 
@@ -150,7 +164,28 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 };
 
-/** 将 AI 原始文本严格解析为顶层 JSON 数组。 */
+/** 校验对象字段与严格契约完全一致。 */
+const assertExactFields = (
+  value: Record<string, unknown>,
+  allowedFields: Set<string>,
+  label: string
+): void => {
+  /** 对象中第一个不属于严格契约的字段名。 */
+  const unknownField = Object.keys(value).find(field => !allowedFields.has(field));
+  if (unknownField) {
+    throwInvalidAiContent(`${label} contains unsupported field ${unknownField}`);
+  }
+
+  /** 严格契约中第一个没有出现在对象里的必填字段名。 */
+  const missingField = [...allowedFields].find(field => {
+    return !Object.prototype.hasOwnProperty.call(value, field);
+  });
+  if (missingField) {
+    throwInvalidAiContent(`${label} is missing required field ${missingField}`);
+  }
+};
+
+/** 将 AI 原始文本严格解析为唯一根对象中的 results 数组。 */
 const parseValidationArray = (content: string): unknown[] => {
   /** JSON.parse 成功后尚未校验结构的顶层值。 */
   let parsed: unknown;
@@ -160,19 +195,14 @@ const parseValidationArray = (content: string): unknown[] => {
     return throwInvalidAiContent('the response is not raw JSON');
   }
 
-  if (!Array.isArray(parsed)) {
-    return throwInvalidAiContent('the top-level value must be an array');
+  if (!isRecord(parsed)) {
+    return throwInvalidAiContent('the top-level value must be an object');
   }
-  return parsed;
-};
-
-/** 拒绝单项结果中不属于严格契约的字段。 */
-const assertAllowedFields = (item: Record<string, unknown>, itemIndex: number): void => {
-  /** 当前结果对象中第一个不属于严格契约的字段名。 */
-  const unknownField = Object.keys(item).find(field => !VALIDATION_RESULT_FIELDS.has(field));
-  if (unknownField) {
-    throwInvalidAiContent(`result ${itemIndex} contains unsupported field ${unknownField}`);
+  assertExactFields(parsed, VALIDATION_PAYLOAD_FIELDS, 'the root object');
+  if (!Array.isArray(parsed.results)) {
+    return throwInvalidAiContent('the results field must be an array');
   }
+  return parsed.results;
 };
 
 /** 读取必填的非负整数 rowIndex。 */
@@ -185,53 +215,32 @@ const readRowIndex = (item: Record<string, unknown>, itemIndex: number): number 
   return Number(value);
 };
 
-/** 读取必填布尔字段。 */
-const readRequiredBoolean = (
-  item: Record<string, unknown>,
-  fieldName: 'hideEvidenceCell' | 'passed',
-  itemIndex: number
-): boolean => {
-  /** 当前结果对象未经类型校验的必填布尔字段值。 */
-  const value = item[fieldName];
+/** 读取必填布尔 passed 字段。 */
+const readPassed = (item: Record<string, unknown>, itemIndex: number): boolean => {
+  /** 当前结果对象未经类型校验的 passed。 */
+  const value = item.passed;
   if (typeof value !== 'boolean') {
-    return throwInvalidAiContent(`result ${itemIndex} has an invalid ${fieldName}`);
+    return throwInvalidAiContent(`result ${itemIndex} has an invalid passed`);
   }
   return value;
 };
 
-/** 读取可选的正整数 Evidence row span。 */
-const readEvidenceRowSpan = (
-  item: Record<string, unknown>,
-  itemIndex: number
-): number | undefined => {
-  /** 当前结果对象未经类型校验的 Evidence 分组跨度。 */
-  const value = item.evidenceRowSpan;
-  if (value === undefined) {
-    return undefined;
-  }
-  if (!Number.isInteger(value) || Number(value) < 1) {
-    return throwInvalidAiContent(`result ${itemIndex} has an invalid evidenceRowSpan`);
-  }
-  return Number(value);
-};
-
-/** 读取不允许空值、空白项或重复项的可选字符串数组。 */
-const readOptionalStringArray = (
+/** 读取允许为空但不允许空白项或重复项的必填字符串数组。 */
+const readRequiredStringArray = (
   item: Record<string, unknown>,
   fieldName: 'evidenceImageFileNames' | 'languageIssues',
   itemIndex: number
-): string[] | undefined => {
-  /** 当前结果对象未经结构校验的可选字符串数组。 */
+): string[] => {
+  /** 当前结果对象未经结构校验的必填字符串数组。 */
   const value = item[fieldName];
-  if (value === undefined) {
-    return undefined;
-  }
-  if (!Array.isArray(value) || value.length === 0) {
+  if (!Array.isArray(value)) {
     return throwInvalidAiContent(`result ${itemIndex} has an invalid ${fieldName}`);
   }
 
   /** 仅包含非空字符串的候选数组，用于发现非法成员。 */
-  const strings = value.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '');
+  const strings = value.filter((entry): entry is string => {
+    return typeof entry === 'string' && entry.trim() !== '';
+  });
   if (strings.length !== value.length || new Set(strings).size !== strings.length) {
     return throwInvalidAiContent(`result ${itemIndex} has an invalid ${fieldName}`);
   }
@@ -240,30 +249,34 @@ const readOptionalStringArray = (
 
 /** 校验 Evidence 文件名全部来自本次上传图片。 */
 const assertAvailableImageFileNames = (
-  fileNames: string[] | undefined,
+  fileNames: string[],
   availableFileNames: Set<string>,
   itemIndex: number
 ): void => {
-  if (fileNames?.some(fileName => !availableFileNames.has(fileName))) {
+  if (fileNames.some(fileName => !availableFileNames.has(fileName))) {
     throwInvalidAiContent(`result ${itemIndex} references an unknown image fileName`);
   }
 };
 
-/** 校验 passed 与 languageIssues 的互斥关系。 */
-const assertLanguageIssueContract = (
+/** 校验通过状态、Evidence 和语言问题之间的严格关系。 */
+const assertResultSemantics = (
   passed: boolean,
-  languageIssues: string[] | undefined,
+  evidenceImageFileNames: string[],
+  languageIssues: string[],
   itemIndex: number
 ): void => {
-  if (passed && languageIssues) {
-    throwInvalidAiContent(`result ${itemIndex} must omit languageIssues when passed is true`);
+  if (passed && evidenceImageFileNames.length === 0) {
+    throwInvalidAiContent(`result ${itemIndex} must include Evidence when passed is true`);
   }
-  if (!passed && !languageIssues) {
+  if (passed && languageIssues.length > 0) {
+    throwInvalidAiContent(`result ${itemIndex} must use empty languageIssues when passed is true`);
+  }
+  if (!passed && languageIssues.length === 0) {
     throwInvalidAiContent(`result ${itemIndex} must include languageIssues when passed is false`);
   }
 };
 
-/** 将一个严格合法的 AI 对象转换为唯一结果结构。 */
+/** 将一个严格合法的 AI 对象转换为逐行校验结果。 */
 const parseValidationItem = (
   value: unknown,
   availableFileNames: Set<string>,
@@ -272,32 +285,30 @@ const parseValidationItem = (
   if (!isRecord(value)) {
     return throwInvalidAiContent(`result ${itemIndex} must be an object`);
   }
-  assertAllowedFields(value, itemIndex);
+  assertExactFields(value, VALIDATION_RESULT_FIELDS, `result ${itemIndex}`);
   /** 通过严格整数校验的请求行下标。 */
   const rowIndex = readRowIndex(value, itemIndex);
   /** 当前结果通过严格布尔校验后的通过状态。 */
-  const passed = readRequiredBoolean(value, 'passed', itemIndex);
-  /** 当前结果通过严格布尔校验后的 Evidence 隐藏状态。 */
-  const hideEvidenceCell = readRequiredBoolean(value, 'hideEvidenceCell', itemIndex);
-  /** 当前锚点行可选的合法 Evidence 分组跨度。 */
-  const evidenceRowSpan = readEvidenceRowSpan(value, itemIndex);
+  const passed = readPassed(value, itemIndex);
   /** 当前结果引用且已通过数组结构校验的 Evidence 文件名。 */
-  const evidenceImageFileNames = readOptionalStringArray(value, 'evidenceImageFileNames', itemIndex);
-  /** 当前失败结果通过数组结构校验的问题说明。 */
-  const languageIssues = readOptionalStringArray(value, 'languageIssues', itemIndex);
+  const evidenceImageFileNames = readRequiredStringArray(
+    value,
+    'evidenceImageFileNames',
+    itemIndex
+  );
+  /** 当前结果通过数组结构校验的问题说明。 */
+  const languageIssues = readRequiredStringArray(value, 'languageIssues', itemIndex);
   assertAvailableImageFileNames(evidenceImageFileNames, availableFileNames, itemIndex);
-  assertLanguageIssueContract(passed, languageIssues, itemIndex);
+  assertResultSemantics(passed, evidenceImageFileNames, languageIssues, itemIndex);
   return {
-    ...(evidenceImageFileNames ? { evidenceImageFileNames } : {}),
-    ...(evidenceRowSpan ? { evidenceRowSpan } : {}),
-    ...(languageIssues ? { languageIssues } : {}),
-    hideEvidenceCell,
+    evidenceImageFileNames,
+    languageIssues,
     passed,
     rowIndex,
   };
 };
 
-/** 校验结果条数、顺序和 rowIndex 与请求完全一致。 */
+/** 校验结果唯一性、条数和顺序与请求完全一致。 */
 const assertRowsMatchRequest = (
   results: CopyTestValidationResult[],
   rows: CopyTestRowInput[]
@@ -305,79 +316,23 @@ const assertRowsMatchRequest = (
   if (results.length !== rows.length) {
     throwInvalidAiContent('the result count must equal the requested row count');
   }
+
+  /** 所有结果中的唯一 rowIndex 集合。 */
+  const resultRowIndexes = new Set(results.map(result => result.rowIndex));
+  if (resultRowIndexes.size !== results.length) {
+    throwInvalidAiContent('result rowIndex values must be unique');
+  }
+
   /** 第一个没有保持请求 rowIndex 顺序的结果位置。 */
-  const mismatchIndex = results.findIndex((result, index) => result.rowIndex !== rows[index].rowIndex);
+  const mismatchIndex = results.findIndex((result, index) => {
+    return result.rowIndex !== rows[index].rowIndex;
+  });
   if (mismatchIndex >= 0) {
     throwInvalidAiContent(`result ${mismatchIndex} does not match the requested row order`);
   }
 };
 
-/** 判断两行 Evidence 是否引用完全相同且顺序一致的图片。 */
-const hasSameEvidenceImages = (
-  left: string[] | undefined,
-  right: string[] | undefined
-): boolean => {
-  /** 左侧结果的 Evidence 文件名；缺省时按空集合比较。 */
-  const leftNames = left || [];
-  /** 右侧结果的 Evidence 文件名；缺省时按空集合比较。 */
-  const rightNames = right || [];
-  return leftNames.length === rightNames.length
-    && leftNames.every((fileName, index) => fileName === rightNames[index]);
-};
-
-/** 校验 Evidence 分组中的单个续行。 */
-const assertEvidenceContinuation = (
-  anchor: CopyTestValidationResult,
-  continuation: CopyTestValidationResult,
-  itemIndex: number
-): void => {
-  if (!continuation.hideEvidenceCell) {
-    throwInvalidAiContent(`result ${itemIndex} must be an Evidence continuation`);
-  }
-  if (continuation.evidenceRowSpan !== undefined) {
-    throwInvalidAiContent(`result ${itemIndex} must omit evidenceRowSpan`);
-  }
-  if (!hasSameEvidenceImages(anchor.evidenceImageFileNames, continuation.evidenceImageFileNames)) {
-    throwInvalidAiContent(`result ${itemIndex} must reuse its Evidence anchor images`);
-  }
-};
-
-/** 读取 Evidence 锚点必填的分组跨度。 */
-const readAnchorRowSpan = (
-  anchor: CopyTestValidationResult,
-  anchorIndex: number
-): number => {
-  if (anchor.evidenceRowSpan === undefined) {
-    return throwInvalidAiContent(`result ${anchorIndex} must include evidenceRowSpan`);
-  }
-  return anchor.evidenceRowSpan;
-};
-
-/** 校验所有 Evidence 锚点与续行形成无嵌套、无越界的显式分组。 */
-const assertEvidenceGroups = (results: CopyTestValidationResult[]): void => {
-  /** 当前待校验 Evidence 锚点在结果数组中的位置。 */
-  let anchorIndex = 0;
-  while (anchorIndex < results.length) {
-    /** 当前显式 Evidence 分组的锚点结果。 */
-    const anchor = results[anchorIndex];
-    if (anchor.hideEvidenceCell) {
-      throwInvalidAiContent(`result ${anchorIndex} has no Evidence anchor`);
-    }
-    /** 当前 Evidence 锚点声明的连续逻辑行数量。 */
-    const rowSpan = readAnchorRowSpan(anchor, anchorIndex);
-    /** 当前 Evidence 分组在结果数组中的开区间终点。 */
-    const groupEnd = anchorIndex + rowSpan;
-    if (groupEnd > results.length) {
-      throwInvalidAiContent(`result ${anchorIndex} has an out-of-range evidenceRowSpan`);
-    }
-    for (let itemIndex = anchorIndex + 1; itemIndex < groupEnd; itemIndex += 1) {
-      assertEvidenceContinuation(anchor, results[itemIndex], itemIndex);
-    }
-    anchorIndex = groupEnd;
-  }
-};
-
-/** 严格解析并校验 AI 返回的唯一 CopyTest JSON 数组契约。 */
+/** 严格解析并校验 AI 返回的逐行 CopyTest 根对象契约。 */
 export const parseCopyTestValidationResults = (
   content: string,
   images: CopyTestImage[],
@@ -385,12 +340,29 @@ export const parseCopyTestValidationResults = (
 ): CopyTestValidationResult[] => {
   /** 本次上传图片允许被 AI 引用的唯一文件名集合。 */
   const availableFileNames = new Set(images.map(image => image.fileName));
-  /** 严格完成字段解析但尚未校验请求顺序和分组的结果。 */
-  const results = parseValidationArray(content)
-    .map((item, itemIndex) => parseValidationItem(item, availableFileNames, itemIndex));
+  /** 严格完成字段解析但尚未校验请求顺序的逐行结果。 */
+  const results = parseValidationArray(content).map((item, itemIndex) => {
+    return parseValidationItem(item, availableFileNames, itemIndex);
+  });
   assertRowsMatchRequest(results, rows);
-  assertEvidenceGroups(results);
   return results;
+};
+
+/** 解包 aiChat 响应并通过唯一严格解析器生成逐行结果。 */
+export const parseCopyTestValidationResponse = (
+  response: ApiResponse<AiChatResponse>,
+  images: CopyTestImage[],
+  rows: CopyTestRowInput[]
+): CopyTestValidationResult[] => {
+  if (!response.success) {
+    throw new Error(response.error || 'AI validation request failed');
+  }
+  /** AI 响应中必须承载严格根对象 JSON 的文本内容。 */
+  const content = response.data?.content;
+  if (typeof content !== 'string' || content.trim() === '') {
+    throw new Error('AI validation returned empty content');
+  }
+  return parseCopyTestValidationResults(content, images, rows);
 };
 
 /** 读取 AI 请求图片，仅接受完整 image data URL。 */
@@ -401,7 +373,7 @@ const getImageDataUrl = (image: CopyTestImage): string => {
   return image.base64;
 };
 
-/** 构建只包含当前严格 CopyTest 契约的 aiChat 请求。 */
+/** 构建稳定 system prompt 与纯运行时 user JSON 分离的 aiChat 请求。 */
 const buildValidationRequest = (
   images: CopyTestImage[],
   rows: CopyTestRowInput[],
@@ -417,6 +389,10 @@ const buildValidationRequest = (
     ],
     messages: [
       {
+        role: 'system',
+        content: COPY_TEST_VALIDATION_SYSTEM_PROMPT,
+      },
+      {
         role: 'user',
         content: buildCopyTestValidationPrompt(
           rows,
@@ -428,36 +404,38 @@ const buildValidationRequest = (
   };
 };
 
-/** 判断当前运行环境是否应该返回随机 mock 校验结果。 */
+/** 判断当前运行环境是否应该返回随机 Mock 校验结果。 */
 const shouldUseCopyTestAiChatMock = (): boolean => {
   return COPY_TEST_AI_CHAT_MOCK_ENABLED && import.meta.env.MODE !== 'test';
 };
 
-/** 在返回随机 mock 前保留短暂且可感知的异步 loading。 */
+/** 在返回随机 Mock 前保留短暂且可感知的异步 loading。 */
 const waitForMockValidation = (): Promise<void> => {
   return new Promise(resolve => {
     setTimeout(resolve, MOCK_VALIDATION_DELAY_MS);
   });
 };
 
-/** 使用 mock 或 aiChat 校验截图，并返回严格契约结果。 */
+/** 通过真实或 Mock aiChat 执行同一请求并返回同一响应外层结构。 */
+const executeValidationRequest = async (
+  request: AiChatRequest
+): Promise<ApiResponse<AiChatResponse>> => {
+  if (!shouldUseCopyTestAiChatMock()) {
+    return aiChat(request);
+  }
+  await waitForMockValidation();
+  return mockCopyTestAiChat(request);
+};
+
+/** 使用 Mock 或真实 aiChat 校验截图，并经同一严格解析器返回逐行结果。 */
 export const copyTestValidationApi = async (
   images: CopyTestImage[],
   rows: CopyTestRowInput[],
   targetColumnName: string
 ): Promise<CopyTestValidationResult[]> => {
-  if (shouldUseCopyTestAiChatMock()) {
-    await waitForMockValidation();
-    return mockCopyTestValidationApi(images, rows);
-  }
-
-  /** 真实 aiChat 返回的原始响应对象。 */
-  const response = await aiChat(buildValidationRequest(images, rows, targetColumnName));
-  /** AI 响应中必须承载严格 JSON 数组的文本内容。 */
-  const content = response.data?.content;
-  if (typeof content !== 'string' || content.trim() === '') {
-    throw new Error('AI validation returned empty content');
-  }
-
-  return parseCopyTestValidationResults(content, images, rows);
+  /** 当前校验稳定 system prompt 与运行时 JSON 分离后的请求。 */
+  const request = buildValidationRequest(images, rows, targetColumnName);
+  /** Mock 与真实 aiChat 完全相同的响应外层对象。 */
+  const response = await executeValidationRequest(request);
+  return parseCopyTestValidationResponse(response, images, rows);
 };

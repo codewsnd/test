@@ -24,9 +24,16 @@ const managedEvidenceStorage = [
 const parsedTable = parseCopyTestStorageTables(storageHtml)[0];
 const workingTable = applyCopyTestValidationResults(
   ensureCopyTestWorkingColumns(parsedTable, 0, 'Target'),
-  [{ evidenceImages: [], evidenceRowSpan: 1, hideEvidenceCell: false, passed: true, rowIndex: 0 }],
+  [{
+    evidenceImageFileNames: [],
+    evidenceImages: [],
+    languageIssues: [],
+    passed: true,
+    rowIndex: 0,
+  }],
   0,
-  'Target'
+  'Target',
+  []
 );
 const tableState = {
   buildSelectedRowsForValidation: () => [{ expected: 'copy', rowIndex: 0 }],

@@ -21,7 +21,7 @@
 - 来源单元格覆盖的全部物理行构成一个原子行组，选择、Result、Evidence 和删除操作都不会切开该组。
 - A 来源列和 B 来源列通过严格 schema 2 ownership 隔离；A 的校验、合并、删除和导出不会认领 B 的 Test 双列。
 - 生成列必须同时通过 `schema + owner + source + type` 验证才是 managed 数据；标题相似不代表 ownership。
-- Evidence 跨行只由 `evidenceRowSpan` 和 `hideEvidenceCell` 组成的显式分组决定。
+- Evidence 跨行由前端 Planner 根据来源原子行组、物理连续性和逐行共享图片关系确定；AI 不参与表格合并决策。
 - Evidence 附件只识别 `ac:image` 直接包含 `ri:attachment[ri:filename]` 的规范结构。
 - 导出从最新 Storage 开始做 raw range patch。除当前目标 Pair 外，来源表格、其他 Test Pair、人工列和表格外内容保持原始字节。
 - 图片内容不写入 working table，也不复制进 iframe `srcDoc`；预览使用去重后的 Object URL。
@@ -57,15 +57,16 @@ URL 只接受可由浏览器 `URL` 解析的 `http:` 或 `https:` 地址。错�
 | --- | --- |
 | `CopyTest.tsx` | 组合主弹窗、选择器、预览、上传和确认弹窗 |
 | `hooks/useCopyTestController.ts` | 编排导入、校验、删除、二次读取和导出请求 |
-| `hooks/useCopyTestSession.ts` | 提供表格会话领域操作和每个 Pair 的图片快照 |
+| `hooks/useCopyTestSession.ts` | 提供表格会话领域操作，以及每个 Pair 的图片顺序和逐行校验快照 |
 | `hooks/copyTestSessionReducer.ts` | 以纯 reducer 管理 Storage、表格、选择和 revision |
-| `api/copyTestApi.ts` | 调用现有接口、切换 AI/mock，并严格校验 AI 结果 |
-| `prompt/copyTestValidationPrompt.ts` | 定义唯一 AI 输出形状和 prompt |
-| `mock/validationMock.ts` | 按同一契约生成真实随机的校验结果 |
+| `api/copyTestApi.ts` | 调用现有接口、切换 AI/Mock，并用同一 parser 严格校验响应外层和 AI 内容 |
+| `prompt/copyTestValidationPrompt.ts` | 定义 GPT-5.4 稳定 system prompt，并构建纯运行时 user JSON |
+| `mock/validationMock.ts` | 提供与 `aiChat` 同签名、同响应外层结构的可注入随机 Mock |
 | `table/tableModel.ts` | 把 Storage/table DOM 转为基础行、列和 slot 模型 |
 | `table/copyTestGridModel.ts` | 构建纯 TypeScript 的二维 span grid，并投影来源列原子行组 |
 | `table/copyTestTableParser.ts` | 解析有效表格、Comparison Column 上下文和校验输入 |
-| `table/copyTestTableEditor.ts` | 创建受控双列、写入校验结果、应用显式 Evidence 分组和删除证据 |
+| `table/copyTestEvidencePlanner.ts` | 根据逐行图片命中关系纯计算 Evidence 合并组、组内 Screen 注册表和 Result 图片子集 |
+| `table/copyTestTableEditor.ts` | 创建受控双列、应用 Planner 投影，并基于逐行快照删除和全量重投影 Evidence |
 | `table/copyTestStoragePatch.ts` | 扫描顶层 table/tr/th/td 的 raw range，执行最小字符串 patch |
 | `table/copyTestExportScope.ts` | 生成并校验单次导出的 128-bit 临时 scope token |
 | `table/copyTestTableExporter.ts` | 在最新 Storage 中定位表格、检查冲突并构建当前 Pair patch |
@@ -155,27 +156,37 @@ Grid 要求 span 为正整数、单元格不重叠且逻辑行无空洞。导出
 
 来源单元格的左上角不必落在当前列。例如，一个从更左侧开始、同时横向覆盖 Target 列且 `rowspan="4"` 的单元格，会投影为 Target 的一个四行原子组；其 Result 和基础 Evidence 都覆盖完整四行。
 
-### 6.2 Evidence 只使用显式分组
+### 6.2 Evidence 由前端 Planner 确定性规划
 
-AI 结果中，Evidence 分组必须由一个锚点和若干续行完整表达：
+AI 只返回每个选中来源原子行组命中的图片文件名，不返回任何合并信息。`copyTestEvidencePlanner.ts` 按来源列物理顺序执行以下规则：
 
-- 锚点：`hideEvidenceCell=false`，必须包含正整数 `evidenceRowSpan`。
-- 续行：`hideEvidenceCell=true`，必须省略 `evidenceRowSpan`。
-- 续行数量必须精确等于 `evidenceRowSpan - 1`。
-- 同一组的图片文件名列表必须完全相同且顺序一致。
+1. 来源 `rowspan` 投影出的每个 `CopyTestRowGroup` 都是不可拆分原子组。
+2. 只有“已选中、已有校验结果且至少命中一张有效上传图片”的原子组可以生成 Evidence。
+3. 下一原子组必须与当前组物理连续，并且其图片集合与当前组已收集的图片并集至少有一个交集，才会加入当前 Evidence 组。
+4. 未选中、无结果、无有效图片、物理不连续或图片不相交都会结束当前组，禁止跨边界合并。
+5. Evidence 物理 `rowspan` 是组内全部来源原子组 `rowSpan` 的总和，因此不会停在来源合并单元格中间。
+6. 组内图片按上传顺序去重，生成统一的 `Screen01`、`Screen02` Screen 注册表。
 
-`evidenceRowSpan` 计数单位是连续选中的来源行组，不是物理 `<tr>` 数量。Evidence 最终写入 HTML 的 `rowspan` 是这些完整来源行组 `rowSpan` 的总和。
+这种规则支持传递合并。例如 `[S1] / [S1,S2] / [S2]` 会形成一个连续 Evidence 组；`[S1] / 空 / [S1]` 不会跨越空行合并。
 
-例如，两个连续来源组的物理跨度分别为 3 和 2：
+### 6.3 Evidence 图片并集与逐行 Result 子集
 
-```text
-Result group 1 rowspan = 3
-Result group 2 rowspan = 2
-Evidence evidenceRowSpan = 2 groups
-Evidence physical rowspan = 3 + 2 = 5
-```
+Evidence 和 Result 使用同一组 Screen 注册表，但展示集合不同：
 
-因此 Evidence 不会停在某个来源合并单元格的中间。除上述明确分组外，编辑器不根据相邻内容、图片集合或标题自动合并 Evidence。
+- Evidence 单元格展示组内所有逐行命中图片的有序去重并集。
+- 每个 Result 单元格只展示当前来源原子组真正命中的 Screen 子集。
+- 没有被任何逐行结果引用的上传图片不进入 Evidence，也不进入任何 Result。
+- `Passed/Failed` 和问题说明属于逐行结果，不能从 Evidence 组的其他行复制。
+
+目标示例：第 1～3 行分别是“你好”“我在”“吃饭”，上传图片 S1 内容为“你好我在吃饭”、S2 内容为“吃饭”、S3 内容为“Helloworld”。AI 的逐行关系应为：
+
+| 来源行 | 命中图片 | Test Result |
+| --- | --- | --- |
+| 1：你好 | S1 | `Passed Screen01` |
+| 2：我在 | S1 | `Passed Screen01` |
+| 3：吃饭 | S1、S2 | `Passed Screen01 Screen02` |
+
+Planner 将三个连续原子组规划为一个 Evidence 单元格，展示 S1、S2 两张图片。S3 与任何行都无关，因此被完全排除。如果其中某个来源单元格原本通过 `rowspan` 覆盖多行，该完整物理跨度仍作为一个原子组参与上述计算。
 
 ## 7. 严格 schema 2 Ownership 与 A/B 双列隔离
 
@@ -211,49 +222,63 @@ data-copy-test-column-type="result|evidence"
 
 每次导出会生成独立的 128-bit 安全 token，并只给当前表、当前 Pair 临时添加 `data-copy-test-export-scope="copytest-{token}"`。图片流水线只接受本次调用传入的完全相同 token。scope 属性会在最终 payload 中移除，不持久化到 Confluence。
 
-## 8. 严格 AI 数组契约与随机 Mock
+## 8. GPT-5.4 逐行契约与同形随机 Mock
 
-### 8.1 请求与唯一返回形状
+### 8.1 system 与 user 消息分离
 
-`copyTestValidationApi` 向 `aiChat` 发送：
+`copyTestValidationApi` 固定使用模型 `gpt-5.4`，并向 `aiChat` 发送两条职责明确的消息：
 
-- 模型名：`gpt5.4`。
-- 上传截图：必须是 `data:image/...;base64,...` 形式的 data URL。
-- prompt 行：只包含 `rowIndex` 和 `expectedText`。
-- 图片标识：使用本次上传的 `fileName`。
+- `role=system`：只包含稳定的模型角色、逐行图片判断规则、提示注入边界和严格输出契约。
+- `role=user`：只包含可序列化的运行时 JSON，包括 `targetColumnName`、`uploadedScreenshots` 和 `selectedRows`。
 
-AI 内容必须是一个可直接 `JSON.parse` 的顶层数组，不能带 Markdown 代码围栏，也不能包装在其他对象中。结果数量、顺序和每个 `rowIndex` 必须与请求行完全一致。
+每个 `selectedRows` 项只包含 `rowIndex` 和 `expectedText`；截图使用本次上传的稳定 `fileName`，图片内容通过 `documents` 以 `data:image/...;base64,...` data URL 发送。模型只判断逐行文案与截图关系，不决定 Evidence 合并、物理跨度、DOM 或 Screen 编号。
 
-唯一允许的字段是：
+### 8.2 唯一 AI 内容形状
+
+AI 内容必须是可直接 `JSON.parse` 的原始根对象，不能带 Markdown 代码围栏或解释文字：
+
+```json
+{
+  "results": [
+    {
+      "rowIndex": 0,
+      "passed": true,
+      "evidenceImageFileNames": ["screen-1.png"],
+      "languageIssues": []
+    }
+  ]
+}
+```
+
+根对象必须且只能包含 `results`。每个逐行结果必须且只能包含以下四个必填字段：
 
 | 字段 | 约束 |
 | --- | --- |
-| `rowIndex` | 必填的非负整数，且必须保持请求顺序 |
-| `passed` | 必填布尔值 |
-| `evidenceImageFileNames` | 可选的非空、无重复字符串数组；每个文件名必须来自本次上传截图 |
-| `evidenceRowSpan` | Evidence 锚点必填的正整数；续行必须省略 |
-| `hideEvidenceCell` | 必填布尔值；锚点为 `false`，续行为 `true` |
-| `languageIssues` | 可选的非空、无重复问题数组；`passed=false` 时必填，`passed=true` 时禁止 |
+| `rowIndex` | 非负整数；结果数量、唯一性、顺序和值必须与请求行完全一致 |
+| `passed` | 布尔值；只有至少一张 Evidence 可靠支持当前文案时才能为 `true` |
+| `evidenceImageFileNames` | 必填无重复字符串数组；无相关图片时为 `[]`，其他值必须来自本次上传截图 |
+| `languageIssues` | 必填无重复字符串数组；`passed=true` 时必须为 `[]`，`passed=false` 时必须非空 |
 
-任何未声明字段、类型错误、空数组、重复数组项、未上传的 Evidence 文件名、行数/顺序不一致或非法 Evidence 分组都会使整批结果失败。
+失败结果可以引用包含相关但错误文案的截图，也可以在完全没有相关截图时使用空 Evidence 数组。任何额外/缺失字段、类型错误、空白或重复数组项、未知图片、重复/缺失/乱序行都会使整批结果失败。
 
-### 8.2 当前 Mock 开关
+旧的 AI 合并字段 `evidenceRowSpan` 和 `hideEvidenceCell` 已删除且不兼容；parser 会把它们作为 unsupported field 明确拒绝。合并逻辑全部由前端 Evidence Planner 负责。
+
+### 8.3 与 `aiChat` 同形的随机 Mock
 
 ```ts
 export const COPY_TEST_AI_CHAT_MOCK_ENABLED = true;
 ```
 
-当前开关为 `true`。除 Vitest 的 `test` 模式外，`copyTestValidationApi` 会先保留 300 ms 可感知 loading，然后返回符合同一严格契约的随机结果，不调用 `aiChat`。
+当前开关为 `true`。除 Vitest 的 `test` 模式外，`copyTestValidationApi` 会保留 300 ms 可感知 loading，并调用 `mockCopyTestAiChat`。该 Mock 与 `aiChat` 具有完全相同的函数签名，并返回同一个 `ApiResponse<AiChatResponse>` 外层结构：JSON 结果写入 `data.content`，同时提供固定的 `modelName=gpt-5.4`、时间戳和字符数。
 
 随机 Mock 的行为包括：
 
-- 每行以 65% 概率通过。
-- 只按 `selected_rows` 中连续的来源原子组构建 Evidence 分组，每组最多覆盖 3 个请求行；物理 `rowIndex` 因 rowspan 跳号不会中断逻辑分组。
-- 有上传图片时，每组随机选择 1～2 张不重复图片；无图片时省略图片字段。
-- 失败行会从真实测试问题文案中随机选择一条。
-- 锚点/续行、图片列表和 `evidenceRowSpan` 始终符合严格分组规则。
+- 每个来源行独立选择 0～2 张不重复的已上传图片。
+- 只有存在图片证据时才可能按 65% 概率生成通过结果。
+- 失败行始终生成非空问题说明；没有截图时使用空 Evidence 数组。
+- 随机数和当前时间均可注入，单元测试可以获得确定性结果。
 
-将该开关设为 `false` 后，校验流程使用真实 `aiChat`，并对返回文本执行相同的严格解析。
+Mock 和真实 `aiChat` 都先得到相同的响应外层对象，再由 `parseCopyTestValidationResponse` 解包 `data.content`，最终进入同一个 `parseCopyTestValidationResults` 严格 parser。Mock 不允许绕过真实解析路径。将开关设为 `false` 后只替换响应提供者，不改变后续解析和 Planner 流程。
 
 ## 9. 最新 Storage Raw Patch 与 Rebase
 
@@ -295,7 +320,7 @@ working table 和导出 Storage 中的 Evidence 图片使用以下结构：
   ac:width="100"
   ac:height="200"
   data-copy-test-evidence-image-id="screen.png"
-  data-copy-test-evidence-image-instance-id="screen.png:1:0"
+data-copy-test-evidence-image-instance-id="0:Target:1:screen.png"
   data-copy-test-evidence-image-alt="screen.png"
 >
   <ri:attachment ri:filename="screen.png" />
@@ -305,19 +330,23 @@ working table 和导出 Storage 中的 Evidence 图片使用以下结构：
 规则如下：
 
 - 只有 `ac:image` 的直接子元素 `ri:attachment` 上的非空 `ri:filename` 会被读取。
-- 附件文件名同时是稳定 image id；instance id 用于区分同一图片在不同 Evidence 位置的出现。
-- 删除操作必须同时匹配 image id 和 instance id，只删除目标实例及其对应 Result 项。
-- 删除后剩余 Evidence 与 Result Screen 按当前顺序重新从 `Screen01` 编号，稳定 image id 和 instance id 不变。
+- 附件文件名同时是稳定 image id；instance id 由 `sourceColumnKey + Evidence 组锚点 + imageId` 组成，用于隔离同一图片在不同 Pair 或 Evidence 组中的实例。
+- 删除操作必须同时匹配 image id 和 instance id，并使用当前 Pair 最近一次逐行校验快照定位目标 Evidence 组。
+- 页面重新导入导致内存快照缺失时，会从新契约 managed Result 的逐行 Screen 引用和 Evidence DOM 顺序恢复轻量快照，再与已加载附件重新绑定。
+- 快照同时保存上传图片顺序和逐来源原子行结果。删除图片时，从目标组内所有相关逐行结果移除该文件名，再用剩余关系全量执行一次 `applyCopyTestValidationResults`。
+- 全量重投影会先恢复当前 Pair 的生成列结构，再重新运行 Evidence Planner；删除连接图片后，原合并组可以按剩余共享关系自动拆分或重新合并。
+- 重投影后每个 Evidence 组按剩余图片上传顺序重新从 `Screen01` 编号；组内 Result 继续使用同一注册表中的逐行子集，稳定 image id 和 instance id 不依赖展示序号。
 - Evidence 合并组删除全部图片后，单元格恢复为来源列原子行组的 rowspan；例如来源行为 `1 / (2+3) / 4` 时恢复为 `1 / 2 / 1`，不会拆开第 2、3 行。
-- 最后一个 Screen 删除后移除整个 Result 受控内容，包括原有 `Passed/Failed` 状态。
+- 某来源原子组最后一张 Evidence 删除后，清除该组整个 Result 受控内容，包括原有 `Passed/Failed`、问题说明和 Screen 引用。
+- Session 在重投影后保存更新后的逐行结果，并从图片快照中移除当前 Pair 已不再引用的文件。
 - 导入附件扫描只进入严格 schema 2 Evidence cell，并且不跨越嵌套单元格。
 - 导出只收集当前 Pair 的 Evidence 实际使用文件，并将图片尺寸规范为 `100 x 200`。
 
 ### 10.2 图片内存与预览
 
-- 附件图片内容与 `storageHtml` 分离，只保存在 Session 内存 registry 和本次校验快照中。
+- 附件图片内容与 `storageHtml` 分离，只保存在 Session 内存 registry 和当前 Pair 校验快照中。
 - working table 仅保存附件文件名、image id、instance id、alt 和规范 Confluence 图片节点。
-- 每个 table/source Pair 的最近校验图片保存在独立内存快照中；导入附件用于预览，校验快照用于当前 Pair 导出。
+- 每个 table/source Pair 独立保存最近校验的上传顺序和逐行结果；导入附件用于预览，图片快照用于当前 Pair 导出，逐行快照用于删除后的完整重投影。
 - 导出会合并当前 Pair 校验快照和尚未校验的临时上传列表并去重，最终只上传 working Evidence 实际使用的文件。
 - iframe 预览按 image id 去重创建 Object URL；同一图片多次出现时通过 instance id 映射到同一 URL。
 - 组件更新或卸载时会统一调用 `URL.revokeObjectURL`。
@@ -359,12 +388,16 @@ fixture 覆盖的关键结构包括：
 
 - 纯 span grid、跨列覆盖、来源列投影和非法网格。
 - 4 表/111 行 fixture 的行组数、非空组数和空 header 行为。
-- 跨列四行合并单元格的整体 Result/Evidence。
-- `evidenceRowSpan` / `hideEvidenceCell` 显式分组、完整来源组求和以及无相邻隐式合并。
+- 跨列四行合并单元格作为不可拆分来源原子组参与 Result/Evidence。
+- Evidence Planner 的物理连续性、共享图片传递合并、空行/未选中/图片不相交边界和原子组 `rowSpan` 求和。
+- Evidence 图片并集、逐行 Result 图片子集、上传顺序 Screen 注册表，以及无关图片完全排除。
+- “你好 / 我在 / 吃饭”三行与“S1 全句 / S2 吃饭 / S3 Helloworld”三图的完整目标结果。
 - A/B Pair 编辑、删除、ownership 和图片实例隔离。
 - 人工 Test 双列不被认领。
-- 严格 AI raw JSON 数组的字段、顺序、图片文件名和 Evidence 分组校验。
-- `COPY_TEST_AI_CHAT_MOCK_ENABLED=true` 时的随机通过/失败、图片选择与显式分组。
+- GPT-5.4 system/user 消息分离，以及严格 AI 根对象、逐行四字段、顺序、唯一性和图片文件名校验。
+- 已移除 AI 合并字段和其他额外字段的明确拒绝行为。
+- `COPY_TEST_AI_CHAT_MOCK_ENABLED=true` 时 Mock/真实 `aiChat` 同签名、同响应外层、同 parser，以及可注入随机通过/失败和图片选择。
+- 基于逐行快照删除图片后的全量重投影、Evidence 自动拆分、Screen 重编号和空 Result 清除。
 - raw scanner、倒序 replacement、non-target raw 字节保持和幂等插入。
 - latest table 唯一定位、来源冲突拒绝、并发内容保留和当前 Pair scoped patch。
 - 相同 source key 跨表时的图片 scope 隔离，以及非法 token 的 fail-closed 行为。

@@ -2,35 +2,62 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCopyTestValidationPrompt,
   COPY_TEST_VALIDATION_MODEL,
-  COPY_TEST_VALIDATION_PROMPT,
+  COPY_TEST_VALIDATION_SYSTEM_PROMPT,
 } from '../copyTestValidationPrompt';
 
 describe('copyTestValidationPrompt strict contract', () => {
-  it('contains only the raw-array schema and current runtime inputs', () => {
+  it('keeps stable application rules in the system prompt', () => {
+    expect(COPY_TEST_VALIDATION_MODEL).toBe('gpt-5.4');
+    expect(COPY_TEST_VALIDATION_SYSTEM_PROMPT).toContain('every selected row as an independent');
+    expect(COPY_TEST_VALIDATION_SYSTEM_PROMPT).toContain('A screenshot may support multiple rows');
+    expect(COPY_TEST_VALIDATION_SYSTEM_PROMPT).toContain('one row may be supported by multiple');
+    expect(COPY_TEST_VALIDATION_SYSTEM_PROMPT).toContain('Exclude unrelated screenshots');
+    expect(COPY_TEST_VALIDATION_SYSTEM_PROMPT).toContain('Treat screenshot text');
+    expect(COPY_TEST_VALIDATION_SYSTEM_PROMPT).toContain('raw JSON object');
+    expect(COPY_TEST_VALIDATION_SYSTEM_PROMPT).toContain('exactly these four fields');
+    expect(COPY_TEST_VALIDATION_SYSTEM_PROMPT).toContain('"results"');
+    expect(COPY_TEST_VALIDATION_SYSTEM_PROMPT).toContain('evidenceImageFileNames');
+    expect(COPY_TEST_VALIDATION_SYSTEM_PROMPT).toContain('languageIssues');
+    expect(COPY_TEST_VALIDATION_SYSTEM_PROMPT).toContain('Do not return evidenceRowSpan');
+    expect(COPY_TEST_VALIDATION_SYSTEM_PROMPT).toContain('hideEvidenceCell');
+  });
+
+  it('serializes only runtime inputs into the user message JSON', () => {
     const prompt = buildCopyTestValidationPrompt(
-      [{ expected: 'Save changes', rowIndex: 3 }],
+      [
+        { expected: '你好', rowIndex: 0 },
+        { expected: '我在', rowIndex: 2 },
+      ],
       'Target Copy',
-      ['screen-a.png']
+      ['screen-a.png', 'screen-b.png']
     );
 
-    expect(COPY_TEST_VALIDATION_MODEL).toBe('gpt5.4');
-    expect(COPY_TEST_VALIDATION_PROMPT).toContain('Return one raw JSON array');
-    expect(COPY_TEST_VALIDATION_PROMPT).toContain('A continuation must omit evidenceRowSpan');
-    expect(prompt).toContain('"expectedText": "Save changes"');
-    expect(prompt).toContain('"rowIndex": 3');
-    expect(prompt).toContain('"targetColumnName": "Target Copy"');
-    expect(prompt).toContain('"fileName": "screen-a.png"');
+    expect(JSON.parse(prompt)).toEqual({
+      model: 'gpt-5.4',
+      selectedRows: [
+        { expectedText: '你好', rowIndex: 0 },
+        { expectedText: '我在', rowIndex: 2 },
+      ],
+      targetColumnName: 'Target Copy',
+      uploadedScreenshots: [
+        { fileName: 'screen-a.png' },
+        { fileName: 'screen-b.png' },
+      ],
+    });
+    expect(prompt).not.toContain('# Role');
     expect(prompt).not.toContain('referenceText');
     expect(prompt).not.toContain('referenceColumnName');
   });
 
-  it('uses empty screenshot and row arrays without adding compatibility fields', () => {
-    const prompt = buildCopyTestValidationPrompt([], 'Target');
+  it('uses empty screenshot and row arrays without compatibility fields', () => {
+    const runtimeContext = JSON.parse(buildCopyTestValidationPrompt([], 'Target'));
 
-    expect(prompt).toContain('<uploaded_screenshots>\n[]\n</uploaded_screenshots>');
-    expect(prompt).toContain('<selected_rows>\n[]\n</selected_rows>');
-    expect(prompt).not.toContain('failureReason');
-    expect(prompt).not.toContain('evidenceImageIndexes');
-    expect(prompt).not.toContain('resultImageIndexes');
+    expect(runtimeContext.uploadedScreenshots).toEqual([]);
+    expect(runtimeContext.selectedRows).toEqual([]);
+    expect(runtimeContext).not.toHaveProperty('failureReason');
+    expect(runtimeContext).not.toHaveProperty('evidenceImageIndexes');
+    expect(runtimeContext).not.toHaveProperty('resultImageIndexes');
+    expect(runtimeContext).not.toHaveProperty('evidenceRowSpan');
+    expect(runtimeContext).not.toHaveProperty('hideEvidenceCell');
   });
 });
