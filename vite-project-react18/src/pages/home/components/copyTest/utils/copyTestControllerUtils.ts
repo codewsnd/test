@@ -8,10 +8,12 @@ import type {
   CopyTestRowInput,
 } from '../api/copyTestApi';
 import {
-  applyConfluenceStorageTableImages,
+  buildConfluenceStorageTableImagePreviewBundle,
   getConfluenceStorageTableImageFileNames,
+  type CopyTestStorageImagePreviewBundle,
 } from '../table/copyTestTableImages';
 import { buildCurrentColumnExportStorage } from '../table/copyTestTableExporter';
+import { createCopyTestExportScope } from '../table/copyTestExportScope';
 import type { CopyTestHeader, CopyTestMemoryImage, CopyTestTableEntry } from '../types';
 import type { UseCopyTestSessionResult } from '../hooks/useCopyTestSession';
 import { getImageLimitError } from './uploadUtils';
@@ -32,9 +34,37 @@ interface AttachmentPreviewParams {
   storageHtml: string;
 }
 
+/** 导入时分离的 storage 和内存预览图片。 */
+export type CopyTestAttachmentPreviewBundle = CopyTestStorageImagePreviewBundle;
+
+/** 构建 strict managed Evidence 所需的附件请求，无引用时不发请求。 */
+export const getAttachmentPreviewRequest = (
+  confluenceUrl: string,
+  storageHtml: string
+): CopyTestAttachmentsRequest | null => {
+  const fileNames = getConfluenceStorageTableImageFileNames(storageHtml);
+  return fileNames.length > 0 ? { confluenceUrl, fileNames } : null;
+};
+
+/** 构建不含预览图片的稳定 bundle。 */
+export const getEmptyAttachmentPreviewBundle = (
+  storageHtml: string
+): CopyTestAttachmentPreviewBundle => ({ images: [], storageHtml });
+
+/** 统一附件预览失败的降级结果。 */
+export const getFailedAttachmentPreviewBundle = (
+  storageHtml: string,
+  error: unknown
+): CopyTestAttachmentPreviewBundle => {
+  console.error('Failed to load Confluence attachment previews:', error);
+  message.warning('Failed to load existing evidence image previews');
+  return getEmptyAttachmentPreviewBundle(storageHtml);
+};
+
 /** 处理 getRequiredExportStorage 辅助逻辑。 */
 export const getRequiredExportStorage = (
   tableState: UseCopyTestSessionResult,
+  exportScope = createCopyTestExportScope(),
   baseStorageHtml?: string
 ): string | null => {
   if (!tableState.selectedTable || tableState.selectedColumnIndex === undefined || !tableState.selectedHeader) {
@@ -43,6 +73,7 @@ export const getRequiredExportStorage = (
   }
 
   return buildCurrentColumnExportStorage({
+    exportScope,
     originalStorageHtml: baseStorageHtml || tableState.originalStorageHtml,
     selectedColumnIndex: tableState.selectedColumnIndex,
     selectedColumnLabel: tableState.selectedHeader.label,
@@ -50,32 +81,17 @@ export const getRequiredExportStorage = (
   });
 };
 
-/** 处理 buildStorageWithAttachmentPreviews 辅助逻辑。 */
-export const buildStorageWithAttachmentPreviews = async ({
+/** 构建 storage 和独立内存图片 bundle，避免把 base64 写入整页 HTML。 */
+export const buildStorageAttachmentPreviewBundle = ({
   confluenceUrl,
   loadAttachments,
   storageHtml,
-}: AttachmentPreviewParams): Promise<string> => {
-  try {
-
-    /** 定义 fileNames 常量。 */
-    const fileNames = getConfluenceStorageTableImageFileNames(storageHtml);
-    if (fileNames.length === 0) {
-      return storageHtml;
-    }
-
-    /** 定义 response 常量。 */
-
-    const response = await loadAttachments({
-      confluenceUrl,
-      fileNames,
-    });
-    return applyConfluenceStorageTableImages(storageHtml, response.images);
-  } catch (error) {
-    console.error('Failed to load Confluence attachment previews:', error);
-    message.warning('Failed to load existing evidence image previews');
-    return storageHtml;
+}: AttachmentPreviewParams): Promise<CopyTestAttachmentPreviewBundle> => {
+  const request = getAttachmentPreviewRequest(confluenceUrl, storageHtml);
+  if (!request) {
+    return Promise.resolve(getEmptyAttachmentPreviewBundle(storageHtml));
   }
+  return Promise.resolve().then(() => loadAttachments(request)).then(response => buildConfluenceStorageTableImagePreviewBundle(storageHtml, response.images)).catch(error => getFailedAttachmentPreviewBundle(storageHtml, error));
 };
 
 /** 处理 getCopyTestValidationContext 辅助逻辑。 */

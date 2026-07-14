@@ -3,6 +3,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Empty } from 'antd';
+import type { CopyTestImage } from '../api/copyTestApi';
 import {
   findGeneratedColumnIndexes,
   getSourceColumnKey,
@@ -14,16 +15,17 @@ import {
   COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_SRC_ATTRIBUTE,
-  COPY_TEST_EVIDENCE_HEADER_PREFIX,
   COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE,
   COPY_TEST_GENERATED_CONTENT_ATTRIBUTE,
   COPY_TEST_GENERATED_EVIDENCE_TYPE,
 } from '../table/tableConstants';
 import type { CopyTestEvidenceDeleteTarget, CopyTestEvidencePreviewInfo, CopyTestTableEntry } from '../types';
+import { getCopyTestImageId } from '../table/copyTestImageUtils';
 
 /** 定义 CopyTestTablePreviewProps 的数据结构。 */
 interface CopyTestTablePreviewProps {
   disabled?: boolean;
+  images?: CopyTestImage[];
   onEvidenceImageDelete: (target: CopyTestEvidenceDeleteTarget) => void;
   onEvidenceImagePreview: (previewInfo: CopyTestEvidencePreviewInfo) => void;
   onSelectedRowIndexesChange: (value: number[]) => void;
@@ -68,8 +70,14 @@ const SELECTION_COLUMN_ATTRIBUTE = 'data-copy-test-selection-column';
 /** iframe 行选择全选属性。 */
 const SELECTION_SELECT_ALL_ATTRIBUTE = 'data-copy-test-selection-all';
 
+/** iframe checkbox 是否原本可选择。 */
+const SELECTION_SELECTABLE_ATTRIBUTE = 'data-copy-test-selection-selectable';
+
 /** iframe postMessage 来源类型。 */
 const PREVIEW_MESSAGE_TYPE = 'copy-test-preview-message';
+
+/** 父页面增量同步到 iframe 的状态消息类型。 */
+const PREVIEW_STATE_MESSAGE_TYPE = 'copy-test-preview-state';
 
 /** DOM 布尔属性写入时使用的统一字符串值。 */
 const DOM_TRUE_ATTRIBUTE_VALUE = 'true';
@@ -268,6 +276,9 @@ interface PreviewImageUrlBundle {
   urlsByKey: Record<string, string>;
 }
 
+/** 未提供内存图片时复用稳定空数组，避免无关重渲染重建 URL。 */
+const EMPTY_PREVIEW_IMAGES: CopyTestImage[] = [];
+
 /** 表格横向滚动条尺寸信息。 */
 interface HorizontalScrollMetrics {
   contentWidth: number;
@@ -276,11 +287,51 @@ interface HorizontalScrollMetrics {
   viewportWidth: number;
 }
 
+/** 固定横向滚动条一次拖拽的起点信息。 */
+interface HorizontalDragStart {
+  clientX: number;
+  maxScrollLeft: number;
+  maxThumbTravel: number;
+  scrollLeft: number;
+}
+
+/** 判断 iframe message 是否来自 CopyTest 预览。 */
+const isSelectionFrameMessage = (message: Record<string, unknown>): boolean => {
+  return typeof message.checked === 'boolean'
+    && Array.isArray(message.rowIndexes)
+    && message.rowIndexes.every(Number.isFinite);
+};
+
+/** 判断 iframe message 是否是图片预览请求。 */
+const isImagePreviewFrameMessage = (message: Record<string, unknown>): boolean => {
+  return typeof message.imageId === 'string'
+    && typeof message.src === 'string'
+    && typeof message.alt === 'string';
+};
+
+/** 判断 iframe message 是否是图片删除请求。 */
+const isImageDeleteFrameMessage = (message: Record<string, unknown>): boolean => {
+  return typeof message.imageId === 'string'
+    && (message.instanceId === undefined || typeof message.instanceId === 'string');
+};
+
 /** 判断 iframe message 是否来自 CopyTest 预览。 */
 const isPreviewFrameMessage = (data: unknown): data is PreviewFrameMessage => {
-  return typeof data === 'object'
-    && data !== null
-    && (data as { type?: unknown }).type === PREVIEW_MESSAGE_TYPE;
+  if (typeof data !== 'object' || data === null) {
+    return false;
+  }
+
+  const message = data as Record<string, unknown>;
+  if (message.type !== PREVIEW_MESSAGE_TYPE || typeof message.action !== 'string') {
+    return false;
+  }
+  if (message.action === 'selection') {
+    return isSelectionFrameMessage(message);
+  }
+  if (message.action === 'preview') {
+    return isImagePreviewFrameMessage(message);
+  }
+  return message.action === 'delete' && isImageDeleteFrameMessage(message);
 };
 
 /** 计算 iframe 预览中应该显示的列。 */
@@ -333,19 +384,41 @@ const getPreviewImageKey = (element: Element, index: number): string => {
 };
 
 /** 为 iframe 预览生成轻量图片 URL，避免 base64 进入 srcdoc。 */
-const createPreviewImageUrlBundle = (tableHtml: string): PreviewImageUrlBundle => {
+const createPreviewImageUrlBundle = (
+  tableHtml: string,
+  images: CopyTestImage[]
+): PreviewImageUrlBundle => {
   const doc = document.implementation.createHTMLDocument('copy-test-preview-images');
   const urls: string[] = [];
   const urlsByKey: Record<string, string> = {};
+  const urlByImage = new Map<string, string>();
+  images.forEach(image => {
+    const imageId = getCopyTestImageId(image);
+    if (urlByImage.has(imageId)) {
+      return;
+    }
+    const objectUrl = createObjectUrlFromDataUrl(image.base64);
+    if (objectUrl) {
+      urls.push(objectUrl);
+      urlByImage.set(imageId, objectUrl);
+    }
+  });
   doc.body.innerHTML = tableHtml;
-  doc.querySelectorAll(`[${COPY_TEST_EVIDENCE_IMAGE_SRC_ATTRIBUTE}]`).forEach((element, index) => {
-    const objectUrl = createObjectUrlFromDataUrl(element.getAttribute(COPY_TEST_EVIDENCE_IMAGE_SRC_ATTRIBUTE) || '');
+  doc.querySelectorAll(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`).forEach((element, index) => {
+    const dataUrl = element.getAttribute(COPY_TEST_EVIDENCE_IMAGE_SRC_ATTRIBUTE) || '';
+    const imageKey = element.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE) || dataUrl;
+    const cachedUrl = urlByImage.get(imageKey);
+    const objectUrl = cachedUrl || createObjectUrlFromDataUrl(dataUrl);
     if (!objectUrl) {
       return;
     }
 
-    urls.push(objectUrl);
+    if (!cachedUrl) {
+      urls.push(objectUrl);
+      urlByImage.set(imageKey, objectUrl);
+    }
     urlsByKey[getPreviewImageKey(element, index)] = objectUrl;
+    urlsByKey[imageKey] = objectUrl;
   });
   return { urls, urlsByKey };
 };
@@ -374,18 +447,14 @@ const getSelectableAnchorRowIndexes = (
 const createSelectionCheckbox = (
   doc: Document,
   rowIndexes: number[],
-  checked: boolean,
   disabled: boolean
 ): HTMLInputElement => {
   const checkbox = doc.createElement('input');
   checkbox.setAttribute('type', 'checkbox');
   checkbox.setAttribute(SELECTION_CHECKBOX_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
   checkbox.setAttribute(SELECTION_ROW_INDEXES_ATTRIBUTE, JSON.stringify(rowIndexes));
-  checkbox.checked = checked;
+  checkbox.setAttribute(SELECTION_SELECTABLE_ATTRIBUTE, String(!disabled));
   checkbox.disabled = disabled;
-  if (checked) {
-    checkbox.setAttribute('checked', 'checked');
-  }
   if (disabled) {
     checkbox.setAttribute(DISABLED_ATTRIBUTE, DISABLED_ATTRIBUTE);
   }
@@ -395,18 +464,14 @@ const createSelectionCheckbox = (
 /** 创建选择列表头单元格。 */
 const createSelectionHeaderCell = (
   doc: Document,
-  rowIndexes: number[],
-  selectedRowIndexes: Set<number>
+  rowIndexes: number[]
 ): HTMLTableCellElement => {
   const cell = doc.createElement('th');
-  const selectedCount = rowIndexes.filter(rowIndex => selectedRowIndexes.has(rowIndex)).length;
   const checkbox = createSelectionCheckbox(
     doc,
     rowIndexes,
-    rowIndexes.length > 0 && selectedCount === rowIndexes.length,
     rowIndexes.length === 0
   );
-  checkbox.indeterminate = selectedCount > 0 && selectedCount < rowIndexes.length;
   checkbox.setAttribute(SELECTION_SELECT_ALL_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
   cell.setAttribute(SELECTION_COLUMN_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
   cell.appendChild(checkbox);
@@ -418,12 +483,11 @@ const createSelectionDataCell = (
   doc: Document,
   rowIndex: number,
   rowSpan: number,
-  selectedRowIndexes: Set<number>,
   selectable: boolean
 ): HTMLTableCellElement => {
   const dataRowIndex = rowIndex - 1;
   const cell = doc.createElement('td');
-  const checkbox = createSelectionCheckbox(doc, [dataRowIndex], selectedRowIndexes.has(dataRowIndex), !selectable);
+  const checkbox = createSelectionCheckbox(doc, [dataRowIndex], !selectable);
   cell.setAttribute(SELECTION_COLUMN_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
   if (rowSpan > 1) {
     cell.setAttribute('rowspan', String(rowSpan));
@@ -436,7 +500,6 @@ const createSelectionDataCell = (
 const applyPreviewRowSelection = (
   doc: Document,
   table: CopyTestTableEntry,
-  selectedRowIndexes: number[],
   selectedColumnIndex?: number
 ): void => {
   if (selectedColumnIndex === undefined) {
@@ -448,12 +511,16 @@ const applyPreviewRowSelection = (
     return;
   }
 
-  const selectedRows = new Set(selectedRowIndexes);
   const selectableRows = getSelectableAnchorRowIndexes(table, selectedColumnIndex);
-  const model = parseTableModel(tableElement);
-  model.rows.forEach(row => {
+  const previewRows = Array.from(tableElement.querySelectorAll<HTMLTableRowElement>('tr'))
+    .filter(row => row.closest('table') === tableElement);
+  table.model.rows.forEach(row => {
+    const previewRow = previewRows[row.index];
+    if (!previewRow) {
+      return;
+    }
     if (row.index === 0) {
-      row.element.insertBefore(createSelectionHeaderCell(doc, selectableRows, selectedRows), row.element.firstChild);
+      previewRow.insertBefore(createSelectionHeaderCell(doc, selectableRows), previewRow.firstChild);
       return;
     }
 
@@ -463,8 +530,8 @@ const applyPreviewRowSelection = (
     }
 
     const selectable = hasSelectableCellText(table, row.index, selectedColumnIndex);
-    const cell = createSelectionDataCell(doc, row.index, slot.cell.rowSpan, selectedRows, selectable);
-    row.element.insertBefore(cell, row.element.firstChild);
+    const cell = createSelectionDataCell(doc, row.index, slot.cell.rowSpan, selectable);
+    previewRow.insertBefore(cell, previewRow.firstChild);
   });
 };
 
@@ -517,12 +584,14 @@ const stripUnsafePreviewRuntime = (doc: Document): void => {
 
 /** 为 Confluence ac:image 补充浏览器可见的 img 预览节点。 */
 const applyPreviewEvidenceImages = (doc: Document, previewImageUrls: Record<string, string>): void => {
-  doc.querySelectorAll(`[${COPY_TEST_EVIDENCE_IMAGE_SRC_ATTRIBUTE}]`).forEach((element, index) => {
+  doc.querySelectorAll(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`).forEach((element, index) => {
     if (element.tagName.toLowerCase() === 'img') {
       return;
     }
 
+    const imageId = element.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE) || '';
     const src = previewImageUrls[getPreviewImageKey(element, index)]
+      || previewImageUrls[imageId]
       || element.getAttribute(COPY_TEST_EVIDENCE_IMAGE_SRC_ATTRIBUTE)
       || '';
     if (!src) {
@@ -559,8 +628,7 @@ const getEvidenceColumnCells = (doc: Document): Set<Element> => {
 
   const model = parseTableModel(tableElement);
   const evidenceColumnIndexes = new Set(model.headers
-    .filter(header => header.generatedType === COPY_TEST_GENERATED_EVIDENCE_TYPE
-      || header.label.startsWith(COPY_TEST_EVIDENCE_HEADER_PREFIX))
+    .filter(header => header.generatedType === COPY_TEST_GENERATED_EVIDENCE_TYPE)
     .map(header => header.index));
   const cells = model.rows.flatMap(row => row.cells
     .filter(cell => evidenceColumnIndexes.has(cell.columnIndex) || isEvidenceColumnCell(cell.element))
@@ -629,6 +697,7 @@ const buildPreviewRuntimeScript = (): string => {
   return `
     (() => {
       const messageType = ${JSON.stringify(PREVIEW_MESSAGE_TYPE)};
+      const stateMessageType = ${JSON.stringify(PREVIEW_STATE_MESSAGE_TYPE)};
       const actionAttribute = ${JSON.stringify(PREVIEW_ACTION_ATTRIBUTE)};
       const imageIdAttribute = ${JSON.stringify(PREVIEW_IMAGE_ID_ATTRIBUTE)};
       const imageInstanceAttribute = ${JSON.stringify(PREVIEW_IMAGE_INSTANCE_ATTRIBUTE)};
@@ -636,6 +705,10 @@ const buildPreviewRuntimeScript = (): string => {
       const imageAltAttribute = ${JSON.stringify(PREVIEW_IMAGE_ALT_ATTRIBUTE)};
       const selectionCheckboxAttribute = ${JSON.stringify(SELECTION_CHECKBOX_ATTRIBUTE)};
       const selectionRowsAttribute = ${JSON.stringify(SELECTION_ROW_INDEXES_ATTRIBUTE)};
+      const selectionSelectAllAttribute = ${JSON.stringify(SELECTION_SELECT_ALL_ATTRIBUTE)};
+      const selectionSelectableAttribute = ${JSON.stringify(SELECTION_SELECTABLE_ATTRIBUTE)};
+      const deleteButtonAttribute = ${JSON.stringify(DELETE_BUTTON_ATTRIBUTE)};
+      let disabled = false;
       const post = payload => window.parent.postMessage({ type: messageType, ...payload }, '*');
       const readImagePayload = element => ({
         imageId: element.getAttribute(imageIdAttribute) || '',
@@ -651,6 +724,42 @@ const buildPreviewRuntimeScript = (): string => {
           return [];
         }
       };
+      const readSelectionCheckboxes = () => Array.from(
+        document.querySelectorAll('[' + selectionCheckboxAttribute + ']')
+      );
+      const readSelectedRows = () => {
+        const selectedRows = new Set();
+        readSelectionCheckboxes().forEach(checkbox => {
+          if (checkbox.hasAttribute(selectionSelectAllAttribute) || !checkbox.checked) {
+            return;
+          }
+          readSelectionRows(checkbox).forEach(rowIndex => selectedRows.add(rowIndex));
+        });
+        return selectedRows;
+      };
+      const syncSelection = selectedRows => {
+        readSelectionCheckboxes().forEach(checkbox => {
+          const rowIndexes = readSelectionRows(checkbox);
+          const selectedCount = rowIndexes.filter(rowIndex => selectedRows.has(rowIndex)).length;
+          checkbox.checked = rowIndexes.length > 0 && selectedCount === rowIndexes.length;
+          checkbox.indeterminate = selectedCount > 0 && selectedCount < rowIndexes.length;
+          checkbox.disabled = disabled || checkbox.getAttribute(selectionSelectableAttribute) !== 'true';
+        });
+      };
+      const syncDisabledActions = () => {
+        document.querySelectorAll('[' + deleteButtonAttribute + ']').forEach(button => {
+          button.disabled = disabled;
+        });
+      };
+      window.addEventListener('message', event => {
+        const payload = event.data;
+        if (event.source !== window.parent || !payload || payload.type !== stateMessageType) {
+          return;
+        }
+        disabled = payload.disabled === true;
+        syncSelection(new Set(Array.isArray(payload.selectedRowIndexes) ? payload.selectedRowIndexes : []));
+        syncDisabledActions();
+      });
       document.addEventListener('click', event => {
         const target = event.target instanceof Element ? event.target : null;
         const actionElement = target?.closest('[' + actionAttribute + ']');
@@ -671,7 +780,17 @@ const buildPreviewRuntimeScript = (): string => {
         if (!target?.hasAttribute(selectionCheckboxAttribute)) {
           return;
         }
-        post({ action: 'selection', checked: target.checked, rowIndexes: readSelectionRows(target) });
+        const changedRowIndexes = readSelectionRows(target);
+        const selectedRows = readSelectedRows();
+        changedRowIndexes.forEach(rowIndex => {
+          if (target.checked) {
+            selectedRows.add(rowIndex);
+          } else {
+            selectedRows.delete(rowIndex);
+          }
+        });
+        syncSelection(selectedRows);
+        post({ action: 'selection', checked: target.checked, rowIndexes: changedRowIndexes });
       });
     })();
   `;
@@ -680,18 +799,16 @@ const buildPreviewRuntimeScript = (): string => {
 /** 构建 iframe 的完整 HTML 文档。 */
 const buildPreviewDocumentHtml = (
   table: CopyTestTableEntry,
-  disabled: boolean,
   previewImageUrls: Record<string, string>,
-  selectedRowIndexes: number[],
   selectedColumnIndex?: number
 ): string => {
   const doc = document.implementation.createHTMLDocument('copy-test-preview');
   doc.body.innerHTML = table.workingHtml;
   stripUnsafePreviewRuntime(doc);
   applyPreviewColumnVisibility(doc, table, selectedColumnIndex);
-  applyPreviewRowSelection(doc, table, selectedRowIndexes, selectedColumnIndex);
+  applyPreviewRowSelection(doc, table, selectedColumnIndex);
   applyPreviewEvidenceImages(doc, previewImageUrls);
-  appendEvidenceDeleteButtons(doc, disabled);
+  appendEvidenceDeleteButtons(doc, false);
   return [
     '<!doctype html>',
     '<html>',
@@ -723,9 +840,15 @@ const clamp = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max);
 };
 
+/** 切换滑块拖拽视觉状态，不触发 React 渲染。 */
+const setHorizontalThumbDragging = (thumb: HTMLElement | null, dragging: boolean): void => {
+  thumb?.classList.toggle('is-dragging', dragging);
+};
+
 /** 渲染 iframe 表格预览组件。 */
 export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
   disabled = false,
+  images = EMPTY_PREVIEW_IMAGES,
   onEvidenceImageDelete,
   onEvidenceImagePreview,
   onSelectedRowIndexesChange,
@@ -736,9 +859,19 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const horizontalTrackRef = useRef<HTMLDivElement>(null);
   const horizontalThumbRef = useRef<HTMLDivElement>(null);
-  const horizontalDragStartRef = useRef({ clientX: 0, scrollLeft: 0 });
+  const horizontalDragStartRef = useRef<HorizontalDragStart>({
+    clientX: 0,
+    maxScrollLeft: 0,
+    maxThumbTravel: 1,
+    scrollLeft: 0,
+  });
+  const horizontalDraggingRef = useRef(false);
+  const horizontalDragFrameRef = useRef<number | null>(null);
+  const pendingHorizontalDragClientXRef = useRef<number | null>(null);
   const frameScrollCleanupRef = useRef<() => void>(() => {});
-  const [draggingHorizontalScrollbar, setDraggingHorizontalScrollbar] = useState(false);
+  const frameResizeCleanupRef = useRef<() => void>(() => {});
+  const selectedRowIndexesRef = useRef(selectedRowIndexes);
+  const disabledRef = useRef(disabled);
   const [horizontalScrollMetrics, setHorizontalScrollMetrics] = useState<HorizontalScrollMetrics>({
     contentWidth: 0,
     scrollLeft: 0,
@@ -747,8 +880,8 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
   });
 
   const previewImageUrlBundle = useMemo(
-    () => createPreviewImageUrlBundle(table?.workingHtml || ''),
-    [table?.workingHtml]
+    () => createPreviewImageUrlBundle(table?.workingHtml || '', images),
+    [images, table?.workingHtml]
   );
 
   useEffect(() => {
@@ -761,14 +894,27 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
     () => table
       ? buildPreviewDocumentHtml(
         table,
-        disabled,
         previewImageUrlBundle.urlsByKey,
-        selectedRowIndexes,
         selectedColumnIndex
       )
       : '',
-    [disabled, previewImageUrlBundle, selectedColumnIndex, selectedRowIndexes, table]
+    [previewImageUrlBundle, selectedColumnIndex, table]
   );
+
+  /** 将轻量交互状态增量同步到当前 iframe，不重建 srcDoc。 */
+  const postPreviewState = useCallback((): void => {
+    iframeRef.current?.contentWindow?.postMessage({
+      disabled: disabledRef.current,
+      selectedRowIndexes: selectedRowIndexesRef.current,
+      type: PREVIEW_STATE_MESSAGE_TYPE,
+    }, '*');
+  }, []);
+
+  useEffect(() => {
+    disabledRef.current = disabled;
+    selectedRowIndexesRef.current = selectedRowIndexes;
+    postPreviewState();
+  }, [disabled, postPreviewState, selectedRowIndexes]);
 
   /** 同步固定横向滚动条尺寸。 */
   const updateHorizontalScrollMetrics = useCallback((): void => {
@@ -794,6 +940,65 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
     });
   }, []);
 
+  /** 将一次横向拖拽位置直接写入滚动 DOM，避免 mousemove 触发 React 渲染。 */
+  const applyHorizontalDragPosition = useCallback((clientX: number): void => {
+    const scrollRoot = getFrameScrollRoot(iframeRef.current);
+    const track = horizontalTrackRef.current;
+    const thumb = horizontalThumbRef.current;
+    if (!scrollRoot || !track || !thumb) {
+      return;
+    }
+
+    const dragStart = horizontalDragStartRef.current;
+    const deltaX = clientX - dragStart.clientX;
+    const nextScrollLeft = dragStart.scrollLeft
+      + (deltaX / dragStart.maxThumbTravel) * dragStart.maxScrollLeft;
+    const scrollLeft = clamp(nextScrollLeft, 0, dragStart.maxScrollLeft);
+    const thumbProgress = dragStart.maxScrollLeft === 0
+      ? 0
+      : scrollLeft / dragStart.maxScrollLeft;
+    scrollRoot.scrollLeft = scrollLeft;
+    thumb.style.left = `${thumbProgress * 100}%`;
+    thumb.style.transform = `translateX(-${thumbProgress * 100}%)`;
+    track.setAttribute('aria-valuenow', String(scrollLeft));
+  }, []);
+
+  /** 取消尚未执行的横向拖拽动画帧。 */
+  const cancelHorizontalDragFrame = useCallback((): void => {
+    if (horizontalDragFrameRef.current !== null) {
+      window.cancelAnimationFrame(horizontalDragFrameRef.current);
+    }
+    horizontalDragFrameRef.current = null;
+  }, []);
+
+  /** 消费鼠标事件队列中最新的横向拖拽位置。 */
+  const applyPendingHorizontalDrag = useCallback((): void => {
+    const clientX = pendingHorizontalDragClientXRef.current;
+    pendingHorizontalDragClientXRef.current = null;
+    if (clientX === null || !horizontalDraggingRef.current) {
+      return;
+    }
+    applyHorizontalDragPosition(clientX);
+  }, [applyHorizontalDragPosition]);
+
+  /** 将高频 mousemove 合并到下一动画帧。 */
+  const scheduleHorizontalDrag = useCallback((clientX: number): void => {
+    pendingHorizontalDragClientXRef.current = clientX;
+    if (horizontalDragFrameRef.current !== null) {
+      return;
+    }
+    horizontalDragFrameRef.current = window.requestAnimationFrame(() => {
+      horizontalDragFrameRef.current = null;
+      applyPendingHorizontalDrag();
+    });
+  }, [applyPendingHorizontalDrag]);
+
+  /** mouseup 前同步最后一条尚未绘制的 mousemove。 */
+  const flushHorizontalDrag = useCallback((): void => {
+    cancelHorizontalDragFrame();
+    applyPendingHorizontalDrag();
+  }, [applyPendingHorizontalDrag, cancelHorizontalDragFrame]);
+
   /** 同步 iframe 表格和固定底部横向滚动条。 */
   const bindFrameScrollSync = useCallback((): (() => void) => {
     const scrollRoot = getFrameScrollRoot(iframeRef.current);
@@ -802,6 +1007,9 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
     }
 
     const handleFrameScroll = (): void => {
+      if (horizontalDraggingRef.current) {
+        return;
+      }
       setHorizontalScrollMetrics(previous => ({
         ...previous,
         scrollLeft: scrollRoot.scrollLeft,
@@ -813,82 +1021,96 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
     };
   }, []);
 
+  /** 用 ResizeObserver 监听预览内容尺寸，避免重复延时同步。 */
+  const bindFrameResizeSync = useCallback((): (() => void) => {
+    const scrollRoot = getFrameScrollRoot(iframeRef.current);
+    const tableElement = iframeRef.current?.contentDocument?.querySelector(PREVIEW_TABLE_SELECTOR);
+    if (!scrollRoot || !tableElement || typeof ResizeObserver === 'undefined') {
+      return () => {};
+    }
+
+    const observer = new ResizeObserver(updateHorizontalScrollMetrics);
+    observer.observe(scrollRoot);
+    observer.observe(tableElement);
+    return () => {
+      observer.disconnect();
+    };
+  }, [updateHorizontalScrollMetrics]);
+
   /** iframe 加载后同步滚动条。 */
   const handleFrameLoad = useCallback((): void => {
-    const syncScrollbar = (): void => {
-      frameScrollCleanupRef.current();
-      updateHorizontalScrollMetrics();
-      frameScrollCleanupRef.current = bindFrameScrollSync();
-    };
-    syncScrollbar();
-    window.requestAnimationFrame(syncScrollbar);
-    window.setTimeout(syncScrollbar, 120);
-  }, [bindFrameScrollSync, updateHorizontalScrollMetrics]);
+    frameScrollCleanupRef.current();
+    frameResizeCleanupRef.current();
+    updateHorizontalScrollMetrics();
+    frameScrollCleanupRef.current = bindFrameScrollSync();
+    frameResizeCleanupRef.current = bindFrameResizeSync();
+    postPreviewState();
+  }, [bindFrameResizeSync, bindFrameScrollSync, postPreviewState, updateHorizontalScrollMetrics]);
 
   /** 处理固定底部滚动条滑块按下。 */
   const handleHorizontalThumbMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>): void => {
     event.preventDefault();
     event.stopPropagation();
     const scrollRoot = getFrameScrollRoot(iframeRef.current);
+    const track = horizontalTrackRef.current;
+    const thumb = horizontalThumbRef.current;
+    const viewportWidth = scrollRoot?.clientWidth || 0;
     horizontalDragStartRef.current = {
       clientX: event.clientX,
+      maxScrollLeft: Math.max(0, getFrameTableScrollWidth(iframeRef.current) - viewportWidth),
+      maxThumbTravel: Math.max(1, (track?.clientWidth || 0) - (thumb?.offsetWidth || 0)),
       scrollLeft: scrollRoot?.scrollLeft || 0,
     };
-    setDraggingHorizontalScrollbar(true);
-  }, []);
+    cancelHorizontalDragFrame();
+    pendingHorizontalDragClientXRef.current = null;
+    horizontalDraggingRef.current = true;
+    setHorizontalThumbDragging(thumb, true);
+  }, [cancelHorizontalDragFrame]);
 
   /** 横向滚动条滑块宽度百分比。 */
   const horizontalThumbWidthPercent = horizontalScrollMetrics.visible
     ? Math.max(5, Math.min(100, (horizontalScrollMetrics.viewportWidth / horizontalScrollMetrics.contentWidth) * 100))
     : 100;
 
-  /** 横向滚动条滑块位置百分比。 */
-  const horizontalThumbLeftPercent = horizontalScrollMetrics.visible
-    ? (horizontalScrollMetrics.scrollLeft / Math.max(1, horizontalScrollMetrics.contentWidth - horizontalScrollMetrics.viewportWidth))
-      * (100 - horizontalThumbWidthPercent)
+  /** 横向滚动条滑块滚动进度。 */
+  const horizontalThumbProgress = horizontalScrollMetrics.visible
+    ? horizontalScrollMetrics.scrollLeft
+      / Math.max(1, horizontalScrollMetrics.contentWidth - horizontalScrollMetrics.viewportWidth)
     : 0;
 
   useEffect(() => {
-    if (!draggingHorizontalScrollbar) {
-      return undefined;
-    }
-
+    const horizontalThumb = horizontalThumbRef.current;
     const handleMouseMove = (event: MouseEvent): void => {
-      const scrollRoot = getFrameScrollRoot(iframeRef.current);
-      const track = horizontalTrackRef.current;
-      const thumb = horizontalThumbRef.current;
-      if (!scrollRoot || !track || !thumb) {
+      if (!horizontalDraggingRef.current) {
         return;
       }
-
-      const maxScrollLeft = Math.max(0, horizontalScrollMetrics.contentWidth - horizontalScrollMetrics.viewportWidth);
-      const maxThumbTravel = Math.max(1, track.clientWidth - thumb.offsetWidth);
-      const deltaX = event.clientX - horizontalDragStartRef.current.clientX;
-      const nextScrollLeft = horizontalDragStartRef.current.scrollLeft + (deltaX / maxThumbTravel) * maxScrollLeft;
-      scrollRoot.scrollLeft = clamp(nextScrollLeft, 0, maxScrollLeft);
-      setHorizontalScrollMetrics(previous => ({
-        ...previous,
-        scrollLeft: scrollRoot.scrollLeft,
-      }));
+      scheduleHorizontalDrag(event.clientX);
     };
     const handleMouseUp = (): void => {
-      setDraggingHorizontalScrollbar(false);
+      if (!horizontalDraggingRef.current) {
+        return;
+      }
+      flushHorizontalDrag();
+      horizontalDraggingRef.current = false;
+      setHorizontalThumbDragging(horizontalThumbRef.current, false);
+      updateHorizontalScrollMetrics();
     };
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      horizontalDraggingRef.current = false;
+      pendingHorizontalDragClientXRef.current = null;
+      setHorizontalThumbDragging(horizontalThumb, false);
+      cancelHorizontalDragFrame();
     };
   }, [
-    draggingHorizontalScrollbar,
-    horizontalScrollMetrics.contentWidth,
-    horizontalScrollMetrics.viewportWidth,
+    cancelHorizontalDragFrame,
+    flushHorizontalDrag,
+    scheduleHorizontalDrag,
+    updateHorizontalScrollMetrics,
   ]);
-
-  useEffect(() => {
-    updateHorizontalScrollMetrics();
-  }, [previewHtml, updateHorizontalScrollMetrics]);
 
   useEffect(() => {
     window.addEventListener('resize', updateHorizontalScrollMetrics);
@@ -898,15 +1120,22 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
   }, [updateHorizontalScrollMetrics]);
 
   useEffect(() => {
+    const horizontalThumb = horizontalThumbRef.current;
     return () => {
       frameScrollCleanupRef.current();
+      frameResizeCleanupRef.current();
+      horizontalDraggingRef.current = false;
+      pendingHorizontalDragClientXRef.current = null;
+      setHorizontalThumbDragging(horizontalThumb, false);
+      cancelHorizontalDragFrame();
       frameScrollCleanupRef.current = () => {};
+      frameResizeCleanupRef.current = () => {};
     };
-  }, [previewHtml]);
+  }, [cancelHorizontalDragFrame, previewHtml]);
 
   useEffect(() => {
     const handleFrameMessage = (event: MessageEvent): void => {
-      if (!isPreviewFrameMessage(event.data)) {
+      if (event.source !== iframeRef.current?.contentWindow || !isPreviewFrameMessage(event.data)) {
         return;
       }
 
@@ -921,7 +1150,7 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
 
       if (event.data.action === 'selection') {
         onSelectedRowIndexesChange(updateSelectedRowIndexes(
-          selectedRowIndexes,
+          selectedRowIndexesRef.current,
           event.data.rowIndexes,
           event.data.checked
         ));
@@ -938,7 +1167,7 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
     return () => {
       window.removeEventListener('message', handleFrameMessage);
     };
-  }, [onEvidenceImageDelete, onEvidenceImagePreview, onSelectedRowIndexesChange, selectedRowIndexes]);
+  }, [onEvidenceImageDelete, onEvidenceImagePreview, onSelectedRowIndexesChange]);
 
   if (!table) {
     return <Empty description="No table selected" />;
@@ -987,6 +1216,7 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
       <div
         ref={horizontalTrackRef}
         aria-label="Horizontal table scroll"
+        aria-orientation="horizontal"
         aria-valuemax={Math.max(0, horizontalScrollMetrics.contentWidth - horizontalScrollMetrics.viewportWidth)}
         aria-valuemin={0}
         aria-valuenow={horizontalScrollMetrics.scrollLeft}
@@ -997,12 +1227,11 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
       >
         <div
           ref={horizontalThumbRef}
-          className={`copy-test-fixed-horizontal-scrollbar-thumb ${
-            draggingHorizontalScrollbar ? 'is-dragging' : ''
-          }`}
+          className="copy-test-fixed-horizontal-scrollbar-thumb"
           onMouseDown={handleHorizontalThumbMouseDown}
           style={{
-            left: `${horizontalThumbLeftPercent}%`,
+            left: `${horizontalThumbProgress * 100}%`,
+            transform: `translateX(-${horizontalThumbProgress * 100}%)`,
             width: `${horizontalThumbWidthPercent}%`,
           }}
         />

@@ -22,6 +22,18 @@ export const COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE = 'data-copy-test-column-
 /** 定义 COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE 常量。 */
 export const COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE = 'data-copy-test-source-column-key';
 
+/** CopyTest 生成节点的 metadata schema 属性。 */
+export const COPY_TEST_SCHEMA_ATTRIBUTE = 'data-copy-test-schema';
+
+/** CopyTest 当前生成节点 metadata schema 版本。 */
+export const COPY_TEST_SCHEMA_VERSION = '2';
+
+/** CopyTest 生成双列的 owner 属性。 */
+export const COPY_TEST_OWNER_ID_ATTRIBUTE = 'data-copy-test-owner-id';
+
+/** 导出流水线临时标记当前目标 Pair 的属性。 */
+export const COPY_TEST_EXPORT_SCOPE_ATTRIBUTE = 'data-copy-test-export-scope';
+
 /** 定义 COPY_TEST_SOURCE_CELL_ID_ATTRIBUTE 常量。 */
 export const COPY_TEST_SOURCE_CELL_ID_ATTRIBUTE = 'data-copy-test-source-cell-id';
 

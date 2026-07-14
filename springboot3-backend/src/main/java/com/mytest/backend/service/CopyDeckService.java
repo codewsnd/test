@@ -37,7 +37,7 @@ public class CopyDeckService {
 
 
     private String getConfluenceToken(String staffId, String confluenceUrl) {
-        return "MjAzNTcxNjM0NjIzOhsdNe9Eq9ooeipUDLqQ3r3JHLGY";
+        return "Njc2Mjg0OTM3NjEwOmeQwE4pULJmAJyxIEQTbFdzaKBu";
         // String token;
         // String lower = confluenceUrl.toLowerCase(Locale.ROOT);
         // if(lower.contains("alm")) {

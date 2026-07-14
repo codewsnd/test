@@ -13,8 +13,8 @@ const MAX_RANDOM_GROUP_SIZE = 3;
 /** mock 里单行随机通过的概率。 */
 const RANDOM_PASS_RATE = 0.65;
 
-/** mock Validate 接口固定等待时间。 */
-const MOCK_VALIDATION_DELAY_MS = 2000;
+/** 保留可感知的 loading，同时避免 mock 阻塞浏览器回归流程。 */
+const MOCK_VALIDATION_DELAY_MS = 300;
 
 /** mock 失败原因候选。 */
 const RANDOM_FAILURE_REASONS = [

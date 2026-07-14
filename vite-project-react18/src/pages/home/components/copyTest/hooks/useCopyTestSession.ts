@@ -1,7 +1,7 @@
 /**
  * 文件作用：管理 CopyTest 原始 storage、working table、列选择、行选择和校验写入。
  */
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useReducer, useRef } from 'react';
 import type { CopyTestImage, CopyTestRowInput } from '../api/copyTestApi';
 import type {
   CopyTestEvidenceDeleteTarget,
@@ -24,11 +24,16 @@ import {
   type CopyTestColumnContext,
 } from '../table/copyTestTableParser';
 import { getCopyTestImageId } from '../table/copyTestImageUtils';
+import { getConfluenceStorageTableImageFileNames } from '../table/copyTestTableImages';
 import {
   COPY_TEST_GENERATED_CONTENT_ATTRIBUTE,
   COPY_TEST_GENERATED_EVIDENCE_TYPE,
   COPY_TEST_GENERATED_RESULT_TYPE,
 } from '../table/tableConstants';
+import {
+  copyTestSessionInitialState,
+  copyTestSessionReducer,
+} from './copyTestSessionReducer';
 
 /** 删除 Evidence 后的状态。 */
 export interface CopyTestSessionDeleteResult {
@@ -38,7 +43,7 @@ export interface CopyTestSessionDeleteResult {
 
 /** copyTest 会话状态 hook 的返回值。 */
 export interface UseCopyTestSessionResult {
-  applyLoadedStorage: (nextStorageHtml: string) => number;
+  applyLoadedStorage: (nextStorageHtml: string, previewImages?: CopyTestImage[]) => number;
   applyValidationResults: (
     results: CopyTestValidationResultWithEvidence[],
     images: CopyTestImage[],
@@ -49,6 +54,7 @@ export interface UseCopyTestSessionResult {
   buildSelectedRowsForValidation: () => CopyTestRowInput[];
   commitExportedStorage: (nextStorageHtml: string) => void;
   deleteEvidenceImage: (target: CopyTestEvidenceDeleteTarget) => CopyTestSessionDeleteResult;
+  getCurrentPreviewImages: () => CopyTestImage[];
   getCurrentValidationImages: () => CopyTestImage[];
   handleComparisonColumnChange: (columnIndex?: number) => void;
   handleTableChange: (value: number) => void;
@@ -74,6 +80,29 @@ export interface UseCopyTestSessionResult {
 /** 校验图片快照集合。 */
 type ValidationImageSnapshotMap = Record<string, CopyTestImage[]>;
 
+/** 未产生校验图片时复用稳定空数组。 */
+const EMPTY_VALIDATION_IMAGES: CopyTestImage[] = [];
+
+/** 只保留当前表格 managed Evidence 实际引用的内存图片。 */
+const buildCurrentPreviewImages = (
+  table: CopyTestTableEntry | undefined,
+  importedImages: CopyTestImage[],
+  validationSnapshots: ValidationImageSnapshotMap
+): CopyTestImage[] => {
+  if (!table) {
+    return EMPTY_VALIDATION_IMAGES;
+  }
+  const imageByFileName = new Map<string, CopyTestImage>();
+  importedImages.forEach(image => imageByFileName.set(image.fileName, image));
+  Object.values(validationSnapshots).flat().forEach(image => {
+    imageByFileName.set(image.fileName, image);
+  });
+  return getConfluenceStorageTableImageFileNames(table.workingHtml).flatMap(fileName => {
+    const image = imageByFileName.get(fileName);
+    return image ? [image] : [];
+  });
+};
+
 /** 生成当前列快照 key。 */
 const buildSnapshotKey = (
   tableIndex: number,
@@ -81,14 +110,6 @@ const buildSnapshotKey = (
   selectedColumnLabel: string
 ): string => {
   return `${tableIndex}:${selectedColumnIndex}:${selectedColumnLabel}`;
-};
-
-/** 从表格中替换指定工作表格。 */
-const replaceTable = (
-  tables: CopyTestTableEntry[],
-  nextTable: CopyTestTableEntry
-): CopyTestTableEntry[] => {
-  return tables.map(table => (table.index === nextTable.index ? nextTable : table));
 };
 
 /** 使用最新 original storage 刷新表格原始快照。 */
@@ -158,11 +179,15 @@ const hasSelectedColumnExportableContent = (
 
 /** 管理 CopyTest 会话状态。 */
 export const useCopyTestSession = (): UseCopyTestSessionResult => {
-  const [originalStorageHtml, setOriginalStorageHtml] = useState('');
-  const [tables, setTables] = useState<CopyTestTableEntry[]>([]);
-  const [selectedTableIndex, setSelectedTableIndex] = useState<number>();
-  const [selectedColumnIndex, setSelectedColumnIndex] = useState<number>();
-  const [selectedRowIndexes, setSelectedRowIndexes] = useState<number[]>([]);
+  const [state, dispatch] = useReducer(copyTestSessionReducer, copyTestSessionInitialState);
+  const {
+    originalStorageHtml,
+    selectedColumnIndex,
+    selectedRowIndexes,
+    selectedTableIndex,
+    tables,
+  } = state;
+  const importedPreviewImagesRef = useRef<CopyTestImage[]>([]);
   const validationImageSnapshotsRef = useRef<ValidationImageSnapshotMap>({});
 
   const selectedTable = useMemo(
@@ -186,6 +211,14 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     () => hasSelectedColumnExportableContent(selectedTable, selectedColumnContext),
     [selectedColumnContext, selectedTable]
   );
+  const currentPreviewImages = useMemo(
+    () => buildCurrentPreviewImages(
+      selectedTable,
+      importedPreviewImagesRef.current,
+      validationImageSnapshotsRef.current
+    ),
+    [selectedTable]
+  );
 
   /** 重置校验图片快照。 */
   const resetValidationSnapshots = (): void => {
@@ -194,63 +227,62 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
 
   /** 重置全部已加载数据。 */
   const resetLoadedData = (): void => {
-    setOriginalStorageHtml('');
-    setTables([]);
-    setSelectedTableIndex(undefined);
-    setSelectedColumnIndex(undefined);
-    setSelectedRowIndexes([]);
+    importedPreviewImagesRef.current = [];
+    dispatch({ type: 'RESET' });
     resetValidationSnapshots();
   };
 
   /** 应用导入的 storage。 */
-  const applyLoadedStorage = (nextStorageHtml: string): number => {
+  const applyLoadedStorage = (
+    nextStorageHtml: string,
+    previewImages: CopyTestImage[] = []
+  ): number => {
     const nextTables = parseCopyTestStorageTables(nextStorageHtml);
-    setOriginalStorageHtml(nextStorageHtml);
-    setTables(nextTables);
-    setSelectedTableIndex(nextTables[0]?.index);
-    setSelectedColumnIndex(undefined);
-    setSelectedRowIndexes([]);
+    importedPreviewImagesRef.current = [...previewImages];
+    dispatch({ storageHtml: nextStorageHtml, tables: nextTables, type: 'LOADED' });
     resetValidationSnapshots();
     return nextTables.length;
   };
 
   /** 提交已成功导出的 storage 作为后续列级 patch 基底。 */
   const commitExportedStorage = (nextStorageHtml: string): void => {
-    setOriginalStorageHtml(nextStorageHtml);
-    setTables(prevTables => refreshOriginalTableSnapshots(prevTables, nextStorageHtml));
+    dispatch({
+      nextTables: refreshOriginalTableSnapshots(tables, nextStorageHtml),
+      storageHtml: nextStorageHtml,
+      type: 'EXPORT_COMMITTED',
+    });
   };
 
   /** 切换表格。 */
   const handleTableChange = (value: number): void => {
-    setSelectedTableIndex(value);
-    setSelectedColumnIndex(undefined);
-    setSelectedRowIndexes([]);
+    dispatch({ tableIndex: value, type: 'TABLE_SELECTED' });
   };
 
   /** 更新指定表格。 */
   const updateWorkingTable = (nextTable: CopyTestTableEntry): void => {
-    setTables(prevTables => replaceTable(prevTables, nextTable));
+    dispatch({ table: nextTable, type: 'TABLE_UPDATED' });
   };
 
   /** 切换 Comparison Column 并确保当前列 Test 列存在。 */
   const handleComparisonColumnChange = (columnIndex?: number): void => {
     if (!selectedTable || columnIndex === undefined) {
-      setSelectedColumnIndex(undefined);
-      setSelectedRowIndexes([]);
+      dispatch({ columnIndex: undefined, type: 'COLUMN_SELECTED' });
       return;
     }
 
     const header = selectedTable.headers.find(item => item.index === columnIndex);
     if (!header) {
-      setSelectedColumnIndex(undefined);
-      setSelectedRowIndexes([]);
+      dispatch({ columnIndex: undefined, type: 'COLUMN_SELECTED' });
       return;
     }
 
     const nextTable = ensureCopyTestWorkingColumns(selectedTable, columnIndex, header.label);
-    updateWorkingTable(nextTable);
-    setSelectedColumnIndex(columnIndex);
-    setSelectedRowIndexes(getSelectableCopyTestRowIndexes(nextTable, columnIndex));
+    dispatch({
+      columnIndex,
+      defaultSelectedRowIndexes: getSelectableCopyTestRowIndexes(nextTable, columnIndex),
+      nextTable,
+      type: 'COLUMN_SELECTED',
+    });
   };
 
   /** 构建当前选中行校验输入。 */
@@ -279,7 +311,12 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
 
     return validationImageSnapshotsRef.current[
       buildSnapshotKey(selectedTable.index, selectedColumnIndex, selectedHeader.label)
-    ] || [];
+    ] || EMPTY_VALIDATION_IMAGES;
+  };
+
+  /** 读取当前表格实际引用的导入附件和校验图片。 */
+  const getCurrentPreviewImages = (): CopyTestImage[] => {
+    return currentPreviewImages;
   };
 
   /** 应用校验结果。 */
@@ -334,12 +371,18 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     return { imageStillUsed: result.imageStillUsed, removed: true };
   };
 
+  /** 更新当前选中的来源原子组首行。 */
+  const setSelectedRowIndexes = (value: number[]): void => {
+    dispatch({ selectedRowIndexes: value, type: 'ROWS_SELECTED' });
+  };
+
   return {
     applyLoadedStorage,
     applyValidationResults,
     buildSelectedRowsForValidation,
     commitExportedStorage,
     deleteEvidenceImage: removeEvidenceImageReference,
+    getCurrentPreviewImages,
     getCurrentValidationImages,
     handleComparisonColumnChange,
     handleTableChange,

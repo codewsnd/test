@@ -38,10 +38,12 @@ const buildTableOptions = (tables: CopyTestTableEntry[]) => {
 
 /** 处理 buildComparisonOptions 辅助逻辑。 */
 const buildComparisonOptions = (headers: CopyTestHeader[]) => {
-  return headers.filter(header => !isCopyTestGeneratedHeader(header)).map(header => ({
-    value: header.index,
-    label: header.label,
-  }));
+  return headers
+    .filter(header => header.label.trim() !== '' && !isCopyTestGeneratedHeader(header))
+    .map(header => ({
+      value: header.index,
+      label: header.label,
+    }));
 };
 
 /** 渲染 CopyTestActionButtons 组件。 */

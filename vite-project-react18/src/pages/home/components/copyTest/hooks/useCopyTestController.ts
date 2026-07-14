@@ -1,7 +1,7 @@
 /**
  * 文件作用：封装 CopyTest 主流程的状态、请求和事件处理。
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Modal, message } from 'antd';
 import { useRequest } from 'ahooks';
 import {
@@ -9,18 +9,26 @@ import {
   copyTestStorageApi,
   copyTestUploadApi,
   copyTestValidationApi,
+  type CopyTestImage,
 } from '../api/copyTestApi';
 import { buildCopyTestActionState } from '../utils/copyTestActionState';
 import { bindResultImages } from '../table/copyTestTableEditor';
+import { parseCopyTestStorageTables } from '../table/copyTestTableParser';
 import { buildConfluenceStorageTableExportPayload } from '../table/copyTestTableImages';
 import { getCopyTestImageId } from '../table/copyTestImageUtils';
+import { createCopyTestExportScope } from '../table/copyTestExportScope';
 import type {
   CopyTestEvidenceDeleteTarget,
   CopyTestEvidencePreviewInfo,
 } from '../types';
-import { isValidConfluenceUrl } from '../utils/urlUtils';
 import {
-  buildStorageWithAttachmentPreviews,
+  getConfluenceTableError,
+  getConfluenceUrlError,
+  INVALID_CONFLUENCE_URL_ERROR,
+  isValidConfluenceUrl,
+} from '../utils/urlUtils';
+import {
+  buildStorageAttachmentPreviewBundle,
   getCopyTestValidationContext,
   getRequiredExportStorage,
   type CopyTestValidationContext,
@@ -42,6 +50,7 @@ interface CopyTestControllerState {
   deleteImageTarget: CopyTestEvidenceDeleteTarget | null;
   exportLoading: boolean;
   importBusy: boolean;
+  importError?: string;
   importLoading: boolean;
   previewImage: CopyTestEvidencePreviewInfo | null;
   tableState: UseCopyTestSessionResult;
@@ -69,6 +78,12 @@ interface CopyTestControllerHandlers {
   handleRemoveUploadImage: (md5: string) => void;
   handleTableChange: (value: number) => void;
   handleValidateClick: () => Promise<void>;
+}
+
+/** 在两次 latest storage 读取中复用同一 scope 的导出结果。 */
+interface PreparedExportStorage {
+  exportScope: string;
+  storageHtml: string;
 }
 
 /** 定义 CopyTestControllerResult 的数据结构。 */
@@ -105,6 +120,51 @@ const loadLatestExportStorage = async (confluenceUrl: string): Promise<string> =
   return response.storage;
 };
 
+/** 判断两次读取的 Confluence Storage 是否发生变化。 */
+export const hasConfluenceStorageChanged = (firstBase: string, confirmedBase: string): boolean => {
+  return firstBase !== confirmedBase;
+};
+
+/** 合并已校验快照和当前上传图片；后者在 stable id 或文件名重复时覆盖旧值。 */
+export const mergeCopyTestExportImages = (
+  snapshotImages: CopyTestImage[],
+  uploadImages: CopyTestImage[]
+): CopyTestImage[] => {
+  const mergedImages: CopyTestImage[] = [];
+  [...snapshotImages, ...uploadImages].forEach(image => {
+    const imageId = getCopyTestImageId(image);
+    const existingIndex = mergedImages.findIndex(existing => {
+      return getCopyTestImageId(existing) === imageId || existing.fileName === image.fileName;
+    });
+    if (existingIndex >= 0) {
+      mergedImages[existingIndex] = image;
+    } else {
+      mergedImages.push(image);
+    }
+  });
+  return mergedImages;
+};
+
+/** 在 POST 前再次读取最新 Storage；发生变化时只重放一次当前 Pair patch。 */
+const prepareLatestExportStorage = async (
+  confluenceUrl: string,
+  tableState: UseCopyTestSessionResult
+): Promise<PreparedExportStorage | null> => {
+  const exportScope = createCopyTestExportScope();
+  const firstBase = await loadLatestExportStorage(confluenceUrl);
+  const firstPatch = getRequiredExportStorage(tableState, exportScope, firstBase);
+  if (!firstPatch) {
+    return null;
+  }
+
+  const confirmedBase = await loadLatestExportStorage(confluenceUrl);
+  if (!hasConfluenceStorageChanged(firstBase, confirmedBase)) {
+    return { exportScope, storageHtml: firstPatch };
+  }
+  const rebasedPatch = getRequiredExportStorage(tableState, exportScope, confirmedBase);
+  return rebasedPatch ? { exportScope, storageHtml: rebasedPatch } : null;
+};
+
 /** 封装 useCopyTestController Hook 的状态和操作。 */
 export const useCopyTestController = ({
   onClose,
@@ -112,6 +172,12 @@ export const useCopyTestController = ({
 
   /** 定义 [confluenceUrl, setConfluenceUrl] 常量。 */
   const [confluenceUrl, setConfluenceUrl] = useState('');
+
+  /** 当前表格实际加载自哪个 URL。 */
+  const [loadedConfluenceUrl, setLoadedConfluenceUrl] = useState('');
+
+  /** URL 输入框下方的导入错误。 */
+  const [importError, setImportError] = useState<string>();
 
   /** 定义 [deleteImageTarget, setDeleteImageTarget] 常量。 */
   const [deleteImageTarget, setDeleteImageTarget] = useState<CopyTestEvidenceDeleteTarget | null>(null);
@@ -127,6 +193,9 @@ export const useCopyTestController = ({
 
   /** 定义 tableState 常量。 */
   const tableState = useCopyTestSession();
+
+  /** 只允许最后一次导入请求提交状态。 */
+  const importRequestIdRef = useRef(0);
 
   /** 定义 uploadState 常量。 */
   const uploadState = useCopyTestUpload();
@@ -180,6 +249,7 @@ export const useCopyTestController = ({
 
   const handleConfluenceUrlChange = (value: string): void => {
     setConfluenceUrl(value);
+    setImportError(undefined);
   };
 
   /** 处理 resetImportSideEffects 方法逻辑。 */
@@ -196,31 +266,58 @@ export const useCopyTestController = ({
 
     /** 定义 trimmedUrl 常量。 */
     const trimmedUrl = confluenceUrl.trim();
-    if (!isValidConfluenceUrl(trimmedUrl)) {
-      message.error('Please enter a valid Confluence URL');
+    const urlError = getConfluenceUrlError(trimmedUrl);
+    if (urlError) {
+      setImportError(urlError);
       return;
     }
 
+    const requestId = importRequestIdRef.current + 1;
+    importRequestIdRef.current = requestId;
+
     try {
+      setImportError(undefined);
 
       /** 定义 response 常量。 */
       const response = await storageRequest.runAsync(trimmedUrl);
+      if (requestId !== importRequestIdRef.current) {
+        return;
+      }
 
-      /** 定义 storageHtml 常量。 */
-      const storageHtml = await buildStorageWithAttachmentPreviews({
+      const storageError = getConfluenceTableError(parseCopyTestStorageTables(response.storage).length);
+      if (storageError) {
+        setImportError(storageError);
+        return;
+      }
+
+      /** 附件 base64 与 storage HTML 分离，避免整页字符串内存翻倍。 */
+      const previewBundle = await buildStorageAttachmentPreviewBundle({
         confluenceUrl: trimmedUrl,
         loadAttachments: attachmentsRequest.runAsync,
         storageHtml: response.storage,
       });
+      if (requestId !== importRequestIdRef.current) {
+        return;
+      }
 
       /** 定义 tableCount 常量。 */
-      const tableCount = tableState.applyLoadedStorage(storageHtml);
+      const tableCount = tableState.applyLoadedStorage(
+        previewBundle.storageHtml,
+        previewBundle.images
+      );
+      const previewStorageError = getConfluenceTableError(tableCount);
+      if (previewStorageError) {
+        setImportError(previewStorageError);
+        return;
+      }
+      setLoadedConfluenceUrl(trimmedUrl);
       resetImportSideEffects();
       message.success(`Loaded ${tableCount} table${tableCount === 1 ? '' : 's'}`);
     } catch (error) {
+      if (requestId !== importRequestIdRef.current) {
+        return;
+      }
       console.error('Failed to load Confluence tables:', error);
-      tableState.resetLoadedData();
-      resetImportSideEffects();
       message.error('Failed to load Confluence tables');
     }
   };
@@ -231,7 +328,6 @@ export const useCopyTestController = ({
     tableState.handleTableChange(value);
     uploadState.resetUploadState();
     handleClosePreviewImage();
-    tableState.resetValidationSnapshots();
   };
 
   /** 处理 handleComparisonColumnChange 方法逻辑。 */
@@ -287,9 +383,9 @@ export const useCopyTestController = ({
 
     /** 定义 trimmedUrl 常量。 */
 
-    const trimmedUrl = confluenceUrl.trim();
+    const trimmedUrl = loadedConfluenceUrl.trim();
     if (!isValidConfluenceUrl(trimmedUrl)) {
-      message.error('Please enter a valid Confluence URL');
+      setImportError(INVALID_CONFLUENCE_URL_ERROR);
       return;
     }
 
@@ -297,21 +393,30 @@ export const useCopyTestController = ({
       await waitForNextPaint();
 
       /** 定义 latestStorageHtml 常量。 */
-      const latestStorageHtml = await loadLatestExportStorage(trimmedUrl);
-
-      /** 定义 storageHtml 常量。 */
-      const storageHtml = getRequiredExportStorage(tableState, latestStorageHtml);
-      if (!storageHtml) {
+      const preparedStorage = await prepareLatestExportStorage(trimmedUrl, tableState);
+      if (!preparedStorage) {
+        message.warning('Confluence table changed. Please import the page again.');
         return;
       }
 
       /** 定义 exportImages 常量。 */
-      const exportImages = uploadState.uploadImages.length > 0
-        ? uploadState.uploadImages
-        : tableState.getCurrentValidationImages();
+      const exportImages = mergeCopyTestExportImages(
+        tableState.getCurrentValidationImages(),
+        uploadState.uploadImages
+      );
 
       /** 定义 payload 常量。 */
-      const payload = buildConfluenceStorageTableExportPayload(storageHtml, exportImages);
+      const sourceColumnKey = tableState.selectedColumnContext?.sourceColumnKey;
+      if (!sourceColumnKey) {
+        message.warning('Please select a table and column first');
+        return;
+      }
+      const payload = buildConfluenceStorageTableExportPayload(
+        preparedStorage.storageHtml,
+        sourceColumnKey,
+        preparedStorage.exportScope,
+        exportImages
+      );
       await exportRequest.runAsync({
         confluenceUrl: trimmedUrl,
         ...payload,
@@ -446,14 +551,14 @@ export const useCopyTestController = ({
     }
 
     uploadState.resetUploadState();
-    tableState.resetValidationSnapshots();
     handleClosePreviewImage();
     setUploadModalOpen(false);
     onClose();
   };
 
   return {
-    canExportToConfluence,
+    canExportToConfluence: canExportToConfluence
+      && confluenceUrl.trim() === loadedConfluenceUrl,
     canUpload,
     canValidate,
     confluenceUrl,
@@ -476,6 +581,7 @@ export const useCopyTestController = ({
     handleTableChange,
     handleValidateClick,
     importBusy,
+    importError,
     importLoading,
     previewImage,
     tableState,

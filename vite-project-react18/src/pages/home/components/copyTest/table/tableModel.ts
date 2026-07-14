@@ -3,6 +3,11 @@
  */
 import type { CopyTestRowInput } from '../api/copyTestApi';
 import {
+  buildCopyTestSpanGrid,
+  type CopyTestGridCellInput,
+  type CopyTestSpanGrid,
+} from './copyTestGridModel';
+import {
   COPY_TEST_EVIDENCE_HEADER_PREFIX,
   COPY_TEST_GENERATED_EVIDENCE_TYPE,
   COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE,
@@ -61,6 +66,7 @@ export interface CopyTestTableModel {
   columnCount: number;
   headers: CopyTestHeader[];
   rows: CopyTestRowModel[];
+  spanGrid?: CopyTestSpanGrid;
   table: HTMLTableElement;
 }
 
@@ -348,14 +354,19 @@ const parseRow = (
 
   /** 定义 columnIndex 常量。 */
   let columnIndex = 0;
-  Array.from(element.querySelectorAll<HTMLTableCellElement>('th,td')).forEach((cellElement, cellIndex) => {
-    columnIndex = skipRowSpanSlots(row, activeSlots, nextActiveSlots, columnIndex);
+  Array.from(element.children)
+    .filter((child): child is HTMLTableCellElement => {
+      const tagName = child.tagName.toLowerCase();
+      return tagName === 'th' || tagName === 'td';
+    })
+    .forEach((cellElement, cellIndex) => {
+      columnIndex = skipRowSpanSlots(row, activeSlots, nextActiveSlots, columnIndex);
 
-    /** 定义 cell 常量。 */
-    const cell = createCellModel(cellElement, rowIndex, cellIndex, columnIndex);
-    row.cells.push(cell);
-    columnIndex = appendOwnedSlots(row, nextActiveSlots, cell);
-  });
+      /** 定义 cell 常量。 */
+      const cell = createCellModel(cellElement, rowIndex, cellIndex, columnIndex);
+      row.cells.push(cell);
+      columnIndex = appendOwnedSlots(row, nextActiveSlots, cell);
+    });
   appendTrailingRowSpanSlots(row, activeSlots, nextActiveSlots, columnIndex);
   return { activeSlots: nextActiveSlots, row };
 };
@@ -369,10 +380,29 @@ const buildHeaders = (row?: CopyTestRowModel): CopyTestHeader[] => {
   return row.slots.map((slot, index) => ({
     generatedType: slot?.cell.generatedType,
     index,
-    label: slot?.cell.text || `Column ${index + 1}`,
+    label: slot?.cell.text || '',
     sourceCellId: slot?.cell.sourceCellId,
     sourceColumnKey: slot?.cell.sourceColumnKey,
   }));
+};
+
+/** 将 DOM cell 模型转换成纯二维网格输入。 */
+const buildGridInputRows = (rows: CopyTestRowModel[]): CopyTestGridCellInput[][] => {
+  return rows.map(row => row.cells.map(cell => ({
+    cellId: cell.sourceCellId,
+    colSpan: cell.colSpan,
+    rowSpan: cell.rowSpan,
+    text: cell.text,
+  })));
+};
+
+/** 构建 span 网格；存在空洞或非法 span 的表格视为无效表格。 */
+const buildSpanGrid = (rows: CopyTestRowModel[]): CopyTestSpanGrid | undefined => {
+  try {
+    return buildCopyTestSpanGrid(buildGridInputRows(rows));
+  } catch {
+    return undefined;
+  }
 };
 
 /** 处理 parseTableModel 辅助逻辑。 */
@@ -382,17 +412,25 @@ export const parseTableModel = (table: HTMLTableElement): CopyTestTableModel => 
   let activeSlots = new Map<number, ActiveRowSpanSlot>();
 
   /** 定义 rows 常量。 */
-  const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>('tr')).map((rowElement, rowIndex) => {
+  const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>('tr'))
+    .filter(rowElement => rowElement.closest('table') === table)
+    .map((rowElement, rowIndex) => {
 
-    /** 定义 parsedRow 常量。 */
-    const parsedRow = parseRow(rowElement, rowIndex, activeSlots);
-    activeSlots = parsedRow.activeSlots;
-    return parsedRow.row;
-  });
+      /** 定义 parsedRow 常量。 */
+      const parsedRow = parseRow(rowElement, rowIndex, activeSlots);
+      activeSlots = parsedRow.activeSlots;
+      return parsedRow.row;
+    });
 
   /** 定义 columnCount 常量。 */
   const columnCount = rows.reduce((maxCount, row) => Math.max(maxCount, row.slots.length), 0);
-  return { columnCount, headers: buildHeaders(rows[0]), rows, table };
+  return {
+    columnCount,
+    headers: buildHeaders(rows[0]),
+    rows,
+    spanGrid: buildSpanGrid(rows),
+    table,
+  };
 };
 
 /** 处理 maskIgnoredTableRangeText 辅助逻辑。 */
@@ -484,7 +522,9 @@ export const parseStorageTables = (storageHtml: string): CopyTestTableEntry[] =>
 
   /** 定义 ranges 常量。 */
   const ranges = findTableRanges(storageHtml);
-  return Array.from(doc.querySelectorAll<HTMLTableElement>('table')).map((table, index) => {
+  return Array.from(doc.querySelectorAll<HTMLTableElement>('table'))
+    .filter(table => !table.parentElement?.closest('table'))
+    .map((table, index) => {
 
     /** 定义 model 常量。 */
     const model = parseTableModel(table);
@@ -495,7 +535,7 @@ export const parseStorageTables = (storageHtml: string): CopyTestTableEntry[] =>
       model,
       range: ranges[index],
     };
-  });
+    });
 };
 
 /** 处理 parseSingleTable 辅助逻辑。 */
@@ -526,22 +566,14 @@ export const isGeneratedHeader = (header: CopyTestHeader): boolean => {
     || header.label.startsWith(COPY_TEST_EVIDENCE_HEADER_PREFIX);
 };
 
-/** 处理 getLanguageCode 辅助逻辑。 */
-const getLanguageCode = (label: string): string | null => {
-  return label.match(/\|values=([^|]+)\|/i)?.[1]?.trim().toLowerCase() || null;
-};
-
-/** 处理 isReferenceLanguage 辅助逻辑。 */
-const isReferenceLanguage = (language: string | null): boolean => {
-  return language === 'gl' || language === 'en' || language?.endsWith('_gl') === true || language?.endsWith('_en') === true;
-};
-
 /** 处理 findReferenceColumnIndex 辅助逻辑。 */
 export const findReferenceColumnIndex = (
-  headers: CopyTestHeader[],
-  selectedColumnIndex?: number
+  _headers: CopyTestHeader[],
+  _selectedColumnIndex?: number
 ): number | undefined => {
-  return headers.find(header => header.index !== selectedColumnIndex && isReferenceLanguage(getLanguageCode(header.label)))?.index;
+  void _headers;
+  void _selectedColumnIndex;
+  return undefined;
 };
 
 /** 处理 getCellText 辅助逻辑。 */

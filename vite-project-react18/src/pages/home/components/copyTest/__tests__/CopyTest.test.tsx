@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import CopyTest, {
   COPY_TEST_RENDERER_SCOPE_ATTRIBUTE,
   COPY_TEST_TRIGGER_CLASS_NAME,
@@ -12,7 +12,7 @@ const hoisted = vi.hoisted(() => ({
     canUpload: false,
     canValidate: false,
     confluenceUrl: '',
-    deleteImageTarget: { imageId: 'img' },
+    deleteImageTarget: { imageId: 'img' } as { imageId: string } | null,
     exportLoading: false,
     handleCancelEvidenceImageDelete: vi.fn(),
     handleChooseImages: vi.fn(),
@@ -31,12 +31,15 @@ const hoisted = vi.hoisted(() => ({
     handleTableChange: vi.fn(),
     handleValidateClick: vi.fn(),
     importBusy: false,
+    importError: undefined as string | undefined,
     importLoading: true,
     previewImage: null,
     tableState: {
+      getCurrentPreviewImages: vi.fn(() => []),
+      getCurrentValidationImages: vi.fn(() => []),
       selectedColumnIndex: 1,
       selectedRowIndexes: [0],
-      selectedTable: { headers: [], index: 0 },
+      selectedTable: { headers: [], index: 0 } as { headers: never[]; index: number } | undefined,
       selectedTableIndex: 0,
       setSelectedRowIndexes: vi.fn(),
       tables: [{ headers: [], index: 0 }],
@@ -73,6 +76,10 @@ vi.mock('../components', () => ({
   UploadScreenshotModal: () => <div>upload-modal</div>,
 }));
 
+beforeEach(() => {
+  hoisted.controller.importError = undefined;
+});
+
 describe('CopyTest', () => {
   it('renders controlled modal children and handles close/delete callbacks', () => {
     render(<CopyTest open={true} onClose={vi.fn()} />);
@@ -87,6 +94,14 @@ describe('CopyTest', () => {
     expect(hoisted.controller.handleConfirmEvidenceImageDelete).toHaveBeenCalledTimes(1);
     expect(hoisted.controller.handleCancelEvidenceImageDelete).toHaveBeenCalledTimes(1);
     expect(hoisted.controller.handleMainClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the imported table workspace while the URL input has an error', () => {
+    hoisted.controller.importError = 'No valid table found';
+    render(<CopyTest open={true} />);
+    expect(screen.getByText('import-bar')).toBeTruthy();
+    expect(screen.queryByText('selectors')).toBeNull();
+    expect(screen.queryByText('table-preview')).toBeNull();
   });
 
   it('opens uncontrolled modal from scoped trigger', () => {

@@ -1,18 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  buildStorageWithAttachmentPreviews,
+  getAttachmentPreviewRequest,
   getCopyTestValidationContext,
+  getEmptyAttachmentPreviewBundle,
+  getFailedAttachmentPreviewBundle,
   getRequiredExportStorage,
 } from '../copyTestControllerUtils';
 import { applyCopyTestValidationResults, ensureCopyTestWorkingColumns } from '../../table/copyTestTableEditor';
 import { parseCopyTestStorageTables } from '../../table/copyTestTableParser';
+import type { UseCopyTestSessionResult } from '../../hooks/useCopyTestSession';
 
 const hoisted = vi.hoisted(() => ({ warning: vi.fn() }));
 
 vi.mock('antd', () => ({ message: { warning: hoisted.warning } }));
 
 const storageHtml = '<table><tr><th>Target</th></tr><tr><td>copy</td></tr></table>';
-const storageWithImage = '<table><tr><td><ac:image><ri:attachment ri:filename="screen.png" /></ac:image></td></tr></table>';
+const managedEvidenceStorage = [
+  '<table><tr><td data-copy-test-column-type="evidence"',
+  ' data-copy-test-source-column-key="table-0:target">',
+  '<ac:image><ri:attachment ri:filename="screen.png" /></ac:image>',
+  '</td></tr></table>',
+].join('');
 const parsedTable = parseCopyTestStorageTables(storageHtml)[0];
 const workingTable = applyCopyTestValidationResults(
   ensureCopyTestWorkingColumns(parsedTable, 0, 'Target'),
@@ -28,33 +36,39 @@ const tableState = {
   selectedColumnIndex: 0,
   selectedHeader: { index: 0, label: 'Target' },
   selectedTable: workingTable,
-} as never;
+} as unknown as UseCopyTestSessionResult;
 
 describe('copyTestControllerUtils', () => {
-  it('validates export and validation context guards and attachment previews', async () => {
-    expect(getRequiredExportStorage({ ...tableState, selectedTable: undefined } as never)).toBeNull();
+  it('validates export and validation context guards', () => {
+    expect(getRequiredExportStorage({ ...tableState, selectedTable: undefined })).toBeNull();
     expect(getRequiredExportStorage(tableState)).toContain('Test Result - Target');
     expect(getCopyTestValidationContext(tableState, [])).toBeNull();
-    expect(getCopyTestValidationContext({ ...tableState, selectedTable: undefined } as never, [{ base64: 'x', fileName: 'a.png', md5: 'm', size: 1 }])).toBeNull();
+    expect(getCopyTestValidationContext({ ...tableState, selectedTable: undefined }, [{ base64: 'x', fileName: 'a.png', md5: 'm', size: 1 }])).toBeNull();
     expect(getCopyTestValidationContext(tableState, Array.from({ length: 51 }, (_, index) => ({
       base64: 'x',
       fileName: `${index}.png`,
       md5: `${index}`,
       size: 1,
     })))).toBeNull();
-    expect(getCopyTestValidationContext({ ...tableState, buildSelectedRowsForValidation: () => [] } as never, [{ base64: 'x', fileName: 'a.png', md5: 'm', size: 1 }])).toBeNull();
+    expect(getCopyTestValidationContext({ ...tableState, buildSelectedRowsForValidation: () => [] }, [{ base64: 'x', fileName: 'a.png', md5: 'm', size: 1 }])).toBeNull();
     expect(getCopyTestValidationContext(tableState, [{ base64: 'x', fileName: 'a.png', md5: 'm', size: 1 }])?.rows).toHaveLength(1);
-    expect(await buildStorageWithAttachmentPreviews({
+  });
+
+  it('builds attachment preview requests and synchronous fallback values', () => {
+    expect(getAttachmentPreviewRequest('http://wiki', storageHtml)).toBeNull();
+    expect(getAttachmentPreviewRequest('http://wiki', managedEvidenceStorage)).toEqual({
       confluenceUrl: 'http://wiki',
-      loadAttachments: () => ({ images: [{ base64: 'data:image/png;base64,QUJD', fileName: 'screen.png' }] }) as never,
-      storageHtml: storageWithImage,
-    })).toContain('data-copy-test-evidence-image-id');
-    expect(await buildStorageWithAttachmentPreviews({
-      confluenceUrl: 'http://wiki',
-      loadAttachments: () => {
-        throw new Error('failed');
-      },
-      storageHtml: storageWithImage,
-    })).toBe(storageWithImage);
+      fileNames: ['screen.png'],
+    });
+    const emptyBundle = getEmptyAttachmentPreviewBundle(storageHtml);
+    expect(emptyBundle).toEqual({ images: [], storageHtml });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    expect(getFailedAttachmentPreviewBundle(storageHtml, new Error('failed'))).toEqual(emptyBundle);
+    expect(errorSpy).toHaveBeenCalledWith(
+      'Failed to load Confluence attachment previews:',
+      expect.any(Error)
+    );
+    expect(hoisted.warning).toHaveBeenCalledWith('Failed to load existing evidence image previews');
+    errorSpy.mockRestore();
   });
 });

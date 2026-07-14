@@ -11,7 +11,6 @@ import {
   COPY_TEST_EVIDENCE_IMAGE_HEIGHT,
   COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE,
-  COPY_TEST_EVIDENCE_IMAGE_SRC_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_WIDTH,
   COPY_TEST_FAILED_COLOR,
   COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE,
@@ -20,8 +19,11 @@ import {
   COPY_TEST_GENERATED_RESULT_TYPE,
   COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE,
   COPY_TEST_PASSED_COLOR,
+  COPY_TEST_OWNER_ID_ATTRIBUTE,
   COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE,
   COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE,
+  COPY_TEST_SCHEMA_ATTRIBUTE,
+  COPY_TEST_SCHEMA_VERSION,
 } from './tableConstants';
 import {
   getGeneratedColumnLabel,
@@ -141,6 +143,8 @@ const applyGeneratedMetadata = (
 ): void => {
   cell.setAttribute(COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE, type);
   cell.setAttribute(COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE, sourceColumnKey);
+  cell.setAttribute(COPY_TEST_OWNER_ID_ATTRIBUTE, sourceColumnKey);
+  cell.setAttribute(COPY_TEST_SCHEMA_ATTRIBUTE, COPY_TEST_SCHEMA_VERSION);
 };
 
 /** 应用单元格 rowspan。 */
@@ -225,14 +229,13 @@ const createGeneratedCell = (
 /** 追加一整列生成列。 */
 const appendGeneratedColumn = (
   doc: Document,
-  tableElement: HTMLTableElement,
   model: CopyTestTableModel,
   type: CopyTestGeneratedColumnType,
   selectedColumnIndex: number,
   selectedColumnLabel: string,
   sourceColumnKey: string
 ): void => {
-  Array.from(tableElement.querySelectorAll<HTMLTableRowElement>('tr')).forEach((row, rowIndex) => {
+  model.rows.forEach(({ element: row, index: rowIndex }) => {
     if (rowIndex > 0 && isCoveredBySourceRowSpan(model, rowIndex, selectedColumnIndex)) {
       return;
     }
@@ -262,7 +265,6 @@ const applyGeneratedMetadataToColumn = (
 /** 确保指定行有可写入的生成列单元格。 */
 const ensureWritableGeneratedCell = (
   doc: Document,
-  tableElement: HTMLTableElement,
   model: CopyTestTableModel,
   rowIndex: number,
   columnIndex: number,
@@ -276,7 +278,7 @@ const ensureWritableGeneratedCell = (
   }
 
   const modelRow = model.rows[rowIndex];
-  const row = Array.from(tableElement.querySelectorAll<HTMLTableRowElement>('tr'))[rowIndex];
+  const row = modelRow?.element;
   const cell = doc.createElement('td');
   const nextOwnedCell = modelRow?.cells.find(item => item.columnIndex > columnIndex)?.element;
   applyGeneratedMetadata(cell, type, sourceColumnKey);
@@ -287,7 +289,6 @@ const ensureWritableGeneratedCell = (
 /** 同步生成列的基础 rowspan。 */
 const syncGeneratedColumnSpans = (
   doc: Document,
-  tableElement: HTMLTableElement,
   model: CopyTestTableModel,
   selectedColumnIndex: number,
   columnIndex: number,
@@ -301,7 +302,7 @@ const syncGeneratedColumnSpans = (
     }
 
     const rowSpan = getSourceRowSpan(model, row.index, selectedColumnIndex);
-    const cell = ensureWritableGeneratedCell(doc, tableElement, model, row.index, columnIndex, type, sourceColumnKey);
+    const cell = ensureWritableGeneratedCell(doc, model, row.index, columnIndex, type, sourceColumnKey);
     applyCellRowSpan(cell, rowSpan);
     removeCoveredGeneratedCells(model, row.index, rowSpan, type, sourceColumnKey);
   });
@@ -327,7 +328,6 @@ export const ensureCopyTestGeneratedColumns = (
   if (resultColumnCreated) {
     appendGeneratedColumn(
       doc,
-      tableElement,
       initialModel,
       COPY_TEST_GENERATED_RESULT_TYPE,
       selectedColumnIndex,
@@ -338,7 +338,6 @@ export const ensureCopyTestGeneratedColumns = (
   if (evidenceColumnCreated) {
     appendGeneratedColumn(
       doc,
-      tableElement,
       initialModel,
       COPY_TEST_GENERATED_EVIDENCE_TYPE,
       selectedColumnIndex,
@@ -358,7 +357,6 @@ export const ensureCopyTestGeneratedColumns = (
   if (resultColumnCreated) {
     syncGeneratedColumnSpans(
       doc,
-      tableElement,
       model,
       selectedColumnIndex,
       indexes.result,
@@ -369,7 +367,6 @@ export const ensureCopyTestGeneratedColumns = (
   if (evidenceColumnCreated) {
     syncGeneratedColumnSpans(
       doc,
-      tableElement,
       model,
       selectedColumnIndex,
       indexes.evidence,
@@ -504,7 +501,6 @@ const createEvidenceImage = (doc: Document, screen: ScreenRef): Element => {
   imageElement.setAttribute('ac:height', String(COPY_TEST_EVIDENCE_IMAGE_HEIGHT));
   imageElement.setAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE, screen.imageId);
   imageElement.setAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE, screen.instanceId);
-  imageElement.setAttribute(COPY_TEST_EVIDENCE_IMAGE_SRC_ATTRIBUTE, screen.image.base64);
   imageElement.setAttribute(COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE, screen.image.fileName);
   attachment.setAttribute('ri:filename', screen.image.fileName);
   imageElement.appendChild(attachment);
@@ -631,17 +627,18 @@ const readExplicitEvidenceRows = (
     return { rows: [], rowSpan: 0 };
   }
 
-  const targetRowSpan = Math.max(1, firstItem.result.evidenceRowSpan || 1);
+  const targetGroupCount = Math.max(1, firstItem.result.evidenceRowSpan || 1);
   const rows: Array<CopyTestRowGroup & { result: CopyTestValidationResultWithEvidence }> = [];
-  let coveredRows = 0;
-  for (let index = startIndex; index < items.length && coveredRows < targetRowSpan; index += 1) {
+  for (let index = startIndex; index < items.length && rows.length < targetGroupCount; index += 1) {
     const item = items[index];
-    coveredRows += item.rowGroup.rowSpan;
     if (item.result) {
       rows.push({ ...item.rowGroup, result: item.result });
     }
   }
-  return { rows, rowSpan: coveredRows };
+  return {
+    rows,
+    rowSpan: rows.reduce((total, row) => total + row.rowSpan, 0),
+  };
 };
 
 /** 从逻辑行创建 Evidence 合并组。 */
@@ -745,7 +742,6 @@ const clearSkippedRows = (
   rowGroups.filter(group => !getLogicalResult(resultMap, group)).forEach(group => {
     const resultCell = ensureWritableGeneratedCell(
       doc,
-      context.tableElement,
       context.model,
       group.anchorRowIndex,
       context.resultColumnIndex,
@@ -754,7 +750,6 @@ const clearSkippedRows = (
     );
     const evidenceCell = ensureWritableGeneratedCell(
       doc,
-      context.tableElement,
       context.model,
       group.anchorRowIndex,
       context.evidenceColumnIndex,
@@ -780,7 +775,6 @@ const writeResultCell = (
 ): void => {
   const cell = ensureWritableGeneratedCell(
     doc,
-    context.tableElement,
     context.model,
     group.anchorRowIndex,
     context.resultColumnIndex,
@@ -800,7 +794,6 @@ const writeEvidenceCell = (
 ): void => {
   const cell = ensureWritableGeneratedCell(
     doc,
-    context.tableElement,
     context.model,
     group.anchorRowIndex,
     context.evidenceColumnIndex,

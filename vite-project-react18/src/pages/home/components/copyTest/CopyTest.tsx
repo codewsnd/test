@@ -80,6 +80,9 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
   /** 定义 { tableState, uploadState } 常量。 */
   const { tableState, uploadState } = controller;
 
+  /** 仅在导入结果有效时展示已导入的表格工作区。 */
+  const showTableWorkspace = !controller.importError && tableState.tables.length > 0;
+
   /** 处理入口点击打开弹窗。 */
   const handleDocumentClick = useCallback((event: MouseEvent): void => {
     if (controlled || !isScopedTriggerClick(event.target, ownerRef.current)) {
@@ -129,6 +132,7 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
         <CopyTestImportBar
           confluenceUrl={controller.confluenceUrl}
           disabled={controller.importBusy}
+          error={controller.importError}
           loading={controller.importLoading}
           onConfluenceUrlChange={controller.handleConfluenceUrlChange}
           onImport={controller.handleLoadTables}
@@ -136,7 +140,7 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
 
         {controller.importLoading && <CopyTestLoadingBlock />}
 
-        {tableState.tables.length > 0 && (
+        {showTableWorkspace && (
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
             <CopyTestSelectors
               canExportToConfluence={controller.canExportToConfluence}
@@ -158,6 +162,7 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
               <div className="min-h-0 flex-1 overflow-hidden">
                 <TablePreview
                   disabled={controller.validationLoading}
+                  images={tableState.getCurrentPreviewImages()}
                   selectedColumnIndex={tableState.selectedColumnIndex}
                   selectedRowIndexes={tableState.selectedRowIndexes}
                   table={tableState.selectedTable}

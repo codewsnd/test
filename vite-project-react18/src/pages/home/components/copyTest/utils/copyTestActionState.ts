@@ -46,9 +46,14 @@ const isCopyTestImportBusy = (
   storageLoading: boolean,
   attachmentsLoading: boolean,
   validationLoading: boolean,
-  exportLoading: boolean
+  exportLoading: boolean,
+  uploadPreparing: boolean
 ): boolean => {
-  return storageLoading || attachmentsLoading || validationLoading || exportLoading;
+  return storageLoading
+    || attachmentsLoading
+    || validationLoading
+    || exportLoading
+    || uploadPreparing;
 };
 
 /** 处理 canUseSelectedTable 辅助逻辑。 */
@@ -106,7 +111,13 @@ export const buildCopyTestActionState = ({
   const uploadBusy = isCopyTestUploadBusy(validationLoading, uploadPreparing, exportLoading);
 
   /** 定义 importBusy 常量。 */
-  const importBusy = isCopyTestImportBusy(storageLoading, attachmentsLoading, validationLoading, exportLoading);
+  const importBusy = isCopyTestImportBusy(
+    storageLoading,
+    attachmentsLoading,
+    validationLoading,
+    exportLoading,
+    uploadPreparing
+  );
 
   /** 定义 canUpload 常量。 */
   const canUpload = canUploadScreenshots(selectedTable, selectedColumnIndex, selectedRowCount, uploadBusy);

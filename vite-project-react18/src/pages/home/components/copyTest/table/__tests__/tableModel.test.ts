@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildRowsForValidation,
+  escapeRegExp,
   findReferenceColumnIndex,
   findTableRanges,
   getCellText,
@@ -54,15 +55,54 @@ describe('tableModel', () => {
     expect(getCopyTestSourceColumnKey(1, ' Target ')).toBe('1:Target');
     expect(getGeneratedColumnLabel(COPY_TEST_GENERATED_RESULT_TYPE, 'A')).toBe('Test Result - A');
     expect(getGeneratedColumnLabel(COPY_TEST_GENERATED_EVIDENCE_TYPE, 'A')).toBe('Test Evidence - A');
-    expect(findReferenceColumnIndex(tables[0].headers, 1)).toBe(0);
+    expect(findReferenceColumnIndex(tables[0].headers, 1)).toBeUndefined();
     expect(findReferenceColumnIndex([{ index: 0, label: 'Other' }], 0)).toBeUndefined();
     expect(isGeneratedHeader(tables[0].headers[2])).toBe(true);
     expect(getPreviewColumnIndexes(tables[0].headers)).toEqual([0, 1, 2, 3]);
     expect(getPreviewColumnIndexes(tables[0].headers, 1)).toEqual([1, 2, 3]);
+    expect(getPreviewColumnIndexes(tables[0].headers, 99)).toEqual([99]);
     expect(buildRowsForValidation(tables[0], 1, 0, [0, 2])).toEqual([
       { expected: '你好', reference: 'hello', rowIndex: 0 },
       { expected: '提交', reference: 'submit', rowIndex: 2 },
     ]);
     expect(parseSingleTable('no table')).toBeNull();
+  });
+
+  it('keeps blank headers and falls back when a table has holes or invalid spans', () => {
+    const emptyTable = parseSingleTable('<table></table>');
+    const blankHeaderTable = parseSingleTable(
+      '<table><tr><th><br /></th></tr><tr><td>value</td></tr></table>'
+    );
+    const holeTable = parseSingleTable(
+      '<table><tr><th>A</th><th>B</th></tr><tr><td>only A</td></tr></table>'
+    );
+    const overflowingSpanTable = parseSingleTable(
+      '<table><tr><th rowspan="3">A</th></tr><tr></tr></table>'
+    );
+
+    expect(emptyTable?.headers).toEqual([]);
+    expect(emptyTable?.model.rows).toEqual([]);
+    expect(blankHeaderTable?.headers[0].label).toBe('');
+    expect(holeTable?.model.spanGrid).toBeUndefined();
+    expect(overflowingSpanTable?.model.spanGrid).toBeUndefined();
+  });
+
+  it('excludes nested table rows and preserves stable source-cell metadata', () => {
+    const nestedStorage = [
+      '<table><tr><th data-copy-test-source-cell-id="stable-header">Outer</th></tr>',
+      '<tr><td>before<table><tr><th>Nested</th></tr><tr><td>value</td></tr></table>after</td></tr>',
+      '</table>',
+    ].join('');
+    const tables = parseStorageTables(nestedStorage);
+
+    expect(findTableRanges(`<table />${nestedStorage}`)).toHaveLength(1);
+    expect(tables).toHaveLength(1);
+    expect(tables[0].model.rows).toHaveLength(2);
+    expect(tables[0].model.columnCount).toBe(1);
+    expect(tables[0].headers[0].sourceCellId).toBe('stable-header');
+    expect(tables[0].model.rows[1].cells).toHaveLength(1);
+    expect(tables[0].model.rows[1].cells[0].text).toContain('before');
+    expect(escapeRegExp('a+b?')).toBe('a\\+b\\?');
+    expect(toConfluenceStorageHtml('<br />')).toBe('<br />');
   });
 });

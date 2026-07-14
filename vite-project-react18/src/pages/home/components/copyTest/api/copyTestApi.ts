@@ -5,9 +5,13 @@ import {
   buildCopyTestValidationPrompt,
   COPY_TEST_VALIDATION_MODEL,
 } from '../prompt/copyTestValidationPrompt';
+import { mockCopyTestValidationApi } from '../mock/validationMock';
 
 /** Spring Boot 后端服务地址。 */
 const API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
+
+/** 临时启用 CopyTest 的随机 AI 校验结果；切换为 false 即恢复真实 aiChat。 */
+export const COPY_TEST_AI_CHAT_MOCK_ENABLED = true;
 
 export interface CopyTestStorageResponse {
   storage: string;
@@ -306,6 +310,11 @@ const parseValidationResults = (
   return alignValidationResultsWithRows(results, rows);
 };
 
+/** 单元测试继续验证真实 aiChat adapter 的解析契约。 */
+const shouldUseCopyTestAiChatMock = (): boolean => {
+  return COPY_TEST_AI_CHAT_MOCK_ENABLED && import.meta.env.MODE !== 'test';
+};
+
 /** 使用 aiChat 对截图和勾选行做 OCR、匹配和 Evidence 合并判断。 */
 export const copyTestValidationApi = async (
   images: CopyTestImage[],
@@ -313,6 +322,10 @@ export const copyTestValidationApi = async (
   targetColumnName: string,
   referenceColumnName?: string
 ): Promise<CopyTestValidationResult[]> => {
+  if (shouldUseCopyTestAiChatMock()) {
+    return mockCopyTestValidationApi(images, rows, targetColumnName, referenceColumnName);
+  }
+
   const request: AiChatRequest = {
     modelName: COPY_TEST_VALIDATION_MODEL,
     documents: [

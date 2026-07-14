@@ -72,4 +72,40 @@ describe('CopyTestSelectors', () => {
     expect(onColumnChange).toHaveBeenCalledWith(0);
     expect(screen.getByText('Upload Screenshot')).toHaveProperty('disabled', true);
   });
+
+  it('excludes blank and generated headers from comparison options', () => {
+    const tableWithFilteredHeaders = {
+      ...table,
+      headers: [
+        { index: 0, label: 'Target' },
+        { index: 1, label: '' },
+        { index: 2, label: '   ' },
+        { index: 3, label: 'Test Result - Target' },
+        { index: 4, label: 'Test Evidence - Target' },
+      ],
+    };
+    render(
+      <CopyTestSelectors
+        canExportToConfluence={false}
+        canUpload={false}
+        exporting={false}
+        onChooseImages={vi.fn()}
+        onComparisonColumnChange={vi.fn()}
+        onExportToConfluence={vi.fn()}
+        onTableChange={vi.fn()}
+        preparingUpload={false}
+        processing={false}
+        selectedColumnIndex={undefined}
+        selectedTable={tableWithFilteredHeaders}
+        selectedTableIndex={0}
+        tables={[tableWithFilteredHeaders]}
+      />
+    );
+
+    const comparisonSelect = screen.getByLabelText('Select comparison column') as HTMLSelectElement;
+    expect(Array.from(comparisonSelect.options).map(option => option.textContent)).toEqual([
+      'Select comparison column',
+      'Target',
+    ]);
+  });
 });
