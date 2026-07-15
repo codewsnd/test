@@ -63,3 +63,9 @@ export const COPY_TEST_EVIDENCE_IMAGE_WIDTH = 100;
 
 /** 回写 Confluence storage 时 Evidence 图片的固定高度。 */
 export const COPY_TEST_EVIDENCE_IMAGE_HEIGHT = 200;
+
+/** 回写 Confluence storage 时 Test Result 列的默认像素宽度。 */
+export const COPY_TEST_RESULT_COLUMN_WIDTH = 300;
+
+/** 回写 Confluence storage 时 Test Evidence 列的默认像素宽度。 */
+export const COPY_TEST_EVIDENCE_COLUMN_WIDTH = 300;

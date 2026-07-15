@@ -7,6 +7,8 @@ import type { CopyTestTableEntry } from '../types';
 export interface CopyTestSessionState {
   /** 最近一次成功导入或导出后的完整 storage。 */
   originalStorageHtml: string;
+  /** 已产生本地变更且等待回写的表格来源列 Pair 键。 */
+  pendingExportPairKeys: string[];
   /** working table 内容变更时递增的渲染版本号。 */
   revision: number;
   /** 当前 Comparison Column 的逻辑列下标。 */
@@ -30,18 +32,56 @@ export type CopyTestSessionAction =
     type: 'COLUMN_SELECTED';
   }
   | { selectedRowIndexes: number[]; type: 'ROWS_SELECTED' }
-  | { table: CopyTestTableEntry; type: 'TABLE_UPDATED' }
-  | { nextTables: CopyTestTableEntry[]; storageHtml: string; type: 'EXPORT_COMMITTED' };
+  | {
+    /** 本次表格变更所属的待回写 Pair 键。 */
+    pendingExportPairKey: string;
+    /** 已应用本地变更的工作表格。 */
+    table: CopyTestTableEntry;
+    /** 表格本地变更动作类型。 */
+    type: 'TABLE_UPDATED';
+  }
+  | {
+    /** 本次成功回写且应清除待回写状态的 Pair 键。 */
+    exportedPairKey?: string;
+    /** 使用最新原始快照刷新的工作表格集合。 */
+    nextTables: CopyTestTableEntry[];
+    /** 成功回写后的完整 storage。 */
+    storageHtml: string;
+    /** 导出提交动作类型。 */
+    type: 'EXPORT_COMMITTED';
+  };
 
 /** 创建指定版本的空会话状态。 */
 const createEmptySessionState = (revision: number): CopyTestSessionState => ({
   originalStorageHtml: '',
+  pendingExportPairKeys: [],
   revision,
   selectedColumnIndex: undefined,
   selectedRowIndexes: [],
   selectedTableIndex: undefined,
   tables: [],
 });
+
+/** 把指定 Pair 加入待回写集合并保持键唯一。 */
+const addPendingExportPairKey = (pairKeys: string[], pairKey: string): string[] => {
+  if (pairKeys.includes(pairKey)) {
+    return pairKeys;
+  }
+
+  return [...pairKeys, pairKey];
+};
+
+/** 从待回写集合移除本次成功导出的 Pair。 */
+const removePendingExportPairKey = (
+  pairKeys: string[],
+  exportedPairKey: string | undefined
+): string[] => {
+  if (!exportedPairKey) {
+    return pairKeys;
+  }
+
+  return pairKeys.filter(pairKey => pairKey !== exportedPairKey);
+};
 
 /** CopyTest reducer 的初始状态。 */
 export const copyTestSessionInitialState: CopyTestSessionState = createEmptySessionState(0);
@@ -89,6 +129,7 @@ export const copyTestSessionReducer = (
     case 'LOADED':
       return {
         originalStorageHtml: action.storageHtml,
+        pendingExportPairKeys: [],
         revision: state.revision + 1,
         selectedColumnIndex: undefined,
         selectedRowIndexes: [],
@@ -112,6 +153,10 @@ export const copyTestSessionReducer = (
     case 'TABLE_UPDATED':
       return {
         ...state,
+        pendingExportPairKeys: addPendingExportPairKey(
+          state.pendingExportPairKeys,
+          action.pendingExportPairKey
+        ),
         revision: state.revision + 1,
         tables: replaceTable(state.tables, action.table),
       };
@@ -119,6 +164,10 @@ export const copyTestSessionReducer = (
       return {
         ...state,
         originalStorageHtml: action.storageHtml,
+        pendingExportPairKeys: removePendingExportPairKey(
+          state.pendingExportPairKeys,
+          action.exportedPairKey
+        ),
         revision: state.revision + 1,
         tables: [...action.nextTables],
       };

@@ -51,12 +51,22 @@ const buildTableOptions = (tables: CopyTestTableEntry[]) => {
 
 /** 过滤空表头和生成列，构建 Comparison Column 选项。 */
 const buildComparisonOptions = (headers: CopyTestHeader[]) => {
-  return headers
-    .filter(header => header.label.trim() !== '' && !isCopyTestGeneratedHeader(header))
-    .map(header => ({
-      value: header.index,
-      label: header.label,
-    }));
+  /** 下拉框允许选择的非空来源表头。 */
+  const selectableHeaders = headers.filter(
+    header => header.label.trim() !== '' && !isCopyTestGeneratedHeader(header)
+  );
+  /** 每个原始表头文本在可选来源列中的出现次数。 */
+  const headerLabelCounts = selectableHeaders.reduce((counts, header) => {
+    counts.set(header.label, (counts.get(header.label) || 0) + 1);
+    return counts;
+  }, new Map<string, number>());
+
+  return selectableHeaders.map(header => ({
+    value: header.index,
+    label: (headerLabelCounts.get(header.label) || 0) > 1
+      ? `${header.label} (Column ${header.index + 1})`
+      : header.label,
+  }));
 };
 
 /** 渲染 CopyTestActionButtons 组件。 */

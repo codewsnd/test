@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  buildCopyTestValidationRequest,
   copyTestAttachmentsApi,
   copyTestStorageApi,
   copyTestUploadApi,
-  copyTestValidationApi,
   parseCopyTestValidationResponse,
   parseCopyTestValidationResults,
   type CopyTestValidationResult,
@@ -57,19 +57,9 @@ const buildContent = (results: unknown[]): string => {
 };
 
 describe('copyTestApi strict validation contract', () => {
-  it('calls adapters and separates stable system rules from runtime user JSON', () => {
-    const validationContent = buildContent([buildValidResult()]);
+  it('calls adapters and silences only Confluence import requests', () => {
     hoisted.axiosGet.mockReturnValue({ storage: '<table />' });
     hoisted.axiosPost.mockReturnValue({ images });
-    hoisted.aiChat.mockReturnValue({
-      success: true,
-      data: {
-        characterCount: validationContent.length,
-        content: validationContent,
-        modelName: 'gpt-5.4',
-        timestamp: '2026-07-14T00:00:00.000Z',
-      },
-    });
     const onProgress = vi.fn();
 
     void copyTestStorageApi('http://wiki');
@@ -80,19 +70,24 @@ describe('copyTestApi strict validation contract', () => {
     );
     hoisted.axiosPost.mock.calls[1][2].onUploadProgress({ loaded: 5, total: 10 });
     hoisted.axiosPost.mock.calls[1][2].onUploadProgress({ loaded: 5 });
-    void copyTestValidationApi([images[0]], [rows[0]], 'Target');
 
     expect(hoisted.axiosGet).toHaveBeenCalledWith(expect.stringContaining('/storage'), {
       params: { confluenceUrl: 'http://wiki', staffId: 'staff-1' },
+      skipError: true,
     });
     expect(hoisted.axiosPost).toHaveBeenCalledWith(
       expect.stringContaining('/getAttachments'),
-      { confluenceUrl: 'http://wiki', fileNames: ['screen-a.png'], staffId: 'staff-1' }
+      { confluenceUrl: 'http://wiki', fileNames: ['screen-a.png'], staffId: 'staff-1' },
+      { skipError: true }
+    );
+    expect(hoisted.axiosPost.mock.calls[1][2]).not.toEqual(
+      expect.objectContaining({ skipError: true })
     );
     expect(onProgress).toHaveBeenCalledTimes(1);
     expect(onProgress).toHaveBeenCalledWith(50);
 
-    const request = hoisted.aiChat.mock.calls[0][0];
+    /** 用于核对 system/user 消息分离契约的校验请求。 */
+    const request = buildCopyTestValidationRequest([images[0]], [rows[0]], 'Target');
     expect(request.modelName).toBe('gpt-5.4');
     expect(request.documents).toEqual([
       { base64url: ['data:image/png;base64,QUJD'], type: 'image' },

@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { useCopyTestSession } from '../useCopyTestSession';
 
 const image = { base64: 'data:image/png;base64,QUJD', fileName: 'screen-a.png' };
+/** 连续删除回归中的未加载占位图片。 */
+const secondImage = { base64: 'data:image/png;base64,REVG', fileName: 'screen-b.png' };
+/** 连续删除回归中仍成功加载的真实图片。 */
+const thirdImage = { base64: 'data:image/png;base64,R0hJ', fileName: 'screen-c.png' };
 const storageHtml = [
   '<table>',
   '<tr><th>Reference</th><th>Target</th></tr>',
@@ -81,7 +85,14 @@ describe('useCopyTestSession', () => {
         imageId: 'screen-a.png',
         instanceId: '1:Target:1:screen-a.png',
       })).toEqual({ imageStillUsed: false, removed: true });
+    });
+    expect(result.current.selectedColumnHasExportableContent).toBe(true);
+    expect(result.current.selectedTable?.workingHtml).not.toContain('screen-a.png');
+    act(() => {
       result.current.commitExportedStorage(result.current.originalStorageHtml);
+    });
+    expect(result.current.selectedColumnHasExportableContent).toBe(false);
+    act(() => {
       result.current.commitExportedStorage('<p>no tables</p>');
       result.current.resetValidationSnapshots();
       result.current.handleTableChange(0);
@@ -92,6 +103,46 @@ describe('useCopyTestSession', () => {
       result.current.handleComparisonColumnChange(undefined);
     });
     expect(result.current.selectedColumnIndex).toBeUndefined();
+  });
+
+  it('keeps an all-empty validation result pending until the Pair is exported', () => {
+    /** 用于验证空结果仍可回写的 CopyTest 会话。 */
+    const { result } = renderHook(() => useCopyTestSession());
+    act(() => {
+      result.current.applyLoadedStorage(storageHtml);
+    });
+    act(() => {
+      result.current.handleComparisonColumnChange(1);
+    });
+    expect(result.current.selectedColumnHasExportableContent).toBe(false);
+
+    act(() => {
+      result.current.applyValidationResults([
+        {
+          evidenceImageFileNames: [],
+          evidenceImages: [],
+          languageIssues: [],
+          passed: false,
+          rowIndex: 0,
+        },
+        {
+          evidenceImageFileNames: [],
+          evidenceImages: [],
+          languageIssues: [],
+          passed: false,
+          rowIndex: 2,
+        },
+      ], [], 1, 'Target', 0);
+    });
+
+    expect(result.current.selectedTable?.workingHtml).not.toContain('Passed');
+    expect(result.current.selectedTable?.workingHtml).not.toContain('Failed');
+    expect(result.current.selectedColumnHasExportableContent).toBe(true);
+
+    act(() => {
+      result.current.commitExportedStorage(result.current.selectedTable?.workingHtml || storageHtml);
+    });
+    expect(result.current.selectedColumnHasExportableContent).toBe(false);
   });
 
   it('keeps imported previews separate from validation and export images', () => {
@@ -132,5 +183,57 @@ describe('useCopyTestSession', () => {
       { expected: 'copy 2 and 3', rowIndex: 1 },
       { expected: 'copy 4', rowIndex: 3 },
     ]);
+  });
+
+  it('preserves unloaded Evidence identities across consecutive imported-image deletions', () => {
+    /** 先生成包含三张 Evidence 的合法 schema 2 storage。 */
+    const generated = renderHook(() => useCopyTestSession());
+    act(() => {
+      generated.result.current.applyLoadedStorage(storageHtml);
+    });
+    act(() => {
+      generated.result.current.handleComparisonColumnChange(1);
+    });
+    act(() => {
+      generated.result.current.applyValidationResults([{
+        evidenceImageFileNames: ['screen-a.png', 'screen-b.png', 'screen-c.png'],
+        evidenceImages: [image, secondImage, thirdImage],
+        languageIssues: [],
+        passed: true,
+        rowIndex: 0,
+      }], [image, secondImage, thirdImage], 1, 'Target', 0);
+    });
+    /** 模拟附件接口只成功返回第一张和第三张图片。 */
+    const imported = renderHook(() => useCopyTestSession());
+    act(() => {
+      imported.result.current.applyLoadedStorage(
+        generated.result.current.selectedTable?.workingHtml || '',
+        [image, thirdImage]
+      );
+    });
+    act(() => {
+      imported.result.current.handleComparisonColumnChange(1);
+    });
+
+    act(() => {
+      expect(imported.result.current.deleteEvidenceImage({
+        imageId: 'screen-a.png',
+        instanceId: '1:Target:1:screen-a.png',
+      })).toEqual({ imageStillUsed: false, removed: true });
+    });
+    expect(imported.result.current.selectedTable?.workingHtml).toContain('screen-b.png');
+    expect(imported.result.current.selectedTable?.workingHtml).toContain('screen-c.png');
+
+    act(() => {
+      expect(imported.result.current.deleteEvidenceImage({
+        imageId: 'screen-b.png',
+        instanceId: '1:Target:1:screen-b.png',
+      })).toEqual({ imageStillUsed: false, removed: true });
+    });
+    expect(imported.result.current.selectedTable?.workingHtml).not.toContain('screen-a.png');
+    expect(imported.result.current.selectedTable?.workingHtml).not.toContain('screen-b.png');
+    expect(imported.result.current.selectedTable?.workingHtml).toContain('screen-c.png');
+    expect(imported.result.current.getCurrentValidationImages()).toEqual([thirdImage]);
+    expect(imported.result.current.getCurrentPreviewImages()).toEqual([thirdImage]);
   });
 });

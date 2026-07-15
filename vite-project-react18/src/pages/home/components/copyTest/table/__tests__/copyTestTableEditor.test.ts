@@ -288,6 +288,86 @@ describe('copyTestTableEditor', () => {
     expect(deleted.table.workingHtml).toContain(SCREEN_2.fileName);
   });
 
+  it('keeps unrelated Evidence blocks unchanged after reload while renumbering only the deleted rowspan block', () => {
+    /** 包含两个独立 Evidence 连通块和 rowspan 原子组的来源表格。 */
+    const table = parseCopyTestStorageTables([
+      '<table><tr><th>Target</th></tr>',
+      '<tr><td rowspan="2">A1-2</td></tr>',
+      '<tr></tr>',
+      '<tr><td>separator</td></tr>',
+      '<tr><td rowspan="2">B1-2</td></tr>',
+      '<tr></tr>',
+      '<tr><td>B3</td></tr></table>',
+    ].join(''))[0];
+    /** 为两个连通块构造不同 Screen 顺序的校验结果。 */
+    const results = bindResultImages([
+      {
+        evidenceImageFileNames: [SCREEN_2.fileName, SCREEN_3.fileName],
+        languageIssues: [],
+        passed: true,
+        rowIndex: 0,
+      },
+      {
+        evidenceImageFileNames: [SCREEN_1.fileName, SCREEN_3.fileName],
+        languageIssues: [],
+        passed: true,
+        rowIndex: 3,
+      },
+      {
+        evidenceImageFileNames: [SCREEN_1.fileName, SCREEN_2.fileName, SCREEN_3.fileName],
+        languageIssues: [],
+        passed: true,
+        rowIndex: 5,
+      },
+    ], images);
+    /** 首次 Validate 后生成 Test 双列的工作表。 */
+    const validated = applyCopyTestValidationResults(table, results, 0, 'Target', images);
+    /** 模拟 Export 后再次 Import，确保删除不依赖内存校验快照。 */
+    const imported = parseCopyTestStorageTables(validated.workingHtml)[0];
+    /** Target 来源列稳定 ownership key。 */
+    const sourceKey = getSourceColumnKey(0, 'Target');
+    /** 再次导入后 Target Test 双列的逻辑下标。 */
+    const indexes = findGeneratedColumnIndexes(imported.headers, sourceKey);
+    /** 未受删除影响的第二个 Evidence 连通块完整语义签名。 */
+    const unaffectedSignatureBefore = [4, 6].map(rowIndex => {
+      return imported.model.rows[rowIndex].slots[indexes.result!]!.cell.element.outerHTML;
+    }).concat(imported.model.rows[4].slots[indexes.evidence!]!.cell.element.outerHTML);
+    /** 第一个连通块中待删除 Screen 的稳定图片 ID。 */
+    const targetImageId = getCopyTestImageId(SCREEN_2);
+
+    /** 删除第一个连通块图片后的局部重投影结果。 */
+    const deleted = deleteCopyTestEvidenceImage(
+      imported,
+      { imageId: targetImageId, instanceId: `${sourceKey}:1:${targetImageId}` },
+      0,
+      'Target'
+    );
+    /** 删除后 Target Test 双列的逻辑下标。 */
+    const deletedIndexes = findGeneratedColumnIndexes(deleted.table.headers, sourceKey);
+    /** 删除后同一未受影响连通块的完整语义签名。 */
+    const unaffectedSignatureAfter = [4, 6].map(rowIndex => {
+      return deleted.table.model.rows[rowIndex].slots[deletedIndexes.result!]!.cell.element.outerHTML;
+    }).concat(deleted.table.model.rows[4].slots[deletedIndexes.evidence!]!.cell.element.outerHTML);
+    /** 受影响原子组删除后的 Result 单元格。 */
+    const affectedResult = deleted.table.model.rows[1].slots[deletedIndexes.result!]!.cell.element;
+    /** 受影响原子组删除后的 Evidence 单元格。 */
+    const affectedEvidence = deleted.table.model.rows[1].slots[deletedIndexes.evidence!]!.cell.element;
+
+    expect(deleted.removed).toBe(true);
+    expect(deleted.imageStillUsed).toBe(true);
+    expect(unaffectedSignatureAfter).toEqual(unaffectedSignatureBefore);
+    expect(affectedResult.getAttribute('rowspan')).toBe('2');
+    expect(affectedEvidence.getAttribute('rowspan')).toBe('2');
+    expect(getResultImageIds(affectedResult)).toEqual([SCREEN_3.fileName]);
+    expect(affectedResult.querySelector(
+      `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="${SCREEN_3.fileName}"]`
+    )!.firstChild!.textContent).toBe('Screen01');
+    expect(affectedEvidence.querySelector(
+      `[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}="${SCREEN_3.fileName}"]`
+    )!.closest(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`)!.querySelector('strong')!.textContent).toBe('Screen01');
+    expect(buildCopyTestRowGroups(deleted.table, 0).map(group => group.rowSpan)).toEqual([2, 1, 2, 1]);
+  });
+
   it('deletes evidence only from source A and leaves source B ownership unchanged', () => {
     const table = parseCopyTestStorageTables([
       '<table><tr><th>ID</th><th>Target A</th><th>Target B</th></tr>',
@@ -347,7 +427,9 @@ describe('copyTestTableEditor', () => {
   });
 
   it('keeps rows 2 and 3 atomic when all four physical rows are validated and replanned', () => {
+    /** 中间两行通过 rowspan 合并为原子组的四行来源表格。 */
     const table = parseCopyTestStorageTables(middleMergedStorageHtml)[0];
+    /** 四行来源表格按原子组构造的校验结果。 */
     const results = bindResultImages([
       {
         evidenceImageFileNames: [SCREEN_1.fileName],
@@ -368,26 +450,32 @@ describe('copyTestTableEditor', () => {
         rowIndex: 3,
       },
     ], images);
+    /** 应用初次校验结果后的工作表格。 */
     const validated = applyCopyTestValidationResults(table, results, 1, 'Target', images);
+    /** Target 来源列稳定 ownership key。 */
     const sourceKey = getSourceColumnKey(1, 'Target');
+    /** 初次校验后生成双列的逻辑下标。 */
     const initialIndexes = findGeneratedColumnIndexes(validated.headers, sourceKey);
+    /** 三个来源原子组锚点对应的 Result 单元格。 */
     const initialResultCells = [1, 2, 4].map(rowIndex => {
-      return validated.model.rows[rowIndex].slots[initialIndexes.result!]?.cell.element;
+      return validated.model.rows[rowIndex].slots[initialIndexes.result!]!.cell.element;
     });
 
-    expect(initialResultCells.map(cell => Number(cell?.getAttribute('rowspan') || 1))).toEqual([1, 2, 1]);
-    expect(validated.model.rows[3].slots[initialIndexes.result!]?.owned).toBe(false);
+    expect(initialResultCells.map(cell => Number(cell.getAttribute('rowspan') || 1))).toEqual([1, 2, 1]);
+    expect(validated.model.rows[3].slots[initialIndexes.result!]!.owned).toBe(false);
     expect(initialResultCells.map(getResultImageIds)).toEqual([
       [SCREEN_1.fileName],
       [SCREEN_1.fileName],
       [SCREEN_1.fileName, SCREEN_2.fileName],
     ]);
-    expect(validated.model.rows[1].slots[initialIndexes.evidence!]?.cell.rowSpan).toBe(4);
+    expect(validated.model.rows[1].slots[initialIndexes.evidence!]!.cell.rowSpan).toBe(4);
     expect([2, 3, 4].map(rowIndex => {
-      return validated.model.rows[rowIndex].slots[initialIndexes.evidence!]?.owned;
+      return validated.model.rows[rowIndex].slots[initialIndexes.evidence!]!.owned;
     })).toEqual([false, false, false]);
 
+    /** 首张共享 Evidence 图片的稳定 ID。 */
     const firstImageId = getCopyTestImageId(SCREEN_1);
+    /** 删除首张共享图片并重新规划后的结果。 */
     const deleted = deleteCopyTestEvidenceImage(
       validated,
       { imageId: firstImageId, instanceId: `${sourceKey}:1:${firstImageId}` },
@@ -395,18 +483,23 @@ describe('copyTestTableEditor', () => {
       'Target',
       buildSnapshot(results)
     );
+    /** 删除后生成双列的逻辑下标。 */
     const indexes = findGeneratedColumnIndexes(deleted.table.headers, sourceKey);
+    /** 删除后四个物理行位置的 Evidence ownership 与 rowspan。 */
     const evidenceSlots = [1, 2, 3, 4].map(rowIndex => {
       const slot = deleted.table.model.rows[rowIndex].slots[indexes.evidence!];
-      return { owned: slot?.owned, rowSpan: slot?.cell.rowSpan };
+      return { owned: slot!.owned, rowSpan: slot!.cell.rowSpan };
     });
+    /** 删除后三个来源原子组锚点的 Result 单元格。 */
     const resultCells = [1, 2, 4].map(rowIndex => {
-      return deleted.table.model.rows[rowIndex].slots[indexes.result!]?.cell.element;
+      return deleted.table.model.rows[rowIndex].slots[indexes.result!]!.cell.element;
     });
+    /** 删除后工作表格的可查询文档。 */
     const doc = parseHtml(deleted.table.workingHtml);
+    /** 删除后仍保留的第二张 Evidence 图片。 */
     const remainingEvidence = doc.querySelector(
       `[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}="${SCREEN_2.fileName}"]`
-    );
+    )!;
 
     expect(deleted.removed).toBe(true);
     expect(deleted.imageStillUsed).toBe(false);
@@ -417,23 +510,23 @@ describe('copyTestTableEditor', () => {
       { owned: true, rowSpan: 1 },
     ]);
     expect(buildCopyTestRowGroups(deleted.table, 1).map(group => group.rowSpan)).toEqual([1, 2, 1]);
-    expect(resultCells[0]?.querySelector(
+    expect(resultCells[0].querySelector(
       `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
     )).toBeNull();
-    expect(resultCells[1]?.querySelector(
+    expect(resultCells[1].querySelector(
       `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
     )).toBeNull();
-    expect(resultCells[2]?.textContent).toContain('Passed:');
+    expect(resultCells[2].textContent).toContain('Passed:');
     expect(getResultImageIds(resultCells[2])).toEqual([SCREEN_2.fileName]);
-    expect(remainingEvidence?.getAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE)).toBe(
+    expect(remainingEvidence.getAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE)).toBe(
       `${sourceKey}:4:${SCREEN_2.fileName}`
     );
-    expect(remainingEvidence?.closest('td')?.getAttribute('rowspan')).toBeNull();
-    expect(remainingEvidence?.closest(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`)
-      ?.querySelector('strong')?.textContent).toBe('Screen01');
+    expect(remainingEvidence.closest('td')!.getAttribute('rowspan')).toBeNull();
+    expect(remainingEvidence.closest(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`)!
+      .querySelector('strong')!.textContent).toBe('Screen01');
     expect(deleted.table.workingHtml).not.toContain(SCREEN_1.fileName);
     expect(deleted.table.workingHtml).not.toContain(SCREEN_3.fileName);
-    expect(deleted.validationResults?.map(result => result.evidenceImageFileNames)).toEqual([
+    expect(deleted.validationResults!.map(result => result.evidenceImageFileNames)).toEqual([
       [],
       [],
       [SCREEN_2.fileName],

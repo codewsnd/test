@@ -68,6 +68,7 @@ describe('copyTestSessionReducer', () => {
     });
     const updatedTable = createTable(0, 'validated');
     const updated = copyTestSessionReducer(withRows, {
+      pendingExportPairKey: '0:1:Target',
       table: updatedTable,
       type: 'TABLE_UPDATED',
     });
@@ -84,7 +85,11 @@ describe('copyTestSessionReducer', () => {
       tables: [selectedTable],
     });
     expect(withRows).toMatchObject({ revision: 2, selectedRowIndexes: [3] });
-    expect(updated).toMatchObject({ revision: 3, tables: [updatedTable] });
+    expect(updated).toMatchObject({
+      pendingExportPairKeys: ['0:1:Target'],
+      revision: 3,
+      tables: [updatedTable],
+    });
     expect(clearedColumn).toMatchObject({
       revision: 3,
       selectedColumnIndex: undefined,
@@ -93,22 +98,46 @@ describe('copyTestSessionReducer', () => {
     expect(originalTable.workingHtml).toBe('table-0');
   });
 
-  it('commits exported storage with an increasing revision', () => {
+  it('clears only the successfully exported Pair and resets all pending keys on import', () => {
     const loaded = copyTestSessionReducer(copyTestSessionInitialState, {
       storageHtml: 'storage-v1',
       tables: [createTable(0)],
       type: 'LOADED',
     });
+    /** 仅第一组来源列存在待回写变更的状态。 */
+    const firstPending = copyTestSessionReducer(loaded, {
+      pendingExportPairKey: '0:0:Reference',
+      table: createTable(0, 'first-pending'),
+      type: 'TABLE_UPDATED',
+    });
+    /** 两组来源列同时存在待回写变更的状态。 */
+    const twoPending = copyTestSessionReducer(firstPending, {
+      pendingExportPairKey: '0:1:Target',
+      table: createTable(0, 'two-pending'),
+      type: 'TABLE_UPDATED',
+    });
+    /** 模拟成功回写后使用最新 storage 刷新的表格集合。 */
     const exportedTables = [createTable(0, 'exported')];
-    const exported = copyTestSessionReducer(loaded, {
+    /** 仅清除本次成功回写 Pair 后的会话状态。 */
+    const exported = copyTestSessionReducer(twoPending, {
+      exportedPairKey: '0:1:Target',
       nextTables: exportedTables,
       storageHtml: 'storage-v2',
       type: 'EXPORT_COMMITTED',
     });
     expect(exported).toMatchObject({
       originalStorageHtml: 'storage-v2',
-      revision: 2,
+      pendingExportPairKeys: ['0:0:Reference'],
+      revision: 4,
       tables: exportedTables,
     });
+
+    /** 重新导入后得到的全新会话状态。 */
+    const reloaded = copyTestSessionReducer(exported, {
+      storageHtml: 'storage-v3',
+      tables: exportedTables,
+      type: 'LOADED',
+    });
+    expect(reloaded.pendingExportPairKeys).toEqual([]);
   });
 });

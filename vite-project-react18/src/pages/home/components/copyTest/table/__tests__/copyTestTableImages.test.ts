@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  COPY_TEST_EVIDENCE_COLUMN_WIDTH,
   COPY_TEST_EVIDENCE_IMAGE_HEIGHT,
   COPY_TEST_EVIDENCE_IMAGE_WIDTH,
+  COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE,
+  COPY_TEST_GENERATED_EVIDENCE_TYPE,
+  COPY_TEST_GENERATED_RESULT_TYPE,
+  COPY_TEST_RESULT_COLUMN_WIDTH,
 } from '../tableConstants';
 import { parseHtml } from '../tableModel';
 import {
@@ -84,9 +89,10 @@ const createCustomEvidenceCell = (sourceColumnKey: string, content: string): str
 const createManagedHeader = (
   sourceColumnKey: string,
   type: 'result' | 'evidence',
-  label: string
+  label: string,
+  exportScope?: string
 ): string => {
-  return `<th ${createManagedAttributes(sourceColumnKey, type)}>${label}</th>`;
+  return `<th ${createManagedAttributes(sourceColumnKey, type, exportScope)}>${label}</th>`;
 };
 
 const BUSINESS_CELL = [
@@ -126,14 +132,15 @@ const A_EVIDENCE_CELL = createEvidenceCell(SOURCE_A, 'a-id', 'a.png', EXPORT_SCO
 const B_RESULT_CELL = createResultCell(SOURCE_B, 'b-id', EXPORT_SCOPE_B);
 const B_EVIDENCE_CELL = createEvidenceCell(SOURCE_B, 'b-id', 'b.png', EXPORT_SCOPE_B);
 
+/** 同时包含 A/B 双列、业务单元格和异常 metadata 的完整导出 fixture。 */
 const EXPORT_STORAGE = [
   '<p data-outside="before">before &amp; untouched</p>',
   '<table data-table-format="keep"><tr>',
   '<th>Business</th><th>Test Evidence - Target FR</th>',
-  createManagedHeader(SOURCE_A, 'result', 'A Result'),
-  createManagedHeader(SOURCE_A, 'evidence', 'A Evidence'),
-  createManagedHeader(SOURCE_B, 'result', 'B Result'),
-  createManagedHeader(SOURCE_B, 'evidence', 'B Evidence'),
+  createManagedHeader(SOURCE_A, 'result', 'A Result', EXPORT_SCOPE_A),
+  createManagedHeader(SOURCE_A, 'evidence', 'A Evidence', EXPORT_SCOPE_A),
+  createManagedHeader(SOURCE_B, 'result', 'B Result', EXPORT_SCOPE_B),
+  createManagedHeader(SOURCE_B, 'evidence', 'B Evidence', EXPORT_SCOPE_B),
   '</tr><tr>',
   BUSINESS_CELL,
   FOREIGN_TEST_LIKE_CELL,
@@ -224,8 +231,24 @@ describe('copyTestTableImages', () => {
     );
     const afterTargetRanges = getSourceCellRanges(payload.storageHtml, SOURCE_A);
     const aCells = getSourceCells(payload.storageHtml, SOURCE_A).join('');
+    /** 重新解析后的当前 A 双列，用于校验表头和数据单元格导出宽度。 */
+    const aCellsDocument = parseHtml(`<table><tr>${aCells}</tr></table>`);
+    /** 当前 A 的全部 Test Result 表头与数据单元格。 */
+    const aResultCells = Array.from(aCellsDocument.querySelectorAll<HTMLTableCellElement>(
+      `[${COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    )).filter(cell => cell.getAttribute('data-copy-test-schema') === '2'
+      && cell.getAttribute('data-copy-test-owner-id') === SOURCE_A);
+    /** 当前 A 的全部 Test Evidence 表头与数据单元格。 */
+    const aEvidenceCells = Array.from(aCellsDocument.querySelectorAll<HTMLTableCellElement>(
+      `[${COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE}="${COPY_TEST_GENERATED_EVIDENCE_TYPE}"]`
+    )).filter(cell => cell.getAttribute('data-copy-test-schema') === '2'
+      && cell.getAttribute('data-copy-test-owner-id') === SOURCE_A);
 
     expect(payload.images).toEqual([{ base64: A_PROVIDED_BASE64, fileName: 'a.png' }]);
+    expect(aResultCells.map(cell => cell.style.width))
+      .toEqual([`${COPY_TEST_RESULT_COLUMN_WIDTH}px`, `${COPY_TEST_RESULT_COLUMN_WIDTH}px`]);
+    expect(aEvidenceCells.map(cell => cell.style.width))
+      .toEqual([`${COPY_TEST_EVIDENCE_COLUMN_WIDTH}px`, `${COPY_TEST_EVIDENCE_COLUMN_WIDTH}px`]);
     expect(aCells).toContain(`ac:width="${COPY_TEST_EVIDENCE_IMAGE_WIDTH}"`);
     expect(aCells).toContain(`ac:height="${COPY_TEST_EVIDENCE_IMAGE_HEIGHT}"`);
     expect(aCells).toContain('data-copy-test-result-image-id="a-id"');
@@ -329,5 +352,25 @@ describe('copyTestTableImages', () => {
     expect(payload.images).toEqual([]);
     expect(payload.storageHtml).toContain('data-copy-test-storage-image-src=');
     expect(payload.storageHtml).toContain('data-copy-test-evidence-image-src=');
+  });
+
+  it('不把 DOM 恢复的空 base64 占位图片提交给附件上传接口', () => {
+    /** 引用占位附件并带有当前导出作用域的 storage。 */
+    const storage = `<table><tr>${createEvidenceCell(
+      SOURCE_A,
+      'placeholder-id',
+      'placeholder.png',
+      EXPORT_SCOPE_A
+    )}</tr></table>`;
+    /** 使用空内容占位图片构建的附件上传数据。 */
+    const payload = buildConfluenceStorageTableExportPayload(
+      storage,
+      SOURCE_A,
+      EXPORT_SCOPE_A,
+      [{ base64: '', fileName: 'placeholder.png' }]
+    );
+
+    expect(payload.images).toEqual([]);
+    expect(payload.storageHtml).toContain('ri:filename="placeholder.png"');
   });
 });

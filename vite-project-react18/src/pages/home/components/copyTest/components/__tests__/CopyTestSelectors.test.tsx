@@ -108,4 +108,49 @@ describe('CopyTestSelectors', () => {
       'Target',
     ]);
   });
+
+  it('adds logical column numbers only to duplicate comparison headers', () => {
+    /** 记录用户实际选择的来源逻辑列。 */
+    const onColumnChange = vi.fn();
+    /** 包含两个同名来源表头的测试工作表。 */
+    const tableWithDuplicateHeaders = {
+      ...table,
+      headers: [
+        { index: 0, label: 'Module' },
+        { index: 1, label: 'Owner' },
+        { index: 2, label: 'Module' },
+      ],
+    };
+    /** 用于确认选项展示不会修改来源表头的原始快照。 */
+    const originalHeaders = structuredClone(tableWithDuplicateHeaders.headers);
+    render(
+      <CopyTestSelectors
+        canExportToConfluence={false}
+        canUpload={false}
+        exporting={false}
+        onChooseImages={vi.fn()}
+        onComparisonColumnChange={onColumnChange}
+        onExportToConfluence={vi.fn()}
+        onTableChange={vi.fn()}
+        preparingUpload={false}
+        processing={false}
+        selectedColumnIndex={undefined}
+        selectedTable={tableWithDuplicateHeaders}
+        selectedTableIndex={0}
+        tables={[tableWithDuplicateHeaders]}
+      />
+    );
+
+    /** 当前 Comparison Column 原生下拉框。 */
+    const comparisonSelect = screen.getByLabelText('Select comparison column') as HTMLSelectElement;
+    expect(Array.from(comparisonSelect.options).map(option => option.textContent)).toEqual([
+      'Select comparison column',
+      'Module (Column 1)',
+      'Owner',
+      'Module (Column 3)',
+    ]);
+    fireEvent.change(comparisonSelect, { target: { value: '2' } });
+    expect(onColumnChange).toHaveBeenCalledWith(2);
+    expect(tableWithDuplicateHeaders.headers).toEqual(originalHeaders);
+  });
 });

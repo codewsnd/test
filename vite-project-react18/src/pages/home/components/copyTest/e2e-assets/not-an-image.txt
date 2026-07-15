@@ -1,0 +1,1 @@
+This file intentionally is not an image and is used only by the CopyTest browser upload validation case.

@@ -1084,7 +1084,140 @@ const removeImageFromValidationGroup = (
   });
 };
 
-/** 使用结构化校验快照删除图片并全量重新投影当前生成双列。 */
+/** 读取目标 Evidence 实例所在连通块的本地图片顺序。 */
+const readTargetEvidenceImageOrder = (
+  table: CopyTestWorkingTable,
+  target: CopyTestEvidenceDeleteTarget,
+  snapshot: CopyTestValidationSnapshot,
+  targetGroup: EvidenceGroup
+): CopyTestImage[] => {
+  /** 当前表格中与删除目标稳定标识完全匹配的 Evidence 图片节点。 */
+  const targetImage = Array.from(parseHtml(table.workingHtml).querySelectorAll(
+    `[${COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE}]`
+  )).find(image => {
+    return image.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE) === target.imageId
+      && image.getAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE) === target.instanceId;
+  });
+  /** 删除目标所在 Evidence 受控根块。 */
+  const evidenceRoot = targetImage?.closest(
+    `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_EVIDENCE_TYPE}"]`
+  );
+  /** 快照图片按稳定文件名建立的查找表。 */
+  const imageByFileName = new Map(snapshot.images.map(image => [image.fileName, image]));
+  /** DOM 中当前连通块自己的 Screen 顺序，不受其他 Evidence 块影响。 */
+  const orderedImages = Array.from(
+    evidenceRoot?.querySelectorAll(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`) || []
+  ).flatMap(image => {
+    /** 当前 Evidence 图片的稳定文件名。 */
+    const fileName = image.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE) || '';
+    /** 当前文件名对应的快照图片。 */
+    const snapshotImage = imageByFileName.get(fileName);
+    return snapshotImage ? [snapshotImage] : [];
+  });
+  return orderedImages.length > 0 ? orderedImages : targetGroup.screens.map(screen => screen.image);
+};
+
+/** 将指定来源原子组的单个生成列恢复为来源 rowspan。 */
+const restoreGeneratedRowsForType = (
+  doc: Document,
+  context: GeneratedColumnContext,
+  rowGroups: CopyTestRowGroup[],
+  columnIndex: number,
+  type: CopyTestGeneratedColumnType
+): void => {
+  rowGroups.forEach(group => {
+    /** 当前来源原子组锚点对应的可写生成单元格。 */
+    const cell = ensureWritableGeneratedCell(
+      doc,
+      context.model,
+      group.anchorRowIndex,
+      columnIndex,
+      type,
+      context.sourceColumnKey
+    );
+    applyCellRowSpan(cell, group.rowSpan);
+    removeCoveredGeneratedCells(
+      context.model,
+      group.anchorRowIndex,
+      group.rowSpan,
+      type,
+      context.sourceColumnKey
+    );
+  });
+};
+
+/** 仅恢复待重投影原子组的 Result/Evidence 结构。 */
+const restoreGeneratedRows = (
+  doc: Document,
+  context: GeneratedColumnContext,
+  rowGroups: CopyTestRowGroup[]
+): GeneratedColumnContext => {
+  restoreGeneratedRowsForType(
+    doc,
+    context,
+    rowGroups,
+    context.resultColumnIndex,
+    COPY_TEST_GENERATED_RESULT_TYPE
+  );
+  restoreGeneratedRowsForType(
+    doc,
+    context,
+    rowGroups,
+    context.evidenceColumnIndex,
+    COPY_TEST_GENERATED_EVIDENCE_TYPE
+  );
+  return {
+    ...context,
+    model: parseTableModel(context.tableElement),
+  };
+};
+
+/** 仅重投影受删除影响的 Evidence 连通块。 */
+const applyValidationResultsToEvidenceGroup = (
+  table: CopyTestWorkingTable,
+  results: CopyTestValidationResultWithEvidence[],
+  selectedColumnIndex: number,
+  selectedColumnLabel: string,
+  uploadedImages: CopyTestImage[],
+  targetGroup: EvidenceGroup
+): CopyTestWorkingTable => {
+  /** 当前来源列已有生成双列及其编辑上下文。 */
+  const ensured = ensureCopyTestGeneratedColumns(table.workingHtml, selectedColumnIndex, selectedColumnLabel);
+  if (!ensured) {
+    return table;
+  }
+
+  /** 目标连通块中所有不可拆分来源原子组。 */
+  const rowGroups: CopyTestRowGroup[] = targetGroup.rowGroups;
+  /** 局部恢复 rowspan 后可安全重写目标连通块的上下文。 */
+  const context = restoreGeneratedRows(
+    ensured.context.tableElement.ownerDocument,
+    ensured.context,
+    rowGroups
+  );
+  /** 删除后在目标范围内重新计算的 Evidence 子连通块。 */
+  const evidenceGroups = buildEvidenceGroups(
+    rowGroups,
+    results,
+    uploadedImages,
+    context.sourceColumnKey
+  );
+  /** 删除后仍有图片结果的来源锚点。 */
+  const renderableAnchorRowIndexes = new Set(
+    evidenceGroups.flatMap(group => group.rowGroups.map(rowGroup => rowGroup.anchorRowIndex))
+  );
+  const doc = context.tableElement.ownerDocument;
+  clearUnrenderedRows(doc, context, rowGroups, renderableAnchorRowIndexes);
+  evidenceGroups.forEach(evidenceGroup => {
+    evidenceGroup.rowGroups.forEach(rowGroup => {
+      writeResultCell(doc, context, rowGroup, rowGroup.result, rowGroup.screens);
+    });
+    writeEvidenceCell(doc, context, evidenceGroup);
+  });
+  return refreshWorkingTable(table, toConfluenceStorageHtml(context.tableElement.outerHTML));
+};
+
+/** 使用结构化校验快照删除图片并局部重投影目标 Evidence 连通块。 */
 const deleteEvidenceImageFromSnapshot = (
   table: CopyTestWorkingTable,
   target: CopyTestEvidenceDeleteTarget,
@@ -1117,13 +1250,16 @@ const deleteEvidenceImageFromSnapshot = (
     targetGroup,
     targetScreen.image.fileName
   );
-  /** 基于剩余逐行关系重新规划并写入的工作表格。 */
-  const nextTable = applyCopyTestValidationResults(
+  /** 目标连通块在当前 DOM 中独立维护的 Screen 顺序。 */
+  const targetGroupImages = readTargetEvidenceImageOrder(table, target, snapshot, targetGroup);
+  /** 基于剩余逐行关系仅重新规划目标 Evidence 连通块的工作表格。 */
+  const nextTable = applyValidationResultsToEvidenceGroup(
     table,
     validationResults,
     selectedColumnIndex,
     selectedColumnLabel,
-    snapshot.images
+    targetGroupImages,
+    targetGroup
   );
   return {
     imageStillUsed: isEvidenceImageStillUsed(nextTable, target.imageId),

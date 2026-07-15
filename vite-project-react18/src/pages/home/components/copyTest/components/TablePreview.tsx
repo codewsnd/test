@@ -92,6 +92,21 @@ const DISABLED_ATTRIBUTE = 'disabled';
 /** iframe 预览里目标 table 的选择器。 */
 const PREVIEW_TABLE_SELECTOR = 'table';
 
+/** 标记预览表已启用 Comparison Column 三列等宽布局的属性。 */
+const PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE = 'data-copy-test-preview-equal-width-table';
+
+/** 标记参与三列等宽布局的来源、Result 或 Evidence 单元格属性。 */
+const PREVIEW_EQUAL_WIDTH_COLUMN_ATTRIBUTE = 'data-copy-test-preview-equal-width-column';
+
+/** iframe 行选择列固定占用的像素宽度。 */
+const PREVIEW_SELECTION_COLUMN_WIDTH = 42;
+
+/** 选中 Comparison Column 后需要等分剩余宽度的业务列数量。 */
+const PREVIEW_EQUAL_WIDTH_COLUMN_COUNT = 3;
+
+/** 来源、Result 和 Evidence 每列占用剩余空间三分之一的 CSS 宽度。 */
+const PREVIEW_EQUAL_COLUMN_WIDTH = `calc((100% - ${PREVIEW_SELECTION_COLUMN_WIDTH}px) / ${PREVIEW_EQUAL_WIDTH_COLUMN_COUNT})`;
+
 /** 注入 iframe 文档的表格、选择框和 Evidence 样式。 */
 const PREVIEW_DOCUMENT_STYLE = `
   html,
@@ -145,6 +160,20 @@ const PREVIEW_DOCUMENT_STYLE = `
     border-collapse: collapse;
     width: max-content;
     min-width: 100%;
+  }
+
+  table[${PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE}="${DOM_TRUE_ATTRIBUTE_VALUE}"] {
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+  }
+
+  [${PREVIEW_EQUAL_WIDTH_COLUMN_ATTRIBUTE}="${DOM_TRUE_ATTRIBUTE_VALUE}"] {
+    box-sizing: border-box;
+    width: ${PREVIEW_EQUAL_COLUMN_WIDTH} !important;
+    min-width: 0 !important;
+    max-width: none !important;
   }
 
   th,
@@ -230,9 +259,9 @@ const PREVIEW_DOCUMENT_STYLE = `
 
   [${SELECTION_COLUMN_ATTRIBUTE}] {
     box-sizing: border-box;
-    width: 42px;
-    min-width: 42px;
-    max-width: 42px;
+    width: ${PREVIEW_SELECTION_COLUMN_WIDTH}px;
+    min-width: ${PREVIEW_SELECTION_COLUMN_WIDTH}px;
+    max-width: ${PREVIEW_SELECTION_COLUMN_WIDTH}px;
     padding: 0;
     text-align: center;
     vertical-align: middle;
@@ -380,6 +409,42 @@ const getVisibleColSpan = (columnIndex: number, colSpan: number, visibleColumnIn
   return Array.from({ length: colSpan }, (_, offset) => columnIndex + offset)
     .filter(index => visibleColumnIndexes.has(index))
     .length;
+};
+
+/** 删除当前预览表直属的旧列宽定义，避免 Confluence colgroup 干扰三列均分。 */
+const removePreviewColumnGroups = (tableElement: HTMLTableElement): void => {
+  Array.from(tableElement.children)
+    .filter(child => child.tagName.toLowerCase() === 'colgroup')
+    .forEach(columnGroup => columnGroup.remove());
+};
+
+/** 清除预览副本中的旧宽度约束，避免行内样式覆盖当前均分规则。 */
+const clearPreviewWidthConstraints = (
+  element: HTMLElement,
+  clearTableLayout = false
+): void => {
+  ['width', 'min-width', 'max-width'].forEach(propertyName => element.style.removeProperty(propertyName));
+  if (clearTableLayout) {
+    element.style.removeProperty('table-layout');
+  }
+  element.removeAttribute('width');
+  if (!element.getAttribute('style')?.trim()) {
+    element.removeAttribute('style');
+  }
+};
+
+/** 当来源列和 Test 双列齐全时启用预览三列等宽布局。 */
+const applyPreviewEqualWidthTableLayout = (
+  tableElement: HTMLTableElement,
+  visibleColumnIndexes: Set<number>
+): boolean => {
+  if (visibleColumnIndexes.size !== PREVIEW_EQUAL_WIDTH_COLUMN_COUNT) {
+    return false;
+  }
+  clearPreviewWidthConstraints(tableElement, true);
+  tableElement.setAttribute(PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
+  removePreviewColumnGroups(tableElement);
+  return true;
 };
 
 /** 从 data url 创建 blob url。 */
@@ -587,6 +652,9 @@ const applyPreviewColumnVisibility = (
     return;
   }
 
+  /** Test 双列完整时，当前预览是否启用三列等宽布局。 */
+  const equalWidthLayoutEnabled = applyPreviewEqualWidthTableLayout(tableElement, visibleColumnIndexes);
+
   parseTableModel(tableElement).rows.forEach(row => {
     row.cells.forEach(cell => {
       /** 该单元格横跨范围内仍可见的逻辑列数。 */
@@ -594,6 +662,11 @@ const applyPreviewColumnVisibility = (
       if (visibleColSpan === 0) {
         cell.element.style.display = 'none';
         return;
+      }
+
+      if (equalWidthLayoutEnabled) {
+        clearPreviewWidthConstraints(cell.element);
+        cell.element.setAttribute(PREVIEW_EQUAL_WIDTH_COLUMN_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
       }
 
       if (visibleColSpan !== cell.colSpan) {
@@ -896,9 +969,16 @@ const clamp = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max);
 };
 
-/** 切换滑块拖拽视觉状态，不触发 React 渲染。 */
-const setHorizontalThumbDragging = (thumb: HTMLElement | null, dragging: boolean): void => {
+/** 切换横向拖拽交互状态，不触发 React 渲染。 */
+const setHorizontalDragInteraction = (
+  iframe: HTMLIFrameElement | null,
+  thumb: HTMLElement | null,
+  dragging: boolean
+): void => {
   thumb?.classList.toggle('is-dragging', dragging);
+  if (iframe) {
+    iframe.style.pointerEvents = dragging ? 'none' : '';
+  }
 };
 
 /** 渲染 iframe 表格预览组件。 */
@@ -1156,7 +1236,7 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
     cancelHorizontalDragFrame();
     pendingHorizontalDragClientXRef.current = null;
     horizontalDraggingRef.current = true;
-    setHorizontalThumbDragging(thumb, true);
+    setHorizontalDragInteraction(iframeRef.current, thumb, true);
   }, [cancelHorizontalDragFrame]);
 
   /** 横向滚动条滑块宽度百分比。 */
@@ -1171,6 +1251,8 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
     : 0;
 
   useEffect(() => {
+    /** 当前 iframe 节点，用于卸载时恢复鼠标交互。 */
+    const horizontalIframe = iframeRef.current;
     /** 当前滑块节点，用于卸载时清理拖拽样式。 */
     const horizontalThumb = horizontalThumbRef.current;
     /** 将高频指针移动合并到下一动画帧。 */
@@ -1187,17 +1269,19 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
       }
       flushHorizontalDrag();
       horizontalDraggingRef.current = false;
-      setHorizontalThumbDragging(horizontalThumbRef.current, false);
+      setHorizontalDragInteraction(iframeRef.current, horizontalThumbRef.current, false);
       updateHorizontalScrollMetrics();
     };
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('blur', handleMouseUp);
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('blur', handleMouseUp);
       horizontalDraggingRef.current = false;
       pendingHorizontalDragClientXRef.current = null;
-      setHorizontalThumbDragging(horizontalThumb, false);
+      setHorizontalDragInteraction(horizontalIframe, horizontalThumb, false);
       cancelHorizontalDragFrame();
     };
   }, [
@@ -1215,6 +1299,8 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
   }, [updateHorizontalScrollMetrics]);
 
   useEffect(() => {
+    /** 当前 iframe 节点，用于预览文档切换时恢复鼠标交互。 */
+    const horizontalIframe = iframeRef.current;
     /** 当前滑块节点，用于预览文档切换时清理样式。 */
     const horizontalThumb = horizontalThumbRef.current;
     return () => {
@@ -1222,7 +1308,7 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
       frameResizeCleanupRef.current();
       horizontalDraggingRef.current = false;
       pendingHorizontalDragClientXRef.current = null;
-      setHorizontalThumbDragging(horizontalThumb, false);
+      setHorizontalDragInteraction(horizontalIframe, horizontalThumb, false);
       cancelHorizontalDragFrame();
       frameScrollCleanupRef.current = () => {};
       frameResizeCleanupRef.current = () => {};

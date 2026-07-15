@@ -112,6 +112,7 @@ export const copyTestStorageApi = async (
         confluenceUrl,
         staffId: getEmployeeId(),
       },
+      skipError: true,
     }
   );
   return response as unknown as CopyTestStorageResponse;
@@ -149,6 +150,9 @@ export const copyTestAttachmentsApi = async (
     {
       ...data,
       staffId: getEmployeeId(),
+    },
+    {
+      skipError: true,
     }
   );
   return response as unknown as CopyTestAttachmentsResponse;
@@ -374,7 +378,7 @@ const getImageDataUrl = (image: CopyTestImage): string => {
 };
 
 /** 构建稳定 system prompt 与纯运行时 user JSON 分离的 aiChat 请求。 */
-const buildValidationRequest = (
+export const buildCopyTestValidationRequest = (
   images: CopyTestImage[],
   rows: CopyTestRowInput[],
   targetColumnName: string
@@ -434,7 +438,7 @@ export const copyTestValidationApi = async (
   targetColumnName: string
 ): Promise<CopyTestValidationResult[]> => {
   /** 当前校验稳定 system prompt 与运行时 JSON 分离后的请求。 */
-  const request = buildValidationRequest(images, rows, targetColumnName);
+  const request = buildCopyTestValidationRequest(images, rows, targetColumnName);
   /** Mock 与真实 aiChat 完全相同的响应外层对象。 */
   const response = await executeValidationRequest(request);
   return parseCopyTestValidationResponse(response, images, rows);

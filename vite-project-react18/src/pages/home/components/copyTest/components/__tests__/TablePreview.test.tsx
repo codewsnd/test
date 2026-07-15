@@ -34,12 +34,19 @@ const createEvidenceImage = (instanceId: string): string => {
   ].join('');
 };
 
+/** 包含旧列宽、合并行和严格 Test 双列 metadata 的预览表格。 */
 const mergedTableHtml = [
-  '<table><tr><th>Reference</th><th>Context A</th><th>Context B</th><th>Context C</th><th>Target</th>',
+  '<table style="width: 1660px; table-layout: auto;"><colgroup>',
+  '<col style="width: 80px;" /><col style="width: 220px;" /><col style="width: 240px;" />',
+  '<col style="width: 260px;" /><col style="width: 500px;" /><col style="width: 160px;" />',
+  '<col style="width: 200px;" /></colgroup>',
+  '<tr><th>Reference</th><th>Context A</th><th>Context B</th><th>Context C</th><th>Target</th>',
   `<th ${COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"`,
-  ` ${COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE}="4:Target">Test Result - Target</th>`,
+  ` ${COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE}="4:Target" data-copy-test-owner-id="4:Target"`,
+  ' data-copy-test-schema="2">Test Result - Target</th>',
   `<th ${COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE}="${COPY_TEST_GENERATED_EVIDENCE_TYPE}"`,
-  ` ${COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE}="4:Target">Test Evidence - Target</th></tr>`,
+  ` ${COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE}="4:Target" data-copy-test-owner-id="4:Target"`,
+  ' data-copy-test-schema="2">Test Evidence - Target</th></tr>',
   '<tr><td>Reference 1</td><td colspan="4" rowspan="4">',
   '<a href="javascript:unsafe()" onclick="unsafe()">Merged target</a><script>unsafeScript()</script></td>',
   `<td rowspan="4"><div ${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"><strong>Passed:</strong></div></td>`,
@@ -134,7 +141,11 @@ describe('TablePreview', () => {
     const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
     const fullSrcDoc = iframe.getAttribute('srcdoc');
     expect(fullSrcDoc).toContain('Reference');
-    expect(parseFrameDocument(iframe).querySelector(`[${SELECTION_CHECKBOX_ATTRIBUTE}]`)).toBeNull();
+    /** 未选择 Comparison Column 时保留 Confluence 原始列宽结构。 */
+    const fullDocument = parseFrameDocument(iframe);
+    expect(fullDocument.querySelector(`[${SELECTION_CHECKBOX_ATTRIBUTE}]`)).toBeNull();
+    expect(fullDocument.querySelector('table')?.getAttribute('data-copy-test-preview-equal-width-table')).toBeNull();
+    expect(fullDocument.querySelector('table > colgroup')).toBeTruthy();
 
     rerender(
       <TablePreview
@@ -152,7 +163,16 @@ describe('TablePreview', () => {
     const mergedCheckbox = findRowCheckbox(selectedDocument, [0]);
     const emptySourceCheckbox = findRowCheckbox(selectedDocument, [4]);
     const selectAll = selectedDocument.querySelector<HTMLInputElement>(`[${SELECTION_SELECT_ALL_ATTRIBUTE}]`);
+    /** 选列后启用三业务列等宽布局的顶层预览表。 */
+    const selectedTable = selectedDocument.querySelector('table');
+    /** 来源、Result、Evidence 三个参与均分的首行表头。 */
+    const equalWidthHeaders = selectedTable?.querySelectorAll(
+      'tr:first-child > [data-copy-test-preview-equal-width-column="true"]'
+    );
     expect(selectedSrcDoc).not.toBe(fullSrcDoc);
+    expect(selectedTable?.getAttribute('data-copy-test-preview-equal-width-table')).toBe('true');
+    expect(selectedTable?.querySelector('colgroup')).toBeNull();
+    expect(equalWidthHeaders).toHaveLength(3);
     expect(mergedCheckbox).toBeTruthy();
     expect(mergedCheckbox?.closest('td')?.getAttribute('rowspan')).toBe('4');
     expect(emptySourceCheckbox?.disabled).toBe(true);
@@ -288,7 +308,8 @@ describe('TablePreview', () => {
     vi.stubGlobal('requestAnimationFrame', requestAnimationFrame);
     vi.stubGlobal('cancelAnimationFrame', cancelAnimationFrame);
     const handlers = createHandlers();
-    const { unmount } = render(
+    /** 提供预览切换和卸载能力的组件渲染结果。 */
+    const { rerender, unmount } = render(
       <TablePreview
         onEvidenceImageDelete={handlers.onDelete}
         onEvidenceImagePreview={handlers.onPreview}
@@ -341,11 +362,42 @@ describe('TablePreview', () => {
     expect(scrollbar.getAttribute('aria-valuenow')).toBe('40');
     fireEvent(window, new Event('resize'));
 
+    /** 浏览器失焦时应消费最终位置并结束拖拽。 */
     fireEvent.mouseDown(thumb, { clientX: 10 });
     fireEvent(window, new MouseEvent('mousemove', { clientX: 20 }));
     expect(requestAnimationFrame).toHaveBeenCalledTimes(3);
-    unmount();
+    fireEvent(window, new Event('blur'));
     expect(cancelAnimationFrame).toHaveBeenCalledWith(3);
+    expect(scrollRoot.scrollLeft).toBeCloseTo(54.667, 3);
+    fireEvent(window, new MouseEvent('mousemove', { clientX: 30 }));
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(3);
+
+    /** srcDoc 变化时应取消尚未绘制的拖拽。 */
+    fireEvent.mouseDown(thumb, { clientX: 10 });
+    fireEvent(window, new MouseEvent('mousemove', { clientX: 20 }));
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(4);
+    rerender(
+      <TablePreview
+        onEvidenceImageDelete={handlers.onDelete}
+        onEvidenceImagePreview={handlers.onPreview}
+        onSelectedRowIndexesChange={handlers.onRowsChange}
+        selectedColumnIndex={3}
+        selectedRowIndexes={[0]}
+        table={mergedTable}
+      />
+    );
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(4);
+    fireEvent(window, new MouseEvent('mousemove', { clientX: 30 }));
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(4);
+
+    /** 卸载时应取消尚未绘制的拖拽。 */
+    /** srcDoc 更新后重新渲染的当前滑块节点。 */
+    const currentThumb = screen.getByRole('scrollbar').firstElementChild as HTMLElement;
+    fireEvent.mouseDown(currentThumb, { clientX: 10 });
+    fireEvent(window, new MouseEvent('mousemove', { clientX: 20 }));
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(5);
+    unmount();
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(5);
     expect(disconnect).toHaveBeenCalledTimes(1);
   });
 

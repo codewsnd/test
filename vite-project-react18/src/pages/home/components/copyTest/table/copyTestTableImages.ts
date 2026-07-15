@@ -3,6 +3,7 @@
  */
 import type { CopyTestImage } from '../api/copyTestApi';
 import {
+  COPY_TEST_EVIDENCE_COLUMN_WIDTH,
   COPY_TEST_EVIDENCE_IMAGE_HEIGHT,
   COPY_TEST_EVIDENCE_IMAGE_WIDTH,
   COPY_TEST_EXPORT_SCOPE_ATTRIBUTE,
@@ -11,6 +12,7 @@ import {
   COPY_TEST_GENERATED_RESULT_TYPE,
   COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE,
   COPY_TEST_OWNER_ID_ATTRIBUTE,
+  COPY_TEST_RESULT_COLUMN_WIDTH,
   COPY_TEST_SCHEMA_ATTRIBUTE,
   COPY_TEST_SCHEMA_VERSION,
 } from './tableConstants';
@@ -279,7 +281,9 @@ const buildExportImages = (
   return fileNames.flatMap(fileName => {
     /** 与当前 storage 附件引用匹配的内存图片。 */
     const image = imageMap.get(fileName);
-    return image ? [{ base64: image.base64, fileName: image.fileName }] : [];
+    return image?.base64.trim()
+      ? [{ base64: image.base64, fileName: image.fileName }]
+      : [];
   });
 };
 
@@ -293,6 +297,24 @@ const isManagedColumnType = (
   type: string | null
 ): type is typeof COPY_TEST_GENERATED_EVIDENCE_TYPE | typeof COPY_TEST_GENERATED_RESULT_TYPE => {
   return type === COPY_TEST_GENERATED_EVIDENCE_TYPE || type === COPY_TEST_GENERATED_RESULT_TYPE;
+};
+
+/** 将当前受管 Result 或 Evidence 单元格宽度规范为对应的 Confluence 默认值。 */
+const normalizeManagedColumnWidth = (
+  cell: HTMLTableCellElement,
+  type: CopyTestManagedCell['type']
+): boolean => {
+  /** 当前生成列类型对应的默认像素宽度。 */
+  const width = type === COPY_TEST_GENERATED_RESULT_TYPE
+    ? COPY_TEST_RESULT_COLUMN_WIDTH
+    : COPY_TEST_EVIDENCE_COLUMN_WIDTH;
+  /** 写入 Confluence storage 的规范 CSS 宽度。 */
+  const widthStyle = `${width}px`;
+  if (cell.style.width === widthStyle) {
+    return false;
+  }
+  cell.style.width = widthStyle;
+  return true;
 };
 
 /** 按 schema 2 ownership、source key 和导出作用域解析当前 managed cell。 */
@@ -383,11 +405,13 @@ const buildManagedCellReplacement = (
     return null;
   }
 
+  /** 当前 managed 单元格的 Confluence 默认宽度是否发生规范化。 */
+  const widthChanged = normalizeManagedColumnWidth(managedCell.cell, managedCell.type);
   /** 对当前 managed 单元格执行类型专属处理后是否发生内容变化。 */
-  const changed = managedCell.type === COPY_TEST_GENERATED_EVIDENCE_TYPE
+  const contentChanged = managedCell.type === COPY_TEST_GENERATED_EVIDENCE_TYPE
     ? processEvidenceCell(managedCell.cell, context)
     : processResultCell(managedCell.cell);
-  if (!changed) {
+  if (!widthChanged && !contentChanged) {
     return null;
   }
   return {

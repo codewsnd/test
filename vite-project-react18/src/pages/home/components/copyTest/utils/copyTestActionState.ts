@@ -9,7 +9,7 @@ export interface CopyTestActionStateParams {
   attachmentsLoading: boolean;
   /** 是否正在回写 Confluence storage。 */
   exportLoading: boolean;
-  /** 当前生成双列是否包含可导出内容。 */
+  /** 当前 Comparison Column 是否包含可回写的本地变更，包括清空双列。 */
   hasExportableContent: boolean;
   /** 当前 Comparison Column 的逻辑列下标。 */
   selectedColumnIndex?: number;
