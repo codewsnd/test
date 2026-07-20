@@ -53,15 +53,11 @@ export interface CopyTestColumnContext {
 /** 构建来源行组所需的最小表格结构。 */
 type CopyTestTableStructure = Pick<CopyTestTableEntry, 'headers' | 'model'>;
 
-/** 判断表格是否包含至少一个非空 Header 和一行数据。 */
+/** 判断表格是否包含至少一个逻辑列和一行数据。 */
 const isValidCopyTestTable = (table: CopyTestWorkingTable): boolean => {
   return (
     table.model.rows.length > 1 &&
-    table.model.columnCount > 0 &&
-    table.headers.some(
-      /** 至少一个表头含有可供用户识别和选择的文本。 */
-      header => header.label.trim() !== ''
-    )
+    table.model.columnCount > 0
   );
 };
 

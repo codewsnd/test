@@ -140,4 +140,23 @@ describe('copyTestSessionReducer', () => {
     });
     expect(reloaded.pendingExportPairKeys).toEqual([]);
   });
+
+  it('clears every imported table and selection when the current URL session is invalidated', () => {
+    const loaded = copyTestSessionReducer(copyTestSessionInitialState, {
+      storageHtml: 'storage-v1',
+      tables: [createTable(0)],
+      type: 'LOADED',
+    });
+    const reset = copyTestSessionReducer(loaded, { type: 'RESET' });
+
+    expect(reset).toEqual({
+      originalStorageHtml: '',
+      pendingExportPairKeys: [],
+      revision: 2,
+      selectedColumnIndex: undefined,
+      selectedRowIndexes: [],
+      selectedTableIndex: undefined,
+      tables: [],
+    });
+  });
 });

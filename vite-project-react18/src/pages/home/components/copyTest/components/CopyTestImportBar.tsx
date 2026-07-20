@@ -42,7 +42,12 @@ export const CopyTestImportBar: React.FC<CopyTestImportBarProps> = ({
           placeholder="Confluence URL"
           disabled={disabled}
         />
-        <Button type="primary" onClick={onImport} loading={loading}>
+        <Button
+          type="primary"
+          disabled={disabled}
+          onClick={onImport}
+          loading={loading}
+        >
           Import
         </Button>
       </Space.Compact>

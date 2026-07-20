@@ -12,6 +12,7 @@ import {
   findGeneratedColumnIndexes,
   getSourceColumnKey,
   parseCopyTestStorageTables,
+  type CopyTestWorkingTable,
 } from '../copyTestTableParser';
 import {
   COPY_TEST_EVIDENCE_CARD_ATTRIBUTE,
@@ -90,6 +91,26 @@ const buildSnapshot = (results: CopyTestValidationResultWithEvidence[]) => ({
   images,
   results,
 });
+
+/** 从指定物理行移除 managed Result，构造 Evidence 仍存在的局部 DOM 恢复场景。 */
+const removeManagedResultAtRow = (
+  table: CopyTestWorkingTable,
+  physicalRowIndex: number,
+  sourceColumnKey: string
+): CopyTestWorkingTable => {
+  /** 当前来源列生成双列的逻辑下标。 */
+  const indexes = findGeneratedColumnIndexes(table.headers, sourceColumnKey);
+  /** 指定物理行直接拥有的 Result 单元格。 */
+  const resultCell = table.model.rows[physicalRowIndex].slots[indexes.result!]!.cell.element;
+  /** 当前 Result 单元格中待移除的 managed 内容。 */
+  const resultRoot = resultCell.querySelector(
+    `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+  );
+  resultRoot?.remove();
+  /** 移除局部 Result 后重新解析的工作表格。 */
+  const tableElement = resultCell.closest('table')!;
+  return parseCopyTestStorageTables(tableElement.outerHTML)[0];
+};
 
 describe('copyTestTableEditor', () => {
   it('creates generated columns, writes strict results, and guards evidence deletion', () => {
@@ -240,6 +261,96 @@ describe('copyTestTableEditor', () => {
     expect(validated.workingHtml).not.toContain(SCREEN_3.fileName);
   });
 
+  it('keeps Failed and language issues when a rowspan source group has no Evidence', () => {
+    /** 中间合并原子组没有命中图片、前后两组命中同一图片的校验结果。 */
+    const results = bindResultImages([
+      {
+        evidenceImageFileNames: [SCREEN_1.fileName],
+        languageIssues: [],
+        passed: true,
+        rowIndex: 0,
+      },
+      {
+        evidenceImageFileNames: [],
+        languageIssues: ['Expected copy is missing.'],
+        passed: false,
+        rowIndex: 1,
+      },
+      {
+        evidenceImageFileNames: [SCREEN_1.fileName],
+        languageIssues: [],
+        passed: true,
+        rowIndex: 3,
+      },
+    ], images);
+    /** 应用无 Evidence 失败结果后的工作表格。 */
+    const validated = applyCopyTestValidationResults(
+      parseCopyTestStorageTables(middleMergedStorageHtml)[0],
+      results,
+      1,
+      'Target',
+      images
+    );
+    /** Target 来源列稳定 ownership key。 */
+    const sourceKey = getSourceColumnKey(1, 'Target');
+    /** Target 生成双列的逻辑下标。 */
+    const indexes = findGeneratedColumnIndexes(validated.headers, sourceKey);
+    /** 无 Evidence 失败原子组的 Result 单元格。 */
+    const failedResultCell = validated.model.rows[2].slots[indexes.result!]!.cell.element;
+    /** 无 Evidence 失败原子组的 Evidence 单元格。 */
+    const emptyEvidenceCell = validated.model.rows[2].slots[indexes.evidence!]!.cell.element;
+    /** 前后 Evidence 单元格，用于证明空图片原子组阻断跨组合并。 */
+    const evidenceCells = [1, 4].map(rowIndex => {
+      return validated.model.rows[rowIndex].slots[indexes.evidence!]!.cell.element;
+    });
+
+    expect(failedResultCell.getAttribute('rowspan')).toBe('2');
+    expect(failedResultCell.textContent).toContain('Failed:');
+    expect(failedResultCell.textContent).toContain('Expected copy is missing.');
+    expect(getResultImageIds(failedResultCell)).toEqual([]);
+    expect(emptyEvidenceCell.getAttribute('rowspan')).toBe('2');
+    expect(emptyEvidenceCell.querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_EVIDENCE_TYPE}"]`
+    )).toBeNull();
+    expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1))).toEqual([1, 1]);
+    expect(evidenceCells.every(cell => cell.querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_EVIDENCE_TYPE}"]`
+    ))).toBe(true);
+
+    /** 模拟回写后重新 Import 的工作表格。 */
+    const imported = parseCopyTestStorageTables(validated.workingHtml)[0];
+    /** 删除首个 Evidence 组的唯一图片，验证中间无图 Failed 不受影响。 */
+    const imageId = getCopyTestImageId(SCREEN_1);
+    const deleted = deleteCopyTestEvidenceImage(
+      imported,
+      { imageId, instanceId: `${sourceKey}:1:${imageId}` },
+      1,
+      'Target'
+    );
+
+    expect(deleted.removed).toBe(true);
+    expect(deleted.validationResults?.map(result => ({
+      evidenceImageFileNames: result.evidenceImageFileNames,
+      languageIssues: result.languageIssues,
+      rowIndex: result.rowIndex,
+    }))).toEqual([
+      {
+        evidenceImageFileNames: [],
+        languageIssues: ['Expected copy is missing.'],
+        rowIndex: 1,
+      },
+      {
+        evidenceImageFileNames: [SCREEN_1.fileName],
+        languageIssues: [],
+        rowIndex: 3,
+      },
+    ]);
+    expect(deleted.table.model.rows[2].slots[indexes.result!]!.cell.element.textContent).toContain('Failed:');
+    expect(deleted.table.model.rows[2].slots[indexes.result!]!.cell.element.textContent).toContain(
+      'Expected copy is missing.'
+    );
+  });
+
   it('hydrates the new DOM contract when deleting after a table reload without a memory snapshot', () => {
     const table = parseCopyTestStorageTables([
       '<table><tr><th>Target</th></tr>',
@@ -278,7 +389,6 @@ describe('copyTestTableEditor', () => {
 
     expect(deleted.removed).toBe(true);
     expect(deleted.validationResults?.map(result => result.evidenceImageFileNames)).toEqual([
-      [],
       [SCREEN_2.fileName],
     ]);
     expect(resultRoots).toHaveLength(1);
@@ -527,10 +637,48 @@ describe('copyTestTableEditor', () => {
     expect(deleted.table.workingHtml).not.toContain(SCREEN_1.fileName);
     expect(deleted.table.workingHtml).not.toContain(SCREEN_3.fileName);
     expect(deleted.validationResults!.map(result => result.evidenceImageFileNames)).toEqual([
-      [],
-      [],
       [SCREEN_2.fileName],
     ]);
+  });
+
+  it('removes Failed and language issues when deleting its final Evidence image', () => {
+    /** 单行失败且仅引用一张 Evidence 图片的来源表格。 */
+    const table = parseCopyTestStorageTables(
+      '<table><tr><th>Target</th></tr><tr><td>copy</td></tr></table>'
+    )[0];
+    /** 删除前应正常展示 Failed、失败原因和 Screen01 的校验结果。 */
+    const results = bindResultImages([{
+      evidenceImageFileNames: [SCREEN_1.fileName],
+      languageIssues: ['Visible copy differs.'],
+      passed: false,
+      rowIndex: 0,
+    }], images);
+    /** 应用初次失败结果后的工作表格。 */
+    const validated = applyCopyTestValidationResults(table, results, 0, 'Target', images);
+    /** Target 来源列稳定 ownership key。 */
+    const sourceKey = getSourceColumnKey(0, 'Target');
+    /** 唯一 Evidence 图片的稳定 ID。 */
+    const imageId = getCopyTestImageId(SCREEN_1);
+
+    expect(validated.workingHtml).toContain('Failed:');
+    expect(validated.workingHtml).toContain('Visible copy differs.');
+
+    /** 删除最后一张 Evidence 图片后的局部重投影结果。 */
+    const deleted = deleteCopyTestEvidenceImage(
+      validated,
+      { imageId, instanceId: `${sourceKey}:1:${imageId}` },
+      0,
+      'Target',
+      buildSnapshot(results)
+    );
+
+    expect(deleted.removed).toBe(true);
+    expect(deleted.validationResults).toEqual([]);
+    expect(deleted.table.workingHtml).not.toContain('Failed:');
+    expect(deleted.table.workingHtml).not.toContain('Visible copy differs.');
+    expect(parseHtml(deleted.table.workingHtml).querySelectorAll(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    )).toHaveLength(0);
   });
 
   it('renumbers remaining screens and removes Passed after every image is deleted', () => {
@@ -596,6 +744,160 @@ describe('copyTestTableEditor', () => {
     expect(deletedAgainDoc.querySelectorAll(
       `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
     )).toHaveLength(0);
+  });
+
+  it('deletes the visible Evidence instance on the first attempt when the caller snapshot is stale', () => {
+    /** 单行同时引用两张图片的当前工作表格。 */
+    const table = parseCopyTestStorageTables(
+      '<table><tr><th>Target</th></tr><tr><td>copy</td></tr></table>'
+    )[0];
+    /** 当前 working DOM 中真实存在的两张 Evidence 关系。 */
+    const currentResults = bindResultImages([{
+      evidenceImageFileNames: [SCREEN_1.fileName, SCREEN_2.fileName],
+      languageIssues: [],
+      passed: true,
+      rowIndex: 0,
+    }], images);
+    /** 模拟仍只记录第二张图片的过期内存快照。 */
+    const staleResults = bindResultImages([{
+      evidenceImageFileNames: [SCREEN_2.fileName],
+      languageIssues: [],
+      passed: true,
+      rowIndex: 0,
+    }], images);
+    /** 应用当前真实结果后的工作表格。 */
+    const validated = applyCopyTestValidationResults(table, currentResults, 0, 'Target', images);
+    /** 当前来源列的稳定 ownership key。 */
+    const sourceKey = getSourceColumnKey(0, 'Target');
+    /** 当前界面首张 Evidence 图片的稳定 ID。 */
+    const firstImageId = getCopyTestImageId(SCREEN_1);
+
+    /** 使用过期快照确认删除当前界面中的首张图片。 */
+    const deleted = deleteCopyTestEvidenceImage(
+      validated,
+      { imageId: firstImageId, instanceId: `${sourceKey}:1:${firstImageId}` },
+      0,
+      'Target',
+      buildSnapshot(staleResults)
+    );
+    /** 删除后用于检查 Screen 重新编号的文档。 */
+    const doc = parseHtml(deleted.table.workingHtml);
+
+    expect(deleted.removed).toBe(true);
+    expect(doc.querySelectorAll(
+      `[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}="${firstImageId}"]`
+    )).toHaveLength(0);
+    expect(Array.from(doc.querySelectorAll(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`))
+      .map(card => card.querySelector('strong')?.textContent)).toEqual(['Screen01']);
+    expect(deleted.validationResults?.map(result => result.evidenceImageFileNames)).toEqual([
+      [SCREEN_2.fileName],
+    ]);
+  });
+
+  it('falls back to an aligned caller snapshot when live DOM hydration lacks the target Result', () => {
+    /** 两行分别拥有独立 Evidence 连通块的来源表格。 */
+    const table = parseCopyTestStorageTables([
+      '<table><tr><th>Target</th></tr>',
+      '<tr><td>copy 1</td></tr><tr><td>copy 2</td></tr></table>',
+    ].join(''))[0];
+    /** 当前完整结构化结果，供 fallback 精确恢复目标组。 */
+    const results = bindResultImages([
+      {
+        evidenceImageFileNames: [SCREEN_1.fileName],
+        languageIssues: [],
+        passed: true,
+        rowIndex: 0,
+      },
+      {
+        evidenceImageFileNames: [SCREEN_2.fileName],
+        languageIssues: [],
+        passed: true,
+        rowIndex: 1,
+      },
+    ], images);
+    /** 完整校验结果写入后的工作表格。 */
+    const validated = applyCopyTestValidationResults(table, results, 0, 'Target', images);
+    /** 当前来源列的稳定 ownership key。 */
+    const sourceKey = getSourceColumnKey(0, 'Target');
+    /** 移除首行 Result、但保留其 Evidence 的局部不完整 DOM。 */
+    const incomplete = removeManagedResultAtRow(validated, 1, sourceKey);
+    /** 删除前不受影响的第二个 Evidence 连通块 HTML。 */
+    const indexes = findGeneratedColumnIndexes(incomplete.headers, sourceKey);
+    const unrelatedEvidenceBefore = incomplete.model.rows[2]
+      .slots[indexes.evidence!]!.cell.element.outerHTML;
+    /** 当前界面首张 Evidence 图片的稳定 ID。 */
+    const firstImageId = getCopyTestImageId(SCREEN_1);
+
+    /** live hydrate 缺少首行 Result 时，应使用对齐的调用方快照完成首次删除。 */
+    const deleted = deleteCopyTestEvidenceImage(
+      incomplete,
+      { imageId: firstImageId, instanceId: `${sourceKey}:1:${firstImageId}` },
+      0,
+      'Target',
+      buildSnapshot(results)
+    );
+    /** 删除后生成双列的逻辑下标。 */
+    const deletedIndexes = findGeneratedColumnIndexes(deleted.table.headers, sourceKey);
+
+    expect(deleted.removed).toBe(true);
+    expect(deleted.table.workingHtml).not.toContain(SCREEN_1.fileName);
+    expect(deleted.table.workingHtml).toContain(SCREEN_2.fileName);
+    expect(deleted.table.model.rows[2]
+      .slots[deletedIndexes.evidence!]!.cell.element.outerHTML).toBe(unrelatedEvidenceBefore);
+  });
+
+  it('fails closed when a stale target or mismatched fallback snapshot is not current', () => {
+    /** 单行真实展示两张 Evidence 图片的来源表格。 */
+    const table = parseCopyTestStorageTables(
+      '<table><tr><th>Target</th></tr><tr><td>copy</td></tr></table>'
+    )[0];
+    /** working DOM 当前真实拥有的两张图片关系。 */
+    const currentResults = bindResultImages([{
+      evidenceImageFileNames: [SCREEN_1.fileName, SCREEN_2.fileName],
+      languageIssues: [],
+      passed: true,
+      rowIndex: 0,
+    }], images);
+    /** 缺少第二张当前图片的过期调用方关系。 */
+    const mismatchedResults = bindResultImages([{
+      evidenceImageFileNames: [SCREEN_1.fileName],
+      languageIssues: [],
+      passed: true,
+      rowIndex: 0,
+    }], images);
+    /** 当前完整结果写入后的工作表格。 */
+    const validated = applyCopyTestValidationResults(table, currentResults, 0, 'Target', images);
+    /** 当前来源列的稳定 ownership key。 */
+    const sourceKey = getSourceColumnKey(0, 'Target');
+    /** 构造 Result 缺失、只能进入调用方快照 fallback 的工作表格。 */
+    const incomplete = removeManagedResultAtRow(validated, 1, sourceKey);
+    /** 当前界面首张 Evidence 图片的稳定 ID。 */
+    const firstImageId = getCopyTestImageId(SCREEN_1);
+
+    /** 图片集合不一致的快照不得重写当前 Evidence 连通块。 */
+    const mismatched = deleteCopyTestEvidenceImage(
+      incomplete,
+      { imageId: firstImageId, instanceId: `${sourceKey}:1:${firstImageId}` },
+      0,
+      'Target',
+      buildSnapshot(mismatchedResults)
+    );
+    /** 当前 DOM 已不存在、但旧快照仍包含的虚假删除目标。 */
+    const missing = deleteCopyTestEvidenceImage(
+      validated,
+      { imageId: SCREEN_3.fileName, instanceId: `${sourceKey}:1:${SCREEN_3.fileName}` },
+      0,
+      'Target',
+      buildSnapshot(bindResultImages([{
+        evidenceImageFileNames: [SCREEN_3.fileName],
+        languageIssues: [],
+        passed: true,
+        rowIndex: 0,
+      }], images))
+    );
+
+    expect(mismatched).toEqual({ imageStillUsed: false, removed: false, table: incomplete });
+    expect(missing).toEqual({ imageStillUsed: false, removed: false, table: validated });
   });
 
   it('keeps guard branches synchronous and returns the original table for invalid working html', () => {

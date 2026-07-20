@@ -9,6 +9,7 @@ describe('copyTestActionState', () => {
       attachmentsLoading: false,
       exportLoading: false,
       hasExportableContent: true,
+      hasActiveImportedSession: true,
       selectedColumnIndex: 1,
       selectedRowCount: 1,
       selectedTable: table,
@@ -28,6 +29,7 @@ describe('copyTestActionState', () => {
       attachmentsLoading: true,
       exportLoading: true,
       hasExportableContent: false,
+      hasActiveImportedSession: false,
       selectedColumnIndex: undefined,
       selectedRowCount: 0,
       selectedTable: undefined,
@@ -37,5 +39,26 @@ describe('copyTestActionState', () => {
       uploadPreparing: true,
       validationLoading: true,
     })).toMatchObject({ canExportToConfluence: false, canUpload: false, canValidate: false, importBusy: true, uploadBusy: true });
+  });
+
+  it('disables every table action when the imported session is inactive', () => {
+    expect(buildCopyTestActionState({
+      attachmentsLoading: false,
+      exportLoading: false,
+      hasExportableContent: true,
+      hasActiveImportedSession: false,
+      selectedColumnIndex: 1,
+      selectedRowCount: 1,
+      selectedTable: table,
+      storageHtml: '<table />',
+      storageLoading: false,
+      uploadImageCount: 1,
+      uploadPreparing: false,
+      validationLoading: false,
+    })).toMatchObject({
+      canExportToConfluence: false,
+      canUpload: false,
+      canValidate: false,
+    });
   });
 });

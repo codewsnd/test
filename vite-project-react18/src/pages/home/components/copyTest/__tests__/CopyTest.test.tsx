@@ -2,9 +2,11 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import CopyTest, {
-  COPY_TEST_RENDERER_SCOPE_ATTRIBUTE,
   COPY_TEST_TRIGGER_CLASS_NAME,
 } from '../CopyTest';
+
+/** CopyTest 主弹窗标题。 */
+const CONFLUENCE_URL_TITLE = 'Confluence URL';
 
 const hoisted = vi.hoisted(() => ({
   controller: {
@@ -30,6 +32,7 @@ const hoisted = vi.hoisted(() => ({
     handleRemoveUploadImage: vi.fn(),
     handleTableChange: vi.fn(),
     handleValidateClick: vi.fn(),
+    hasActiveImportedSession: true,
     importBusy: false,
     importError: undefined as string | undefined,
     importLoading: true,
@@ -76,20 +79,21 @@ vi.mock('../components', () => ({
 }));
 
 beforeEach(() => {
+  hoisted.controller.hasActiveImportedSession = true;
   hoisted.controller.importError = undefined;
 });
 
 describe('CopyTest', () => {
   it('renders controlled modal children and handles close/delete callbacks', () => {
     render(<CopyTest open={true} onClose={vi.fn()} />);
-    expect(screen.getByText('Copy Test')).toBeTruthy();
+    expect(screen.getByText(CONFLUENCE_URL_TITLE)).toBeTruthy();
     expect(screen.getByText('import-bar')).toBeTruthy();
     expect(screen.getByText('loading-block')).toBeTruthy();
     expect(screen.getByText('selectors')).toBeTruthy();
     expect(screen.getByText('table-preview')).toBeTruthy();
     fireEvent.click(screen.getByText('ok-Delete screenshot?'));
     fireEvent.click(screen.getByText('cancel-Delete screenshot?'));
-    fireEvent.click(screen.getByText('cancel-Copy Test'));
+    fireEvent.click(screen.getByText(`cancel-${CONFLUENCE_URL_TITLE}`));
     expect(hoisted.controller.handleConfirmEvidenceImageDelete).toHaveBeenCalledTimes(1);
     expect(hoisted.controller.handleCancelEvidenceImageDelete).toHaveBeenCalledTimes(1);
     expect(hoisted.controller.handleMainClose).toHaveBeenCalledTimes(1);
@@ -103,18 +107,40 @@ describe('CopyTest', () => {
     expect(screen.queryByText('table-preview')).toBeNull();
   });
 
-  it('opens uncontrolled modal from scoped trigger', () => {
+  it('hides the stale table workspace when the input no longer has an active imported session', () => {
+    hoisted.controller.hasActiveImportedSession = false;
+    render(<CopyTest open={true} />);
+    expect(screen.getByText('import-bar')).toBeTruthy();
+    expect(screen.queryByText('selectors')).toBeNull();
+    expect(screen.queryByText('table-preview')).toBeNull();
+  });
+
+  it('opens one uncontrolled modal from class triggers in any DOM position', () => {
     hoisted.controller.deleteImageTarget = null;
     hoisted.controller.importLoading = false;
     hoisted.controller.tableState = { ...hoisted.controller.tableState, selectedTable: undefined, tables: [] };
-    const { container } = render(
-      <div {...{ [COPY_TEST_RENDERER_SCOPE_ATTRIBUTE]: 'true' }}>
-        <button className={COPY_TEST_TRIGGER_CLASS_NAME}>open copy test</button>
-        <CopyTest />
+    const onClose = vi.fn();
+    render(
+      <div>
+        <button>unrelated action</button>
+        <button className={COPY_TEST_TRIGGER_CLASS_NAME}>open from button</button>
+        <CopyTest onClose={onClose} />
+        <div className={COPY_TEST_TRIGGER_CLASS_NAME}>
+          <span>open from nested child</span>
+        </div>
+        <CopyTest onClose={onClose} />
       </div>
     );
-    expect(screen.queryByText('Copy Test')).toBeNull();
-    fireEvent.click(container.querySelector(`.${COPY_TEST_TRIGGER_CLASS_NAME}`) as Element);
-    expect(screen.getByText('Copy Test')).toBeTruthy();
+    expect(screen.queryByText(CONFLUENCE_URL_TITLE)).toBeNull();
+    fireEvent.click(screen.getByText('unrelated action'));
+    expect(screen.queryByText(CONFLUENCE_URL_TITLE)).toBeNull();
+    fireEvent.click(screen.getByText('open from button'));
+    expect(screen.queryAllByText(CONFLUENCE_URL_TITLE)).toHaveLength(1);
+    fireEvent.click(screen.getByText(`cancel-${CONFLUENCE_URL_TITLE}`));
+    expect(screen.queryByText(CONFLUENCE_URL_TITLE)).toBeNull();
+    fireEvent.click(screen.getByText('open from nested child'));
+    expect(screen.queryAllByText(CONFLUENCE_URL_TITLE)).toHaveLength(1);
+    fireEvent.click(screen.getByText(`cancel-${CONFLUENCE_URL_TITLE}`));
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 });

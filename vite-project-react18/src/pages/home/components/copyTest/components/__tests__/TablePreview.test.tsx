@@ -1,6 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TablePreview from '../TablePreview';
+import {
+  COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH,
+  COPY_TEST_PREVIEW_HEADER_WIDTH,
+  COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH,
+} from '../../constants';
 import { parseCopyTestStorageTables } from '../../table/copyTestTableParser';
 import {
   COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE,
@@ -19,6 +24,12 @@ vi.mock('antd', () => ({
 
 const BASE64_IMAGE = 'data:image/png;base64,QUJD';
 const PREVIEW_MESSAGE_TYPE = 'copy-test-preview-message';
+const PREVIEW_COLUMN_ROLE_ATTRIBUTE = 'data-copy-test-preview-column-role';
+const PREVIEW_FIXED_WIDTH_TABLE_ATTRIBUTE = 'data-copy-test-preview-fixed-width-table';
+const PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE = 'data-copy-test-preview-equal-width-table';
+const PREVIEW_EQUAL_BUSINESS_COLUMN_WIDTH = 'calc((100% - 42px) / 3)';
+/** Evidence 删除按钮的可访问选择器。 */
+const EVIDENCE_DELETE_BUTTON_SELECTOR = 'button[aria-label="Delete evidence image"]';
 const SELECTION_CHECKBOX_ATTRIBUTE = 'data-copy-test-selection-checkbox';
 const SELECTION_ROW_INDEXES_ATTRIBUTE = 'data-copy-test-selection-row-indexes';
 const SELECTION_SELECT_ALL_ATTRIBUTE = 'data-copy-test-selection-all';
@@ -80,6 +91,14 @@ const parseFrameDocument = (iframe: HTMLIFrameElement): Document => {
   return new DOMParser().parseFromString(iframe.getAttribute('srcdoc') || '', 'text/html');
 };
 
+/** 读取顶层预览 colgroup 的角色与宽度表达式。 */
+const readPreviewColumnLayout = (doc: Document) => {
+  return Array.from(doc.querySelectorAll('table > colgroup > col')).map(column => ({
+    role: column.getAttribute(PREVIEW_COLUMN_ROLE_ATTRIBUTE),
+    width: column.getAttribute('width'),
+  }));
+};
+
 /** 按行下标读取 iframe 选择框。 */
 const findRowCheckbox = (doc: Document, rowIndexes: number[]): HTMLInputElement | undefined => {
   return Array.from(doc.querySelectorAll<HTMLInputElement>(`[${SELECTION_CHECKBOX_ATTRIBUTE}]`))
@@ -102,6 +121,12 @@ const installFrameScrollContent = (iframe: HTMLIFrameElement) => {
 
 beforeEach(() => {
   let objectUrlIndex = 0;
+  /** happy-dom 将 srcDoc iframe 建模为 null origin，统一替换底层发送实现以测试调用契约。 */
+  const iframeForPrototype = document.createElement('iframe');
+  document.body.appendChild(iframeForPrototype);
+  const iframeWindowPrototype = Object.getPrototypeOf(iframeForPrototype.contentWindow) as Window;
+  vi.spyOn(iframeWindowPrototype, 'postMessage').mockImplementation(() => undefined);
+  iframeForPrototype.remove();
   vi.spyOn(URL, 'createObjectURL').mockImplementation(() => {
     objectUrlIndex += 1;
     return `blob:preview-${objectUrlIndex}`;
@@ -115,8 +140,15 @@ afterEach(() => {
 });
 
 describe('TablePreview', () => {
+  it('defines configurable widths for normal, Result, and Evidence headers', () => {
+    expect(COPY_TEST_PREVIEW_HEADER_WIDTH).toBe(200);
+    expect(COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH).toBe(300);
+    expect(COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH).toBe(300);
+  });
+
   it('renders empty, full-table, and selected-column previews with merged row selection', () => {
     const handlers = createHandlers();
+    const originalWorkingHtml = mergedTable.workingHtml;
     const emptyRender = render(
       <TablePreview
         onEvidenceImageDelete={handlers.onDelete}
@@ -141,11 +173,26 @@ describe('TablePreview', () => {
     const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
     const fullSrcDoc = iframe.getAttribute('srcdoc');
     expect(fullSrcDoc).toContain('Reference');
-    /** 未选择 Comparison Column 时保留 Confluence 原始列宽结构。 */
+    /** 未选择 Comparison Column 时也统一覆盖 Confluence 原始列宽。 */
     const fullDocument = parseFrameDocument(iframe);
+    const fullTable = fullDocument.querySelector<HTMLTableElement>('table');
     expect(fullDocument.querySelector(`[${SELECTION_CHECKBOX_ATTRIBUTE}]`)).toBeNull();
-    expect(fullDocument.querySelector('table')?.getAttribute('data-copy-test-preview-equal-width-table')).toBeNull();
-    expect(fullDocument.querySelector('table > colgroup')).toBeTruthy();
+    expect(fullDocument.querySelectorAll('img[src="blob:preview-1"]')).toHaveLength(2);
+    expect(fullDocument.querySelector(EVIDENCE_DELETE_BUTTON_SELECTOR)).toBeNull();
+    expect(fullTable?.getAttribute(PREVIEW_FIXED_WIDTH_TABLE_ATTRIBUTE)).toBe('true');
+    expect(fullTable?.getAttribute(PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE)).toBeNull();
+    expect(fullTable?.style.width).toBe('1600px');
+    expect(fullTable?.style.minWidth).toBe('1600px');
+    expect(fullTable?.style.maxWidth).toBe('1600px');
+    expect(readPreviewColumnLayout(fullDocument)).toEqual([
+      { role: 'header', width: String(COPY_TEST_PREVIEW_HEADER_WIDTH) },
+      { role: 'header', width: String(COPY_TEST_PREVIEW_HEADER_WIDTH) },
+      { role: 'header', width: String(COPY_TEST_PREVIEW_HEADER_WIDTH) },
+      { role: 'header', width: String(COPY_TEST_PREVIEW_HEADER_WIDTH) },
+      { role: 'header', width: String(COPY_TEST_PREVIEW_HEADER_WIDTH) },
+      { role: COPY_TEST_GENERATED_RESULT_TYPE, width: String(COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH) },
+      { role: COPY_TEST_GENERATED_EVIDENCE_TYPE, width: String(COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH) },
+    ]);
 
     rerender(
       <TablePreview
@@ -163,16 +210,21 @@ describe('TablePreview', () => {
     const mergedCheckbox = findRowCheckbox(selectedDocument, [0]);
     const emptySourceCheckbox = findRowCheckbox(selectedDocument, [4]);
     const selectAll = selectedDocument.querySelector<HTMLInputElement>(`[${SELECTION_SELECT_ALL_ATTRIBUTE}]`);
-    /** 选列后启用三业务列等宽布局的顶层预览表。 */
-    const selectedTable = selectedDocument.querySelector('table');
-    /** 来源、Result、Evidence 三个参与均分的首行表头。 */
-    const equalWidthHeaders = selectedTable?.querySelectorAll(
-      'tr:first-child > [data-copy-test-preview-equal-width-column="true"]'
-    );
+    /** 选列后选择框保持固定宽度，来源列和 Test 双列等分剩余宽度。 */
+    const selectedTable = selectedDocument.querySelector<HTMLTableElement>('table');
     expect(selectedSrcDoc).not.toBe(fullSrcDoc);
-    expect(selectedTable?.getAttribute('data-copy-test-preview-equal-width-table')).toBe('true');
-    expect(selectedTable?.querySelector('colgroup')).toBeNull();
-    expect(equalWidthHeaders).toHaveLength(3);
+    expect(selectedTable?.getAttribute(PREVIEW_FIXED_WIDTH_TABLE_ATTRIBUTE)).toBe('true');
+    expect(selectedTable?.getAttribute(PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE)).toBe('true');
+    expect(selectedTable?.style.width).toBe('100%');
+    expect(selectedTable?.style.minWidth).toBe('100%');
+    expect(selectedTable?.style.maxWidth).toBe('100%');
+    expect(selectedSrcDoc).toContain(`width: ${PREVIEW_EQUAL_BUSINESS_COLUMN_WIDTH} !important`);
+    expect(readPreviewColumnLayout(selectedDocument)).toEqual([
+      { role: 'selection', width: '42' },
+      { role: 'header', width: null },
+      { role: COPY_TEST_GENERATED_RESULT_TYPE, width: null },
+      { role: COPY_TEST_GENERATED_EVIDENCE_TYPE, width: null },
+    ]);
     expect(mergedCheckbox).toBeTruthy();
     expect(mergedCheckbox?.closest('td')?.getAttribute('rowspan')).toBe('4');
     expect(emptySourceCheckbox?.disabled).toBe(true);
@@ -183,6 +235,27 @@ describe('TablePreview', () => {
     expect(selectedSrcDoc).not.toContain('onclick=');
     expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
     expect(selectedDocument.querySelectorAll('img[src="blob:preview-1"]')).toHaveLength(2);
+    expect(selectedDocument.querySelectorAll(EVIDENCE_DELETE_BUTTON_SELECTOR)).toHaveLength(2);
+
+    rerender(
+      <TablePreview
+        images={sharedImages}
+        onEvidenceImageDelete={handlers.onDelete}
+        onEvidenceImagePreview={handlers.onPreview}
+        onSelectedRowIndexesChange={handlers.onRowsChange}
+        selectedRowIndexes={[]}
+        table={mergedTable}
+      />
+    );
+    const clearedDocument = parseFrameDocument(iframe);
+    const clearedTable = clearedDocument.querySelector<HTMLTableElement>('table');
+    expect(clearedDocument.querySelector(EVIDENCE_DELETE_BUTTON_SELECTOR)).toBeNull();
+    expect(clearedTable?.getAttribute(PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE)).toBeNull();
+    expect(clearedTable?.style.width).toBe('1600px');
+    expect(clearedTable?.style.minWidth).toBe('1600px');
+    expect(clearedTable?.style.maxWidth).toBe('1600px');
+    expect(readPreviewColumnLayout(clearedDocument)).toEqual(readPreviewColumnLayout(fullDocument));
+    expect(mergedTable.workingHtml).toBe(originalWorkingHtml);
 
     unmount();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview-1');
@@ -203,6 +276,7 @@ describe('TablePreview', () => {
     const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
     const initialSrcDoc = iframe.getAttribute('srcdoc');
     const postMessage = vi.spyOn(iframe.contentWindow!, 'postMessage');
+    expect(iframe.contentWindow?.location.origin).toBe('null');
 
     rerender(
       <TablePreview
@@ -221,7 +295,11 @@ describe('TablePreview', () => {
       disabled: true,
       selectedRowIndexes: [],
       type: 'copy-test-preview-state',
-    }, '*');
+    }, window.location.origin);
+    /** 增量状态消息实际使用的目标 origin。 */
+    const targetOrigins = postMessage.mock.calls.map(([, targetOrigin]) => String(targetOrigin));
+    expect(targetOrigins).not.toContain('null');
+    expect(targetOrigins).not.toContain('*');
   });
 
   it('accepts valid iframe messages and ignores invalid data or the wrong source', () => {
@@ -250,23 +328,36 @@ describe('TablePreview', () => {
     fireEvent(window, new MessageEvent('message', { data: null, source: messageSource }));
     fireEvent(window, new MessageEvent('message', {
       data: { ...previewMessage, type: 'invalid-message' },
+      origin: window.location.origin,
+      source: messageSource,
+    }));
+    fireEvent(window, new MessageEvent('message', {
+      data: previewMessage,
+      origin: 'https://untrusted.example',
       source: messageSource,
     }));
     expect(handlers.onPreview).not.toHaveBeenCalled();
     expect(handlers.onDelete).not.toHaveBeenCalled();
     expect(handlers.onRowsChange).not.toHaveBeenCalled();
 
-    fireEvent(window, new MessageEvent('message', { data: previewMessage, source: messageSource }));
+    fireEvent(window, new MessageEvent('message', {
+      data: previewMessage,
+      origin: window.location.origin,
+      source: messageSource,
+    }));
     fireEvent(window, new MessageEvent('message', {
       data: { action: 'selection', checked: true, rowIndexes: [4], type: PREVIEW_MESSAGE_TYPE },
+      origin: window.location.origin,
       source: messageSource,
     }));
     fireEvent(window, new MessageEvent('message', {
       data: { action: 'selection', checked: false, rowIndexes: [0], type: PREVIEW_MESSAGE_TYPE },
+      origin: window.location.origin,
       source: messageSource,
     }));
     fireEvent(window, new MessageEvent('message', {
       data: { action: 'delete', imageId: 'img-shared', instanceId: 'img-shared:0:1', type: PREVIEW_MESSAGE_TYPE },
+      origin: window.location.origin,
       source: messageSource,
     }));
 
@@ -415,6 +506,8 @@ describe('TablePreview', () => {
       />
     );
     const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
+    const invalidSelectionDocument = parseFrameDocument(iframe);
+    expect(invalidSelectionDocument.querySelector(EVIDENCE_DELETE_BUTTON_SELECTOR)).toBeNull();
     installFrameScrollContent(iframe);
     fireEvent.load(iframe);
     iframe.contentDocument!.body.innerHTML = '';

@@ -58,7 +58,14 @@ describe('copyTestTableParser', () => {
     expect(getCopyTestColumnContext(tables[0], 99)).toBeNull();
     expect(getSelectableCopyTestRowIndexes(tables[0], 99)).toEqual([]);
     expect(parseCopyTestStorageTables('<p>no table</p>')).toEqual([]);
-    expect(parseCopyTestStorageTables('<table><tr><th><br /></th></tr><tr><td>value</td></tr></table>')).toEqual([]);
+    /** 仅含空表头但具备数据行的表格仍是可选择的有效表格。 */
+    const blankHeaderTables = parseCopyTestStorageTables(
+      '<table><tr><th><br /></th></tr><tr><td>value</td></tr></table>'
+    );
+    expect(blankHeaderTables).toHaveLength(1);
+    expect(blankHeaderTables[0].headers).toEqual([
+      expect.objectContaining({ index: 0, label: '' }),
+    ]);
   });
 
   it('requires strict generated metadata and never claims title-only or foreign columns', () => {

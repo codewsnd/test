@@ -3,7 +3,10 @@
  */
 import type { CopyTestImage } from '../api/copyTestApi';
 import {
-  COPY_TEST_EVIDENCE_COLUMN_WIDTH,
+  COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH,
+  COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH,
+} from '../constants';
+import {
   COPY_TEST_EVIDENCE_IMAGE_HEIGHT,
   COPY_TEST_EVIDENCE_IMAGE_WIDTH,
   COPY_TEST_EXPORT_SCOPE_ATTRIBUTE,
@@ -12,7 +15,6 @@ import {
   COPY_TEST_GENERATED_RESULT_TYPE,
   COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE,
   COPY_TEST_OWNER_ID_ATTRIBUTE,
-  COPY_TEST_RESULT_COLUMN_WIDTH,
   COPY_TEST_SCHEMA_ATTRIBUTE,
   COPY_TEST_SCHEMA_VERSION,
 } from './tableConstants';
@@ -306,8 +308,8 @@ const normalizeManagedColumnWidth = (
 ): boolean => {
   /** 当前生成列类型对应的默认像素宽度。 */
   const width = type === COPY_TEST_GENERATED_RESULT_TYPE
-    ? COPY_TEST_RESULT_COLUMN_WIDTH
-    : COPY_TEST_EVIDENCE_COLUMN_WIDTH;
+    ? COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH
+    : COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH;
   /** 写入 Confluence storage 的规范 CSS 宽度。 */
   const widthStyle = `${width}px`;
   if (cell.style.width === widthStyle) {

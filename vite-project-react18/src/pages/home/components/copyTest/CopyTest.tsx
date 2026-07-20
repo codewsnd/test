@@ -1,7 +1,7 @@
 /**
  * 文件作用：组装 CopyTest 弹窗、控制主要 UI 区域和确认弹窗。
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Modal } from 'antd';
 import {
   CopyTestImportBar,
@@ -32,33 +32,51 @@ const COPY_TEST_MODAL_HEIGHT = `calc(100vh - ${COPY_TEST_MODAL_VIEWPORT_MARGIN *
 /** 弹窗各层容器共用的溢出策略。 */
 const COPY_TEST_MODAL_OVERFLOW = 'hidden';
 
-/** CopyTest 入口卡片唯一 className。 */
+/** 点击后打开 CopyTest 弹窗的 className。 */
 export const COPY_TEST_TRIGGER_CLASS_NAME = 'copy-test-modal-trigger';
 
-/** CopyTest 入口和弹窗的作用域属性。 */
-export const COPY_TEST_RENDERER_SCOPE_ATTRIBUTE = 'data-copy-test-renderer-scope';
-
-/** 判断点击目标是否是当前 CopyTest 实例的入口。 */
-const isScopedTriggerClick = (
-  target: EventTarget | null,
-  ownerElement: HTMLElement | null
-): boolean => {
-  if (!(target instanceof Element) || !ownerElement) {
+/** 判断点击目标或其父元素是否绑定了 CopyTest 入口 className。 */
+const isTriggerClick = (target: EventTarget | null): boolean => {
+  if (!(target instanceof Element)) {
     return false;
   }
 
-  /** 当前 CopyTest 实例所属的渲染作用域。 */
-  const scope = ownerElement.closest(`[${COPY_TEST_RENDERER_SCOPE_ATTRIBUTE}]`);
-  /** 点击目标向上匹配到的 CopyTest 入口。 */
-  const trigger = target.closest(`.${COPY_TEST_TRIGGER_CLASS_NAME}`);
-  return Boolean(scope && trigger && scope.contains(trigger));
+  return Boolean(target.closest(`.${COPY_TEST_TRIGGER_CLASS_NAME}`));
+};
+
+/** 非受控 CopyTest 实例的弹窗打开回调。 */
+type CopyTestModalOpener = () => void;
+
+/** 当前页面中可响应 className 入口的 CopyTest 实例。 */
+const copyTestModalOpeners = new Set<CopyTestModalOpener>();
+
+/** 将一次入口点击交给一个 CopyTest 实例，避免多个弹窗同时打开。 */
+const handleCopyTestTriggerClick = (event: MouseEvent): void => {
+  if (!isTriggerClick(event.target)) {
+    return;
+  }
+
+  const openModal = copyTestModalOpeners.values().next().value;
+  openModal?.();
+};
+
+/** 注册非受控 CopyTest 实例，所有实例共用一个 document 点击监听。 */
+const subscribeToCopyTestTrigger = (openModal: CopyTestModalOpener): (() => void) => {
+  copyTestModalOpeners.add(openModal);
+  if (copyTestModalOpeners.size === 1) {
+    document.addEventListener('click', handleCopyTestTriggerClick);
+  }
+
+  return () => {
+    copyTestModalOpeners.delete(openModal);
+    if (copyTestModalOpeners.size === 0) {
+      document.removeEventListener('click', handleCopyTestTriggerClick);
+    }
+  };
 };
 
 /** 渲染 CopyTest 组件。 */
 export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
-  /** 用于定位当前组件所属渲染作用域的锚点。 */
-  const ownerRef = useRef<HTMLSpanElement>(null);
-
   /** 非受控模式下的弹窗显示状态。 */
   const [internalOpen, setInternalOpen] = useState(false);
 
@@ -82,29 +100,26 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
   const { tableState, uploadState } = controller;
 
   /** 仅在导入结果有效时展示已导入的表格工作区。 */
-  const showTableWorkspace = !controller.importError && tableState.tables.length > 0;
+  const showTableWorkspace = controller.hasActiveImportedSession
+    && !controller.importError
+    && tableState.tables.length > 0;
 
-  /** 处理入口点击打开弹窗。 */
-  const handleDocumentClick = useCallback((event: MouseEvent): void => {
-    if (controlled || !isScopedTriggerClick(event.target, ownerRef.current)) {
-      return;
-    }
-
+  /** 打开当前非受控弹窗。 */
+  const openFromTrigger = useCallback((): void => {
     setInternalOpen(true);
-  }, [controlled]);
+  }, []);
 
   useEffect(() => {
-    document.addEventListener('click', handleDocumentClick);
-    return () => {
-      document.removeEventListener('click', handleDocumentClick);
-    };
-  }, [handleDocumentClick]);
+    if (controlled) {
+      return undefined;
+    }
+
+    return subscribeToCopyTestTrigger(openFromTrigger);
+  }, [controlled, openFromTrigger]);
 
   return (
-    <>
-      <span ref={ownerRef} hidden />
-      <Modal
-      title="Copy Test"
+    <Modal
+      title="Confluence URL"
       open={modalOpen}
       onCancel={controller.handleMainClose}
       width={COPY_TEST_MODAL_WIDTH}
@@ -205,8 +220,7 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
           <p>{DELETE_EVIDENCE_IMAGE_CONFIRM_CONTENT}</p>
         </Modal>
       </div>
-      </Modal>
-    </>
+    </Modal>
   );
 };
 

@@ -56,6 +56,8 @@ interface CopyTestControllerState {
   deleteImageTarget: CopyTestEvidenceDeleteTarget | null;
   /** storage 导出请求是否正在执行。 */
   exportLoading: boolean;
+  /** 当前输入 URL 是否对应一份已完成导入且仍有效的表格会话。 */
+  hasActiveImportedSession: boolean;
   /** 导入链路是否占用主操作区。 */
   importBusy: boolean;
   /** URL 或 storage 表格校验错误。 */
@@ -131,7 +133,7 @@ const EXPORT_CONFIRM_CONTENT = 'This operation will update the table in your Con
 const COPY_TEST_VALIDATION_SUCCESS_MESSAGE = 'Copy test validation completed';
 
 /** Confluence storage 或附件导入失败时显示在输入框下方的文案。 */
-const CONFLUENCE_IMPORT_ERROR = 'Failed to load Confluence tables';
+const CONFLUENCE_IMPORT_ERROR = 'Failed to load Confluence tables. Please check whether your Confluence URL or Confluence token is correct.';
 
 /** 等待浏览器先完成一次界面绘制。 */
 const waitForNextPaint = async (): Promise<void> => {
@@ -241,6 +243,15 @@ export const useCopyTestController = ({
   /** 只允许最后一次导入请求提交状态。 */
   const importRequestIdRef = useRef(0);
 
+  /** 标识当前表格会话；URL 变化或重新导入时单调递增。 */
+  const sessionIdRef = useRef(0);
+
+  /** 只允许当前会话中最后一次 AI 校验请求提交状态。 */
+  const validationRequestIdRef = useRef(0);
+
+  /** 同步标记当前是否存在可操作的已导入会话。 */
+  const sessionReadyRef = useRef(false);
+
   /** 当前截图上传列表状态。 */
   const uploadState = useCopyTestUpload();
 
@@ -262,6 +273,13 @@ export const useCopyTestController = ({
   /** storage 或附件预览任一请求的综合导入状态。 */
   const importLoading = storageRequest.loading || attachmentsRequest.loading;
 
+  /** 当前输入、成功导入 URL 与表格状态共同确认的有效会话。 */
+  const hasActiveImportedSession = sessionReadyRef.current
+    && loadedConfluenceUrl !== ''
+    && confluenceUrl.trim() === loadedConfluenceUrl
+    && tableState.tables.length > 0
+    && !importLoading;
+
   /** 根据请求、选择和上传状态计算全部操作按钮权限。 */
   const {
     canExportToConfluence,
@@ -273,6 +291,7 @@ export const useCopyTestController = ({
     attachmentsLoading: attachmentsRequest.loading,
     exportLoading: exportRequest.loading,
     hasExportableContent: tableState.selectedColumnHasExportableContent,
+    hasActiveImportedSession,
     selectedColumnIndex: tableState.selectedColumnIndex,
     selectedRowCount: tableState.selectedRowIndexes.length,
     selectedTable: tableState.selectedTable,
@@ -288,26 +307,46 @@ export const useCopyTestController = ({
     setPreviewImage(null);
   };
 
-  /** 更新 URL 输入并清除上一轮输入校验错误。 */
+  /** 清空只属于当前已导入页面的表格和临时交互状态。 */
+  const resetImportedSessionState = (): void => {
+    sessionReadyRef.current = false;
+    setLoadedConfluenceUrl('');
+    setValidationLoading(false);
+    setUploadModalOpen(false);
+    setDeleteImageTarget(null);
+    uploadState.resetUploadState();
+    handleClosePreviewImage();
+    tableState.resetSession();
+  };
+
+  /** 使当前会话及其尚未返回的 AI 校验请求立即失效。 */
+  const invalidateCurrentSession = (): void => {
+    sessionIdRef.current += 1;
+    validationRequestIdRef.current += 1;
+    resetImportedSessionState();
+  };
+
+  /** 更新 URL 输入，同时使旧导入请求和旧表格会话失效。 */
   const handleConfluenceUrlChange = (value: string): void => {
+    importRequestIdRef.current += 1;
+    invalidateCurrentSession();
     setConfluenceUrl(value);
     setImportError(undefined);
   };
 
-  /** 成功导入后清理与上一张表相关的临时状态。 */
-  const resetImportSideEffects = (): void => {
-    uploadState.resetUploadState();
-    handleClosePreviewImage();
-    tableState.resetValidationSnapshots();
-  };
-
   /** 校验 URL 并导入最新 storage 与所需附件。 */
   const handleLoadTables = async (): Promise<void> => {
+    if (importBusy) {
+      return;
+    }
+
     /** 去除输入两端空白后的 Confluence URL。 */
     const trimmedUrl = confluenceUrl.trim();
     /** URL 格式不合法时展示在输入框下方的错误。 */
     const urlError = getConfluenceUrlError(trimmedUrl);
     if (urlError) {
+      importRequestIdRef.current += 1;
+      invalidateCurrentSession();
       setImportError(urlError);
       return;
     }
@@ -315,6 +354,7 @@ export const useCopyTestController = ({
     /** 用于丢弃过期异步响应的单调递增请求编号。 */
     const requestId = importRequestIdRef.current + 1;
     importRequestIdRef.current = requestId;
+    invalidateCurrentSession();
 
     try {
       setImportError(undefined);
@@ -353,8 +393,8 @@ export const useCopyTestController = ({
         setImportError(previewStorageError);
         return;
       }
+      sessionReadyRef.current = true;
       setLoadedConfluenceUrl(trimmedUrl);
-      resetImportSideEffects();
     } catch (error) {
       if (requestId !== importRequestIdRef.current) {
         return;
@@ -366,6 +406,10 @@ export const useCopyTestController = ({
 
   /** 切换表格并清理上一张表的临时上传与预览。 */
   const handleTableChange = (value: number): void => {
+    if (!sessionReadyRef.current) {
+      return;
+    }
+
     tableState.handleTableChange(value);
     uploadState.resetUploadState();
     handleClosePreviewImage();
@@ -373,23 +417,35 @@ export const useCopyTestController = ({
 
   /** 切换 Comparison Column 并关闭旧图片预览。 */
   const handleComparisonColumnChange = (value?: number): void => {
+    if (!sessionReadyRef.current) {
+      return;
+    }
+
     tableState.handleComparisonColumnChange(value);
     handleClosePreviewImage();
   };
 
   /** 将文件选择结果交给上传状态准备。 */
   const handleFilesSelected = async (files: File[]): Promise<void> => {
+    if (!sessionReadyRef.current) {
+      return;
+    }
+
     await uploadState.prepareUploadImages(files, uploadBusy);
   };
 
   /** 从尚未写入表格的上传列表删除图片。 */
   const handleRemoveUploadImage = (md5: string): void => {
+    if (uploadBusy) {
+      return;
+    }
+
     uploadState.removeUploadImage(md5);
   };
 
   /** 在当前选择允许上传时打开截图弹窗。 */
   const handleChooseImages = (): void => {
-    if (!canUpload) {
+    if (!sessionReadyRef.current || !canUpload) {
       return;
     }
 
@@ -477,34 +533,48 @@ export const useCopyTestController = ({
     setUploadModalOpen(false);
   };
 
-  /** 调用严格校验接口并把绑定后的结果写入当前表格。 */
-  const applyValidationResults = async (context: CopyTestValidationContext): Promise<void> => {
-    setValidationLoading(true);
-    try {
-      /** mock 或真实 aiChat 返回的严格校验结果。 */
-      const results = await copyTestValidationApi(
-        uploadState.uploadImages,
-        context.rows,
-        context.selectedColumnLabel
-      );
+  /** 判断 AI 校验响应是否仍属于当前已导入页面和最后一次请求。 */
+  const isCurrentValidationRequest = (requestId: number, sessionId: number): boolean => {
+    return sessionReadyRef.current
+      && requestId === validationRequestIdRef.current
+      && sessionId === sessionIdRef.current;
+  };
 
-      /** 按返回的附件文件名绑定本次上传内存图片后的结果。 */
-      const boundResults = bindResultImages(results, uploadState.uploadImages);
-
-      tableState.applyValidationResults(
-        boundResults,
-        uploadState.uploadImages,
-        context.selectedColumnIndex,
-        context.selectedColumnLabel,
-        context.selectedTable.index
-      );
-    } finally {
-      setValidationLoading(false);
+  /** 调用严格校验接口，并仅在请求仍有效时把结果写入目标表格。 */
+  const applyValidationResults = async (
+    context: CopyTestValidationContext,
+    images: CopyTestImage[],
+    requestId: number,
+    sessionId: number
+  ): Promise<boolean> => {
+    /** mock 或真实 aiChat 返回的严格校验结果。 */
+    const results = await copyTestValidationApi(
+      images,
+      context.rows,
+      context.selectedColumnLabel
+    );
+    if (!isCurrentValidationRequest(requestId, sessionId)) {
+      return false;
     }
+
+    /** 按返回的附件文件名绑定本次上传内存图片后的结果。 */
+    const boundResults = bindResultImages(results, images);
+    tableState.applyValidationResults(
+      boundResults,
+      images,
+      context.selectedColumnIndex,
+      context.selectedColumnLabel,
+      context.selectedTable.index
+    );
+    return true;
   };
 
   /** 记录等待用户确认删除的 Evidence 图片实例。 */
   const handleEvidenceImageDelete = (target: CopyTestEvidenceDeleteTarget): void => {
+    if (!sessionReadyRef.current) {
+      return;
+    }
+
     setDeleteImageTarget(target);
   };
 
@@ -515,7 +585,7 @@ export const useCopyTestController = ({
 
   /** 删除确认目标并同步关闭已无引用的预览。 */
   const handleConfirmEvidenceImageDelete = (): void => {
-    if (!deleteImageTarget) {
+    if (!sessionReadyRef.current || !deleteImageTarget) {
       return;
     }
 
@@ -532,25 +602,56 @@ export const useCopyTestController = ({
 
   /** 打开指定 Evidence 图片的大图预览。 */
   const handleEvidenceImagePreview = (previewInfo: CopyTestEvidencePreviewInfo): void => {
+    if (!sessionReadyRef.current) {
+      return;
+    }
+
     setPreviewImage(previewInfo);
   };
 
   /** 校验上传与选择上下文并执行一次 AI 校验。 */
   const handleValidateClick = async (): Promise<void> => {
+    if (!sessionReadyRef.current) {
+      return;
+    }
+
     /** 通过图片限制和表格选择校验后的请求上下文。 */
     const context = getCopyTestValidationContext(tableState, uploadState.uploadImages);
     if (!context) {
       return;
     }
 
+    /** 锁定本次校验使用的上传图片，避免异步期间被新状态替换。 */
+    const requestImages = [...uploadState.uploadImages];
+    /** 当前会话内单调递增的 AI 校验请求编号。 */
+    const requestId = validationRequestIdRef.current + 1;
+    validationRequestIdRef.current = requestId;
+    /** 校验发起时所属的导入会话编号。 */
+    const sessionId = sessionIdRef.current;
+    setValidationLoading(true);
     try {
-      await applyValidationResults(context);
+      const applied = await applyValidationResults(
+        context,
+        requestImages,
+        requestId,
+        sessionId
+      );
+      if (!applied) {
+        return;
+      }
       setUploadModalOpen(false);
       uploadState.resetUploadState();
       message.success(COPY_TEST_VALIDATION_SUCCESS_MESSAGE);
     } catch (error) {
+      if (!isCurrentValidationRequest(requestId, sessionId)) {
+        return;
+      }
       console.error('Copy test validation failed:', error);
       message.error('Copy test validation failed');
+    } finally {
+      if (isCurrentValidationRequest(requestId, sessionId)) {
+        setValidationLoading(false);
+      }
     }
   };
 
@@ -567,13 +668,13 @@ export const useCopyTestController = ({
   };
 
   return {
-    canExportToConfluence: canExportToConfluence
-      && confluenceUrl.trim() === loadedConfluenceUrl,
-    canUpload,
-    canValidate,
+    canExportToConfluence: hasActiveImportedSession && canExportToConfluence,
+    canUpload: hasActiveImportedSession && canUpload,
+    canValidate: hasActiveImportedSession && canValidate,
     confluenceUrl,
     deleteImageTarget,
     exportLoading: exportRequest.loading,
+    hasActiveImportedSession,
     handleCancelEvidenceImageDelete,
     handleChooseImages,
     handleClosePreviewImage,

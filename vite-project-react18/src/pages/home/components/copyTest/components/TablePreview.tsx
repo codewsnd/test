@@ -5,6 +5,16 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Empty } from 'antd';
 import type { CopyTestImage } from '../api/copyTestApi';
 import {
+  COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH,
+  COPY_TEST_PREVIEW_HEADER_WIDTH,
+  COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH,
+} from '../constants';
+export {
+  COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH,
+  COPY_TEST_PREVIEW_HEADER_WIDTH,
+  COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH,
+} from '../constants';
+import {
   findGeneratedColumnIndexes,
   getSourceColumnKey,
 } from '../table/copyTestTableParser';
@@ -17,6 +27,7 @@ import {
   COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE,
   COPY_TEST_GENERATED_CONTENT_ATTRIBUTE,
   COPY_TEST_GENERATED_EVIDENCE_TYPE,
+  COPY_TEST_GENERATED_RESULT_TYPE,
 } from '../table/tableConstants';
 import type { CopyTestEvidenceDeleteTarget, CopyTestEvidencePreviewInfo, CopyTestTableEntry } from '../types';
 import { getCopyTestImageId } from '../table/copyTestImageUtils';
@@ -92,20 +103,26 @@ const DISABLED_ATTRIBUTE = 'disabled';
 /** iframe 预览里目标 table 的选择器。 */
 const PREVIEW_TABLE_SELECTOR = 'table';
 
-/** 标记预览表已启用 Comparison Column 三列等宽布局的属性。 */
+/** 标记预览表已应用固定 Header 列宽的属性。 */
+const PREVIEW_FIXED_WIDTH_TABLE_ATTRIBUTE = 'data-copy-test-preview-fixed-width-table';
+
+/** 标记预览表正使用三列等分布局的属性。 */
 const PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE = 'data-copy-test-preview-equal-width-table';
 
-/** 标记参与三列等宽布局的来源、Result 或 Evidence 单元格属性。 */
-const PREVIEW_EQUAL_WIDTH_COLUMN_ATTRIBUTE = 'data-copy-test-preview-equal-width-column';
+/** 标记预览 col 元素所属列类型的属性。 */
+const PREVIEW_COLUMN_ROLE_ATTRIBUTE = 'data-copy-test-preview-column-role';
+
+/** 普通 Header 列的预览角色。 */
+const PREVIEW_HEADER_COLUMN_ROLE = 'header';
+
+/** 行选择列的预览角色。 */
+const PREVIEW_SELECTION_COLUMN_ROLE = 'selection';
 
 /** iframe 行选择列固定占用的像素宽度。 */
 const PREVIEW_SELECTION_COLUMN_WIDTH = 42;
 
-/** 选中 Comparison Column 后需要等分剩余宽度的业务列数量。 */
-const PREVIEW_EQUAL_WIDTH_COLUMN_COUNT = 3;
-
-/** 来源、Result 和 Evidence 每列占用剩余空间三分之一的 CSS 宽度。 */
-const PREVIEW_EQUAL_COLUMN_WIDTH = `calc((100% - ${PREVIEW_SELECTION_COLUMN_WIDTH}px) / ${PREVIEW_EQUAL_WIDTH_COLUMN_COUNT})`;
+/** 选中 Comparison Column 后三个业务列共同使用的响应式宽度。 */
+const PREVIEW_EQUAL_BUSINESS_COLUMN_WIDTH = `calc((100% - ${PREVIEW_SELECTION_COLUMN_WIDTH}px) / 3)`;
 
 /** 注入 iframe 文档的表格、选择框和 Evidence 样式。 */
 const PREVIEW_DOCUMENT_STYLE = `
@@ -162,24 +179,52 @@ const PREVIEW_DOCUMENT_STYLE = `
     min-width: 100%;
   }
 
+  table[${PREVIEW_FIXED_WIDTH_TABLE_ATTRIBUTE}="${DOM_TRUE_ATTRIBUTE_VALUE}"] {
+    table-layout: fixed !important;
+  }
+
   table[${PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE}="${DOM_TRUE_ATTRIBUTE_VALUE}"] {
     width: 100% !important;
     min-width: 100% !important;
     max-width: 100% !important;
-    table-layout: fixed !important;
   }
 
-  [${PREVIEW_EQUAL_WIDTH_COLUMN_ATTRIBUTE}="${DOM_TRUE_ATTRIBUTE_VALUE}"] {
-    box-sizing: border-box;
-    width: ${PREVIEW_EQUAL_COLUMN_WIDTH} !important;
-    min-width: 0 !important;
-    max-width: none !important;
+  col[${PREVIEW_COLUMN_ROLE_ATTRIBUTE}="${PREVIEW_HEADER_COLUMN_ROLE}"] {
+    width: ${COPY_TEST_PREVIEW_HEADER_WIDTH}px !important;
+    min-width: ${COPY_TEST_PREVIEW_HEADER_WIDTH}px !important;
+    max-width: ${COPY_TEST_PREVIEW_HEADER_WIDTH}px !important;
+  }
+
+  col[${PREVIEW_COLUMN_ROLE_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"] {
+    width: ${COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH}px !important;
+    min-width: ${COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH}px !important;
+    max-width: ${COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH}px !important;
+  }
+
+  col[${PREVIEW_COLUMN_ROLE_ATTRIBUTE}="${COPY_TEST_GENERATED_EVIDENCE_TYPE}"] {
+    width: ${COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH}px !important;
+    min-width: ${COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH}px !important;
+    max-width: ${COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH}px !important;
+  }
+
+  col[${PREVIEW_COLUMN_ROLE_ATTRIBUTE}="${PREVIEW_SELECTION_COLUMN_ROLE}"] {
+    width: ${PREVIEW_SELECTION_COLUMN_WIDTH}px !important;
+    min-width: ${PREVIEW_SELECTION_COLUMN_WIDTH}px !important;
+    max-width: ${PREVIEW_SELECTION_COLUMN_WIDTH}px !important;
+  }
+
+  table[${PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE}="${DOM_TRUE_ATTRIBUTE_VALUE}"]
+    > colgroup > col[${PREVIEW_COLUMN_ROLE_ATTRIBUTE}]:not([${PREVIEW_COLUMN_ROLE_ATTRIBUTE}="${PREVIEW_SELECTION_COLUMN_ROLE}"]) {
+    width: ${PREVIEW_EQUAL_BUSINESS_COLUMN_WIDTH} !important;
+    min-width: ${PREVIEW_EQUAL_BUSINESS_COLUMN_WIDTH} !important;
+    max-width: ${PREVIEW_EQUAL_BUSINESS_COLUMN_WIDTH} !important;
   }
 
   th,
   td {
+    box-sizing: border-box;
     border: 1px solid #c1c7d0;
-    max-width: 360px;
+    max-width: none;
     padding: 7px 10px;
     vertical-align: top;
     white-space: pre-wrap;
@@ -411,14 +456,14 @@ const getVisibleColSpan = (columnIndex: number, colSpan: number, visibleColumnIn
     .length;
 };
 
-/** 删除当前预览表直属的旧列宽定义，避免 Confluence colgroup 干扰三列均分。 */
+/** 删除当前预览表直属的旧列宽定义，避免 Confluence colgroup 干扰固定列宽。 */
 const removePreviewColumnGroups = (tableElement: HTMLTableElement): void => {
   Array.from(tableElement.children)
     .filter(child => child.tagName.toLowerCase() === 'colgroup')
     .forEach(columnGroup => columnGroup.remove());
 };
 
-/** 清除预览副本中的旧宽度约束，避免行内样式覆盖当前均分规则。 */
+/** 清除预览副本中的旧宽度约束，避免行内样式覆盖当前固定列宽。 */
 const clearPreviewWidthConstraints = (
   element: HTMLElement,
   clearTableLayout = false
@@ -433,18 +478,135 @@ const clearPreviewWidthConstraints = (
   }
 };
 
-/** 当来源列和 Test 双列齐全时启用预览三列等宽布局。 */
-const applyPreviewEqualWidthTableLayout = (
-  tableElement: HTMLTableElement,
-  visibleColumnIndexes: Set<number>
-): boolean => {
-  if (visibleColumnIndexes.size !== PREVIEW_EQUAL_WIDTH_COLUMN_COUNT) {
-    return false;
+/** 单个预览列的角色与像素宽度。 */
+interface PreviewColumnDefinition {
+  /** 用于 CSS 和测试识别的列角色。 */
+  role: string;
+  /** 当前列的固定像素宽度。 */
+  width: number;
+}
+
+/** 读取指定业务列对应的预览角色与宽度。 */
+const getPreviewColumnDefinition = (
+  table: CopyTestTableEntry,
+  columnIndex: number
+): PreviewColumnDefinition => {
+  /** 当前逻辑列的表头信息。 */
+  const header = table.headers.find(item => item.index === columnIndex);
+  if (header?.generatedType === COPY_TEST_GENERATED_RESULT_TYPE) {
+    return {
+      role: COPY_TEST_GENERATED_RESULT_TYPE,
+      width: COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH,
+    };
   }
+  if (header?.generatedType === COPY_TEST_GENERATED_EVIDENCE_TYPE) {
+    return {
+      role: COPY_TEST_GENERATED_EVIDENCE_TYPE,
+      width: COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH,
+    };
+  }
+  return {
+    role: PREVIEW_HEADER_COLUMN_ROLE,
+    width: COPY_TEST_PREVIEW_HEADER_WIDTH,
+  };
+};
+
+/** 读取当前预览实际展示的业务逻辑列下标。 */
+const getPreviewBusinessColumnIndexes = (
+  table: CopyTestTableEntry,
+  visibleColumnIndexes: Set<number> | null
+): number[] => {
+  if (visibleColumnIndexes) {
+    return Array.from(visibleColumnIndexes).sort((left, right) => left - right);
+  }
+  return Array.from({ length: table.model.columnCount }, (_, columnIndex) => columnIndex);
+};
+
+/** 创建带固定宽度和角色标记的 col 元素。 */
+const createPreviewColumnElement = (
+  doc: Document,
+  definition: PreviewColumnDefinition,
+  equalBusinessColumns: boolean
+): HTMLTableColElement => {
+  /** 写入预览表 colgroup 的单列元素。 */
+  const column = doc.createElement('col');
+  column.setAttribute(PREVIEW_COLUMN_ROLE_ATTRIBUTE, definition.role);
+  if (!equalBusinessColumns || definition.role === PREVIEW_SELECTION_COLUMN_ROLE) {
+    column.setAttribute('width', String(definition.width));
+  }
+  return column;
+};
+
+/** 根据当前预览模式写入表格自身的宽度约束。 */
+const applyPreviewTableWidth = (
+  tableElement: HTMLTableElement,
+  definitions: PreviewColumnDefinition[],
+  equalBusinessColumns: boolean
+): void => {
+  if (equalBusinessColumns) {
+    tableElement.setAttribute(PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
+    tableElement.style.width = '100%';
+    tableElement.style.minWidth = '100%';
+    tableElement.style.maxWidth = '100%';
+    return;
+  }
+
+  /** 完整表格按各列固定宽度相加得到的总像素宽度。 */
+  const tableWidth = definitions.reduce((total, definition) => total + definition.width, 0);
+  tableElement.removeAttribute(PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE);
+  tableElement.style.width = `${tableWidth}px`;
+  tableElement.style.minWidth = `${tableWidth}px`;
+  tableElement.style.maxWidth = `${tableWidth}px`;
+};
+
+/** 清除顶层预览单元格自带的行内宽度。 */
+const clearPreviewCellWidths = (tableElement: HTMLTableElement): void => {
+  tableElement.querySelectorAll<HTMLElement>('th, td').forEach(cell => {
+    if (cell.closest(PREVIEW_TABLE_SELECTOR) === tableElement) {
+      clearPreviewWidthConstraints(cell);
+    }
+  });
+};
+
+/** 为完整表格应用固定列宽，或为当前 Comparison Column 视图应用三列等分宽度。 */
+const applyPreviewColumnWidths = (
+  doc: Document,
+  table: CopyTestTableEntry,
+  selectedColumnIndex?: number
+): void => {
+  /** 需要重建 colgroup 的顶层预览表格。 */
+  const tableElement = doc.querySelector<HTMLTableElement>(PREVIEW_TABLE_SELECTOR);
+  if (!tableElement) {
+    return;
+  }
+
+  /** 有效 Comparison Column 对应的来源列和 Test 双列集合。 */
+  const visibleColumnIndexes = getVisibleColumnIndexes(table, selectedColumnIndex);
+  /** 是否需要让来源列和 Test 双列等分预览剩余宽度。 */
+  const equalBusinessColumns = visibleColumnIndexes !== null;
+  /** 当前业务列按实际 DOM 展示顺序生成的宽度定义。 */
+  const definitions = getPreviewBusinessColumnIndexes(table, visibleColumnIndexes)
+    .map(columnIndex => getPreviewColumnDefinition(table, columnIndex));
+  if (equalBusinessColumns) {
+    definitions.unshift({
+      role: PREVIEW_SELECTION_COLUMN_ROLE,
+      width: PREVIEW_SELECTION_COLUMN_WIDTH,
+    });
+  }
+
+  /** 替换 Confluence 原始列宽的新 colgroup。 */
+  const columnGroup = doc.createElement('colgroup');
+  definitions.forEach(definition => {
+    columnGroup.appendChild(createPreviewColumnElement(doc, definition, equalBusinessColumns));
+  });
+
   clearPreviewWidthConstraints(tableElement, true);
-  tableElement.setAttribute(PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
+  clearPreviewCellWidths(tableElement);
   removePreviewColumnGroups(tableElement);
-  return true;
+  tableElement.insertBefore(columnGroup, tableElement.firstChild);
+  tableElement.setAttribute(PREVIEW_FIXED_WIDTH_TABLE_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
+  applyPreviewTableWidth(tableElement, definitions, equalBusinessColumns);
+  tableElement.style.tableLayout = 'fixed';
 };
 
 /** 从 data url 创建 blob url。 */
@@ -652,9 +814,6 @@ const applyPreviewColumnVisibility = (
     return;
   }
 
-  /** Test 双列完整时，当前预览是否启用三列等宽布局。 */
-  const equalWidthLayoutEnabled = applyPreviewEqualWidthTableLayout(tableElement, visibleColumnIndexes);
-
   parseTableModel(tableElement).rows.forEach(row => {
     row.cells.forEach(cell => {
       /** 该单元格横跨范围内仍可见的逻辑列数。 */
@@ -662,11 +821,6 @@ const applyPreviewColumnVisibility = (
       if (visibleColSpan === 0) {
         cell.element.style.display = 'none';
         return;
-      }
-
-      if (equalWidthLayoutEnabled) {
-        clearPreviewWidthConstraints(cell.element);
-        cell.element.setAttribute(PREVIEW_EQUAL_WIDTH_COLUMN_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
       }
 
       if (visibleColSpan !== cell.colSpan) {
@@ -833,8 +987,12 @@ const buildPreviewRuntimeScript = (): string => {
       const selectionSelectAllAttribute = ${JSON.stringify(SELECTION_SELECT_ALL_ATTRIBUTE)};
       const selectionSelectableAttribute = ${JSON.stringify(SELECTION_SELECTABLE_ATTRIBUTE)};
       const deleteButtonAttribute = ${JSON.stringify(DELETE_BUTTON_ATTRIBUTE)};
+      const parentOrigin = window.parent.location.origin;
       let disabled = false;
-      const post = payload => window.parent.postMessage({ type: messageType, ...payload }, '*');
+      const post = payload => window.parent.postMessage(
+        { type: messageType, ...payload },
+        parentOrigin
+      );
       const readImagePayload = element => ({
         imageId: element.getAttribute(imageIdAttribute) || '',
         instanceId: element.getAttribute(imageInstanceAttribute) || '',
@@ -878,7 +1036,12 @@ const buildPreviewRuntimeScript = (): string => {
       };
       window.addEventListener('message', event => {
         const payload = event.data;
-        if (event.source !== window.parent || !payload || payload.type !== stateMessageType) {
+        if (
+          event.origin !== parentOrigin
+          || event.source !== window.parent
+          || !payload
+          || payload.type !== stateMessageType
+        ) {
           return;
         }
         disabled = payload.disabled === true;
@@ -933,8 +1096,14 @@ const buildPreviewDocumentHtml = (
   stripUnsafePreviewRuntime(doc);
   applyPreviewColumnVisibility(doc, table, selectedColumnIndex);
   applyPreviewRowSelection(doc, table, selectedColumnIndex);
+  applyPreviewColumnWidths(doc, table, selectedColumnIndex);
   applyPreviewEvidenceImages(doc, previewImageUrls);
-  appendEvidenceDeleteButtons(doc, false);
+  /** 当前 Comparison Column 是否存在于当前表格。 */
+  const hasSelectedComparisonColumn = selectedColumnIndex !== undefined
+    && table.headers.some(header => header.index === selectedColumnIndex);
+  if (hasSelectedComparisonColumn) {
+    appendEvidenceDeleteButtons(doc, false);
+  }
   return [
     '<!doctype html>',
     '<html>',
@@ -1053,11 +1222,18 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
 
   /** 将轻量交互状态增量同步到当前 iframe，不重建 srcDoc。 */
   const postPreviewState = useCallback((): void => {
-    iframeRef.current?.contentWindow?.postMessage({
+    /** 当前受控 srcDoc iframe 的消息接收窗口。 */
+    const previewWindow = iframeRef.current?.contentWindow;
+    if (!previewWindow) {
+      return;
+    }
+    /** srcDoc 继承父页面安全域，使用父页面的有效 origin，避免 iframe URL 返回 "null"。 */
+    const targetOrigin = window.location.origin;
+    previewWindow.postMessage({
       disabled: disabledRef.current,
       selectedRowIndexes: selectedRowIndexesRef.current,
       type: PREVIEW_STATE_MESSAGE_TYPE,
-    }, '*');
+    }, targetOrigin);
   }, []);
 
   useEffect(() => {
@@ -1318,7 +1494,11 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
   useEffect(() => {
     /** 分发 iframe 内部行选择、图片预览和删除事件。 */
     const handleFrameMessage = (event: MessageEvent): void => {
-      if (event.source !== iframeRef.current?.contentWindow || !isPreviewFrameMessage(event.data)) {
+      if (
+        event.origin !== window.location.origin
+        || event.source !== iframeRef.current?.contentWindow
+        || !isPreviewFrameMessage(event.data)
+      ) {
         return;
       }
 

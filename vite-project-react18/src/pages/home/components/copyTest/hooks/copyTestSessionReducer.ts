@@ -23,6 +23,10 @@ export interface CopyTestSessionState {
 
 /** CopyTest 表格会话支持的状态动作。 */
 export type CopyTestSessionAction =
+  | {
+    /** 清空当前导入页面及其全部本地工作状态。 */
+    type: 'RESET';
+  }
   | { storageHtml: string; tables: CopyTestTableEntry[]; type: 'LOADED' }
   | { tableIndex: number; type: 'TABLE_SELECTED' }
   | {
@@ -126,6 +130,8 @@ export const copyTestSessionReducer = (
   action: CopyTestSessionAction
 ): CopyTestSessionState => {
   switch (action.type) {
+    case 'RESET':
+      return createEmptySessionState(state.revision + 1);
     case 'LOADED':
       return {
         originalStorageHtml: action.storageHtml,

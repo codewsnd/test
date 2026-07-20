@@ -120,6 +120,16 @@ interface EvidenceGroup {
   rowGroups: EvidenceGroupRow[];
 }
 
+/** 当前 working DOM 中待删除 Evidence 连通块的结构摘要。 */
+interface CurrentEvidenceDeleteGroup {
+  /** Evidence 连通块起始物理行下标。 */
+  anchorRowIndex: number;
+  /** Evidence 连通块内按展示顺序保存的图片实例标识。 */
+  instanceIds: string[];
+  /** Evidence 单元格实际覆盖的物理行数。 */
+  rowSpan: number;
+}
+
 /** Evidence 合并组中的单个来源原子行。 */
 interface EvidenceGroupRow extends CopyTestRowGroup {
   /** 当前来源原子行的逐行校验结果。 */
@@ -150,6 +160,9 @@ const FAILED_LABEL = 'Failed:';
 
 /** Result 列表项标签名，集中维护 Result 引用节点。 */
 const RESULT_LIST_ITEM_TAG = 'li';
+
+/** 标记由 CopyTest 写入的单条失败原因，支持无 Screen Result 的稳定恢复。 */
+const COPY_TEST_RESULT_LANGUAGE_ISSUE_ATTRIBUTE = 'data-copy-test-result-language-issue';
 
 /** 生成受控内容根节点使用的块级标签名。 */
 const COPY_TEST_CONTENT_BLOCK_TAG = 'div';
@@ -501,6 +514,24 @@ const getFailureReasons = (result: CopyTestValidationResultWithEvidence): string
   );
 };
 
+/** 将失败原因追加到指定列表，并写入可稳定恢复的 ownership 标记。 */
+const appendFailureReasonItems = (
+  doc: Document,
+  list: HTMLUListElement,
+  failureReasons: string[]
+): void => {
+  failureReasons.forEach(
+    /** 把每条非空失败原因写入独立列表项。 */
+    reason => {
+      /** 单条失败原因的列表项。 */
+      const issueItem = doc.createElement(RESULT_LIST_ITEM_TAG);
+      issueItem.setAttribute(COPY_TEST_RESULT_LANGUAGE_ISSUE_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
+      issueItem.textContent = reason;
+      list.appendChild(issueItem);
+    }
+  );
+};
+
 /** 追加 Result 的图片列表。 */
 const appendResultScreenList = (
   doc: Document,
@@ -512,6 +543,12 @@ const appendResultScreenList = (
   const list = doc.createElement('ul');
   /** 当前失败结果去除空白项后的问题描述。 */
   const failureReasons = getFailureReasons(result);
+  if (screens.length === 0) {
+    appendFailureReasonItems(doc, list, failureReasons);
+    container.appendChild(list);
+    return;
+  }
+
   screens.forEach(
     /** 为每张 Evidence 图片写入可精确删除的 Result 引用项。 */
     screen => {
@@ -523,15 +560,7 @@ const appendResultScreenList = (
       if (!result.passed && failureReasons.length > 0) {
         /** 当前 Screen 下展示全部失败原因的二级列表。 */
         const issueList = doc.createElement('ul');
-        failureReasons.forEach(
-          /** 将每条非空失败原因写入独立列表项。 */
-          reason => {
-            /** 单条失败原因的二级列表项。 */
-            const issueItem = doc.createElement(RESULT_LIST_ITEM_TAG);
-            issueItem.textContent = reason;
-            issueList.appendChild(issueItem);
-          }
-        );
+        appendFailureReasonItems(doc, issueList, failureReasons);
         item.appendChild(issueList);
       }
       list.appendChild(item);
@@ -851,6 +880,52 @@ const writeResultCell = (
   );
 };
 
+/** 按 Evidence 规划读取每个来源原子组自己的 Screen 子集。 */
+const buildResultScreenMap = (evidenceGroups: EvidenceGroup[]): Map<number, ScreenRef[]> => {
+  return new Map(evidenceGroups.flatMap(group => {
+    return group.rowGroups.map(rowGroup => [rowGroup.anchorRowIndex, rowGroup.screens] as const);
+  }));
+};
+
+/** 判断 AI Result 是否包含可展示的 Screen 或无图失败原因。 */
+const isRenderableValidationResult = (
+  result: CopyTestValidationResultWithEvidence,
+  screens: ScreenRef[]
+): boolean => {
+  return screens.length > 0 || (!result.passed && getFailureReasons(result).length > 0);
+};
+
+/** 写入全部 AI Result；没有 Evidence 的 Failed 结果使用空 Screen 列表。 */
+const writeValidationResultCells = (
+  doc: Document,
+  context: GeneratedColumnContext,
+  rowGroups: CopyTestRowGroup[],
+  results: CopyTestValidationResultWithEvidence[],
+  evidenceGroups: EvidenceGroup[]
+): void => {
+  /** Evidence Planner 为有图片原子组生成的 Result Screen 索引。 */
+  const screensByAnchorRowIndex = buildResultScreenMap(evidenceGroups);
+  buildLogicalRowResults(rowGroups, results).forEach(item => {
+    if (!item.result) {
+      return;
+    }
+
+    /** 当前来源原子组经 Evidence Planner 分配的 Screen 子集。 */
+    const screens = screensByAnchorRowIndex.get(item.rowGroup.anchorRowIndex) || [];
+    if (!isRenderableValidationResult(item.result, screens)) {
+      return;
+    }
+
+    writeResultCell(
+      doc,
+      context,
+      item.rowGroup,
+      item.result,
+      screens
+    );
+  });
+};
+
 /** 写 Evidence 单元格。 */
 const writeEvidenceCell = (doc: Document, context: GeneratedColumnContext, group: EvidenceGroup): void => {
   /** 与显式 Evidence 合并组锚点和 rowspan 对齐的 Evidence 单元格。 */
@@ -910,15 +985,10 @@ export const applyCopyTestValidationResults = (
     evidenceGroups.flatMap(group => group.rowGroups.map(rowGroup => rowGroup.anchorRowIndex))
   );
   clearUnrenderedRows(doc, context, rowGroups, renderableAnchorRowIndexes);
+  writeValidationResultCells(doc, context, rowGroups, results, evidenceGroups);
   evidenceGroups.forEach(
-    /** 按前端确定性规划同步逐行 Result 和共享 Evidence 单元格。 */
+    /** 按前端确定性规划写入共享 Evidence 单元格。 */
     evidenceGroup => {
-      evidenceGroup.rowGroups.forEach(
-        /** 每个不可拆分来源行组只写入自身实际命中的 Screen 子集。 */
-        rowGroup => {
-          writeResultCell(doc, context, rowGroup, rowGroup.result, rowGroup.screens);
-        }
-      );
       writeEvidenceCell(doc, context, evidenceGroup);
     }
   );
@@ -952,8 +1022,16 @@ const readResultImageFileNames = (resultRoot: Element): string[] => {
 
 /** 从失败 Result 根块读取去重的问题说明。 */
 const readResultLanguageIssues = (resultRoot: Element): string[] => {
-  /** Result Screen 二级列表中保存的问题说明。 */
-  const issues = Array.from(resultRoot.querySelectorAll('ul ul li')).flatMap(item => {
+  /** 新契约中通过 ownership 属性标记的问题说明。 */
+  const ownedIssueItems = Array.from(
+    resultRoot.querySelectorAll(`[${COPY_TEST_RESULT_LANGUAGE_ISSUE_ATTRIBUTE}]`)
+  );
+  /** 兼容已回写旧结构中的 Result Screen 二级问题列表。 */
+  const issueItems = ownedIssueItems.length > 0
+    ? ownedIssueItems
+    : Array.from(resultRoot.querySelectorAll('ul ul li'));
+  /** Result 中保存的问题说明。 */
+  const issues = issueItems.flatMap(item => {
     /** 去除前后空白后的单条问题说明。 */
     const issue = item.textContent?.trim();
     return issue ? [issue] : [];
@@ -977,14 +1055,16 @@ const hydrateValidationResult = (
     return null;
   }
 
+  /** Result 状态节点是否明确标记为 Passed。 */
+  const passed = resultRoot.querySelector(COPY_TEST_CONTENT_LABEL_TAG)?.textContent?.trim() === PASSED_LABEL;
   /** 当前逐行 Result 真正引用的图片文件名。 */
   const evidenceImageFileNames = readResultImageFileNames(resultRoot);
-  if (evidenceImageFileNames.length === 0) {
+  /** 当前失败 Result 中可恢复的问题说明。 */
+  const languageIssues = passed ? [] : readResultLanguageIssues(resultRoot);
+  if (evidenceImageFileNames.length === 0 && (passed || languageIssues.length === 0)) {
     return null;
   }
 
-  /** Result 状态节点是否明确标记为 Passed。 */
-  const passed = resultRoot.querySelector(COPY_TEST_CONTENT_LABEL_TAG)?.textContent?.trim() === PASSED_LABEL;
   return {
     evidenceImageFileNames,
     evidenceImages: evidenceImageFileNames.flatMap(fileName => {
@@ -992,7 +1072,7 @@ const hydrateValidationResult = (
       const image = imageByFileName.get(fileName);
       return image ? [image] : [];
     }),
-    languageIssues: passed ? [] : readResultLanguageIssues(resultRoot),
+    languageIssues,
     passed,
     rowIndex,
   };
@@ -1021,8 +1101,8 @@ const hydrateValidationImages = (
   return Array.from(new Set(fileNames)).map(fileName => ({ base64: '', fileName }));
 };
 
-/** 从新契约生成的 working DOM 恢复删除所需的逐行校验快照。 */
-const hydrateValidationSnapshot = (
+/** 从新契约生成的 working DOM 只读恢复逐行校验快照。 */
+export const hydrateCopyTestValidationSnapshot = (
   table: CopyTestWorkingTable,
   selectedColumnIndex: number,
   selectedColumnLabel: string
@@ -1049,7 +1129,7 @@ const hydrateValidationSnapshot = (
     const result = hydrateValidationResult(group, resultCell, imageByFileName);
     return result ? [result] : [];
   });
-  return images.length > 0 && results.length > 0 ? { images, results } : null;
+  return results.length > 0 ? { images, results } : null;
 };
 
 /** 判断工作表格中是否仍有指定图片的任意 Evidence 引用。 */
@@ -1063,7 +1143,135 @@ const isEvidenceImageStillUsed = (table: CopyTestWorkingTable, imageId: string):
   );
 };
 
-/** 从目标 Evidence 组的逐行结果中移除指定图片。 */
+/** 读取当前来源列中与删除目标精确匹配的 Evidence 连通块。 */
+const findCurrentEvidenceDeleteGroups = (
+  table: CopyTestWorkingTable,
+  target: CopyTestEvidenceDeleteTarget,
+  selectedColumnIndex: number,
+  selectedColumnLabel: string
+): CurrentEvidenceDeleteGroup[] => {
+  /** 当前来源列用于隔离 Test 双列的稳定 ownership key。 */
+  const sourceColumnKey = getSourceColumnKey(selectedColumnIndex, selectedColumnLabel);
+  /** 当前 Pair 的 Result/Evidence 逻辑列下标。 */
+  const indexes = findGeneratedColumnIndexes(table.headers, sourceColumnKey);
+  /** 当前来源列严格 Evidence 列的逻辑下标。 */
+  const evidenceColumnIndex = indexes.evidence;
+  if (evidenceColumnIndex === undefined) {
+    return [];
+  }
+
+  return table.model.rows.slice(FIRST_DATA_ROW_INDEX).flatMap(row => {
+    /** 当前物理行直接拥有的严格 Evidence 单元格。 */
+    const slot = row.slots[evidenceColumnIndex];
+    if (!slot?.owned) {
+      return [];
+    }
+
+    /** 当前严格 Evidence 槽位直接拥有的物理单元格。 */
+    const cell = slot.cell.element;
+    if (cell.getAttribute(COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE) !== COPY_TEST_GENERATED_EVIDENCE_TYPE
+      || cell.getAttribute(COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE) !== sourceColumnKey) {
+      return [];
+    }
+
+    /** 当前单元格内与删除目标完全一致的图片节点。 */
+    const targetImages = Array.from(cell.querySelectorAll(
+      `[${COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE}]`
+    )).filter(image => {
+      return image.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE) === target.imageId
+        && image.getAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE) === target.instanceId;
+    });
+    if (targetImages.length === 0) {
+      return [];
+    }
+
+    /** 当前 Evidence 受控根块中按展示顺序保存的全部图片实例。 */
+    const evidenceRoot = targetImages[0].closest(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_EVIDENCE_TYPE}"]`
+    );
+    /** 用于识别重复删除目标的当前连通块摘要。 */
+    const group: CurrentEvidenceDeleteGroup = {
+      anchorRowIndex: row.index,
+      instanceIds: Array.from(evidenceRoot?.querySelectorAll(
+        `[${COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE}]`
+      ) || []).map(image => {
+        return image.getAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE) || '';
+      }),
+      rowSpan: slot.cell.rowSpan,
+    };
+    return targetImages.map(() => group);
+  });
+};
+
+/** 从结构化快照中查找包含删除目标的唯一 Evidence 规划组。 */
+const findSnapshotEvidenceDeleteGroup = (
+  table: CopyTestWorkingTable,
+  target: CopyTestEvidenceDeleteTarget,
+  selectedColumnIndex: number,
+  selectedColumnLabel: string,
+  snapshot: CopyTestValidationSnapshot
+): EvidenceGroup | undefined => {
+  /** 当前 Comparison Column 的不可拆分来源原子组。 */
+  const rowGroups = buildCopyTestRowGroups(table, selectedColumnIndex);
+  /** 当前来源列稳定 ownership 键。 */
+  const sourceColumnKey = getSourceColumnKey(selectedColumnIndex, selectedColumnLabel);
+  return buildEvidenceGroups(
+    rowGroups,
+    snapshot.results,
+    snapshot.images,
+    sourceColumnKey
+  ).find(group => group.screens.some(screen => {
+    return screen.imageId === target.imageId && screen.instanceId === target.instanceId;
+  }));
+};
+
+/** 判断调用方快照的目标连通块是否与当前 working DOM 完全对齐。 */
+const isSnapshotDeleteGroupCurrent = (
+  table: CopyTestWorkingTable,
+  target: CopyTestEvidenceDeleteTarget,
+  selectedColumnIndex: number,
+  selectedColumnLabel: string,
+  snapshot: CopyTestValidationSnapshot,
+  currentGroup: CurrentEvidenceDeleteGroup
+): boolean => {
+  /** 调用方快照中包含目标实例的 Evidence 规划组。 */
+  const snapshotGroup = findSnapshotEvidenceDeleteGroup(
+    table,
+    target,
+    selectedColumnIndex,
+    selectedColumnLabel,
+    snapshot
+  );
+  if (!snapshotGroup) {
+    return false;
+  }
+
+  /** 快照目标组按展示顺序生成的稳定实例标识。 */
+  const snapshotInstanceIds = snapshotGroup.screens.map(screen => screen.instanceId);
+  return snapshotGroup.anchorRowIndex === currentGroup.anchorRowIndex
+    && snapshotGroup.rowSpan === currentGroup.rowSpan
+    && snapshotInstanceIds.length === currentGroup.instanceIds.length
+    && snapshotInstanceIds.every((instanceId, index) => {
+      return instanceId === currentGroup.instanceIds[index];
+    });
+};
+
+/** 判断删除结果已真正移除当前来源列中的精确目标实例。 */
+const isCompletedEvidenceDeletion = (
+  result: CopyTestEvidenceDeleteResult,
+  target: CopyTestEvidenceDeleteTarget,
+  selectedColumnIndex: number,
+  selectedColumnLabel: string
+): boolean => {
+  return result.removed && findCurrentEvidenceDeleteGroups(
+    result.table,
+    target,
+    selectedColumnIndex,
+    selectedColumnLabel
+  ).length === 0;
+};
+
+/** 从目标 Evidence 组移除指定图片，并丢弃删除后没有图片的 Result。 */
 const removeImageFromValidationGroup = (
   results: CopyTestValidationResultWithEvidence[],
   group: EvidenceGroup,
@@ -1071,16 +1279,24 @@ const removeImageFromValidationGroup = (
 ): CopyTestValidationResultWithEvidence[] => {
   /** 目标 Evidence 实例实际覆盖的来源原子行索引。 */
   const targetRowIndexes = new Set(group.rowGroups.map(rowGroup => rowGroup.result.rowIndex));
-  return results.map(result => {
+  return results.flatMap(result => {
     if (!targetRowIndexes.has(result.rowIndex)) {
-      return result;
+      return [result];
     }
 
-    return {
+    /** 删除目标后当前 Result 剩余的 Evidence 文件名。 */
+    const evidenceImageFileNames = result.evidenceImageFileNames.filter(
+      fileName => fileName !== imageFileName
+    );
+    if (evidenceImageFileNames.length === 0) {
+      return [];
+    }
+
+    return [{
       ...result,
-      evidenceImageFileNames: result.evidenceImageFileNames.filter(fileName => fileName !== imageFileName),
+      evidenceImageFileNames,
       evidenceImages: result.evidenceImages.filter(image => image.fileName !== imageFileName),
-    };
+    }];
   });
 };
 
@@ -1225,19 +1441,14 @@ const deleteEvidenceImageFromSnapshot = (
   selectedColumnLabel: string,
   snapshot: CopyTestValidationSnapshot
 ): CopyTestEvidenceDeleteResult => {
-  /** 当前 Comparison Column 的不可拆分来源原子组。 */
-  const rowGroups = buildCopyTestRowGroups(table, selectedColumnIndex);
-  /** 当前来源列稳定 ownership 键。 */
-  const sourceColumnKey = getSourceColumnKey(selectedColumnIndex, selectedColumnLabel);
   /** 包含待删除图片实例的唯一 Evidence 规划组。 */
-  const targetGroup = buildEvidenceGroups(
-    rowGroups,
-    snapshot.results,
-    snapshot.images,
-    sourceColumnKey
-  ).find(group => group.screens.some(screen => {
-    return screen.imageId === target.imageId && screen.instanceId === target.instanceId;
-  }));
+  const targetGroup = findSnapshotEvidenceDeleteGroup(
+    table,
+    target,
+    selectedColumnIndex,
+    selectedColumnLabel,
+    snapshot
+  );
   if (!targetGroup) {
     return { imageStillUsed: false, removed: false, table };
   }
@@ -1278,20 +1489,65 @@ export const deleteCopyTestEvidenceImage = (
   selectedColumnLabel: string,
   snapshot?: CopyTestValidationSnapshot
 ): CopyTestEvidenceDeleteResult => {
-  /** 调用方快照缺失时从新契约 working DOM 恢复逐行图片关系。 */
-  const effectiveSnapshot = snapshot || hydrateValidationSnapshot(
+  /** 当前 working DOM 中必须唯一存在的精确 Evidence 删除目标。 */
+  const currentGroups = findCurrentEvidenceDeleteGroups(
+    table,
+    target,
+    selectedColumnIndex,
+    selectedColumnLabel
+  );
+  if (currentGroups.length !== 1) {
+    return { imageStillUsed: false, removed: false, table };
+  }
+
+  /** 当前 working DOM 才是用户所见 Evidence 实例的权威状态。 */
+  const liveSnapshot = hydrateCopyTestValidationSnapshot(
     table,
     selectedColumnIndex,
     selectedColumnLabel
   );
-  if (!effectiveSnapshot) {
-    return { imageStillUsed: false, removed: false, table };
+  if (liveSnapshot) {
+    /** 使用当前 DOM 状态执行的首选删除结果。 */
+    const liveResult = deleteEvidenceImageFromSnapshot(
+      table,
+      target,
+      selectedColumnIndex,
+      selectedColumnLabel,
+      liveSnapshot
+    );
+    if (isCompletedEvidenceDeletion(
+      liveResult,
+      target,
+      selectedColumnIndex,
+      selectedColumnLabel
+    )) {
+      return liveResult;
+    }
   }
-  return deleteEvidenceImageFromSnapshot(
+
+  if (!snapshot || !isSnapshotDeleteGroupCurrent(
     table,
     target,
     selectedColumnIndex,
     selectedColumnLabel,
-    effectiveSnapshot
+    snapshot,
+    currentGroups[0]
+  )) {
+    return { imageStillUsed: false, removed: false, table };
+  }
+
+  /** DOM 关系不完整时使用已确认与当前连通块一致的调用方快照再次删除。 */
+  const snapshotResult = deleteEvidenceImageFromSnapshot(
+    table,
+    target,
+    selectedColumnIndex,
+    selectedColumnLabel,
+    snapshot
   );
+  return isCompletedEvidenceDeletion(
+    snapshotResult,
+    target,
+    selectedColumnIndex,
+    selectedColumnLabel
+  ) ? snapshotResult : { imageStillUsed: false, removed: false, table };
 };

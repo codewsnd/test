@@ -199,7 +199,11 @@ export const toConfluenceStorageHtml = (html: string): string => {
     },
     html
   );
-  return EMPTY_NAMESPACE_TAG_NAMES.reduce(normalizePairedTag, normalizedVoidTags);
+  return EMPTY_NAMESPACE_TAG_NAMES.reduce(
+    /** 逐类恢复 Confluence namespace 空标签的自闭合形式。 */
+    (nextHtml, tagName) => normalizePairedTag(nextHtml, tagName),
+    normalizedVoidTags
+  );
 };
 
 /** 读取单元格纯文本并去除首尾空白。 */

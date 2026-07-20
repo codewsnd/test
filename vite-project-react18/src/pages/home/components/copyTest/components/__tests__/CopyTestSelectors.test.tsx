@@ -13,6 +13,37 @@ vi.mock('antd', () => ({
   Button: ({ children, disabled, onClick }: { children?: React.ReactNode; disabled?: boolean; onClick?: () => void }) => (
     <button disabled={disabled} onClick={onClick}>{children}</button>
   ),
+  Dropdown: function MockDropdown({ children, menu, trigger }: {
+    children?: React.ReactNode;
+    menu: { items: Array<{ disabled?: boolean; key: string; label: React.ReactNode; onClick?: () => void }> };
+    trigger?: string[];
+  }) {
+    const [open, setOpen] = React.useState(false);
+    return (
+      <div
+        data-testid="export-dropdown"
+        data-trigger={trigger?.join(',')}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+      >
+        {children}
+        {open && (
+          <div role="menu">
+            {menu.items.map(item => (
+              <button
+                key={item.key}
+                role="menuitem"
+                disabled={item.disabled}
+                onClick={item.onClick}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  },
   Select: ({ disabled, onChange, options = [], placeholder, value }: { disabled?: boolean; onChange?: (value?: number) => void; options?: Array<{ label: string; value: number }>; placeholder?: string; value?: number }) => (
     <select aria-label={placeholder || 'select'} disabled={disabled} onChange={event => onChange?.(event.target.value === '' ? undefined : Number(event.target.value))} value={value ?? ''}>
       <option value="">{placeholder || 'empty'}</option>
@@ -26,6 +57,51 @@ vi.mock('antd', () => ({
 const table = parseCopyTestStorageTables('<table><tr><th>Target</th><th>Test Result - Target</th></tr><tr><td>copy</td><td></td></tr></table>')[0];
 
 describe('CopyTestSelectors', () => {
+  it('shows continuous labels while preserving original table indexes as values', () => {
+    /** 模拟过滤无效表后保留下来的非连续原始表格下标。 */
+    const tables = [0, 2, 4, 5, 6].map(index => ({ ...table, index }));
+    /** 记录用户切换表格时提交的原始 storage 表格下标。 */
+    const onTableChange = vi.fn();
+    render(
+      <CopyTestSelectors
+        canExportToConfluence={false}
+        canUpload={false}
+        exporting={false}
+        onChooseImages={vi.fn()}
+        onComparisonColumnChange={vi.fn()}
+        onExportToConfluence={vi.fn()}
+        onTableChange={onTableChange}
+        preparingUpload={false}
+        processing={false}
+        selectedColumnIndex={undefined}
+        selectedTable={tables[0]}
+        selectedTableIndex={0}
+        tables={tables}
+      />
+    );
+
+    /** 使用过滤后顺序展示、但保留原始 value 的 Table 下拉框。 */
+    const tableSelect = screen.getByLabelText('select') as HTMLSelectElement;
+    expect(Array.from(tableSelect.options).map(option => option.textContent)).toEqual([
+      'empty',
+      'Table1',
+      'Table2',
+      'Table3',
+      'Table4',
+      'Table5',
+    ]);
+    expect(Array.from(tableSelect.options).map(option => option.value)).toEqual([
+      '',
+      '0',
+      '2',
+      '4',
+      '5',
+      '6',
+    ]);
+    fireEvent.change(tableSelect, { target: { value: '6' } });
+    expect(onTableChange).toHaveBeenCalledWith(6);
+  });
+
   it('renders selectors and action buttons only after a column is selected', () => {
     const onTableChange = vi.fn();
     const onColumnChange = vi.fn();
@@ -71,9 +147,54 @@ describe('CopyTestSelectors', () => {
     expect(onTableChange).toHaveBeenCalledWith(0);
     expect(onColumnChange).toHaveBeenCalledWith(0);
     expect(screen.getByText('Upload Screenshot')).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Export' })).not.toBeNull();
+    expect(screen.queryByText('Export to Confluence')).toBeNull();
   });
 
-  it('excludes blank and generated headers from comparison options', () => {
+  it('shows export formats on hover and enables only Confluence', () => {
+    /** 记录用户从悬停菜单选择 Confluence 后触发的回写操作。 */
+    const onExport = vi.fn();
+    render(
+      <CopyTestSelectors
+        canExportToConfluence={true}
+        canUpload={true}
+        exporting={false}
+        onChooseImages={vi.fn()}
+        onComparisonColumnChange={vi.fn()}
+        onExportToConfluence={onExport}
+        onTableChange={vi.fn()}
+        preparingUpload={false}
+        processing={false}
+        selectedColumnIndex={0}
+        selectedTable={table}
+        selectedTableIndex={0}
+        tables={[table]}
+      />
+    );
+
+    /** Export 按钮使用悬停触发菜单，初始状态不展示格式选项。 */
+    const dropdown = screen.getByTestId('export-dropdown');
+    expect(dropdown.getAttribute('data-trigger')).toBe('hover');
+    expect(screen.queryByRole('menu')).toBeNull();
+    fireEvent.mouseEnter(dropdown);
+
+    /** Confluence 是唯一可点击格式，其余尚未支持的格式保持禁用。 */
+    const confluenceItem = screen.getByRole('menuitem', { name: 'Confluence' });
+    expect(confluenceItem).toHaveProperty('disabled', false);
+    ['PDF', 'Word', 'Excel'].forEach(label => {
+      expect(screen.getByRole('menuitem', { name: label })).toHaveProperty('disabled', true);
+    });
+    fireEvent.click(confluenceItem);
+    expect(onExport).toHaveBeenCalledTimes(1);
+
+    fireEvent.mouseLeave(dropdown);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('labels blank headers by original column index and excludes generated headers', () => {
+    /** 记录空表头选项实际提交的原始逻辑列下标。 */
+    const onColumnChange = vi.fn();
+    /** 包含普通、空白和生成表头的测试工作表。 */
     const tableWithFilteredHeaders = {
       ...table,
       headers: [
@@ -90,7 +211,7 @@ describe('CopyTestSelectors', () => {
         canUpload={false}
         exporting={false}
         onChooseImages={vi.fn()}
-        onComparisonColumnChange={vi.fn()}
+        onComparisonColumnChange={onColumnChange}
         onExportToConfluence={vi.fn()}
         onTableChange={vi.fn()}
         preparingUpload={false}
@@ -106,7 +227,17 @@ describe('CopyTestSelectors', () => {
     expect(Array.from(comparisonSelect.options).map(option => option.textContent)).toEqual([
       'Select comparison column',
       'Target',
+      'Column 2',
+      'Column 3',
     ]);
+    expect(Array.from(comparisonSelect.options).map(option => option.value)).toEqual([
+      '',
+      '0',
+      '1',
+      '2',
+    ]);
+    fireEvent.change(comparisonSelect, { target: { value: '2' } });
+    expect(onColumnChange).toHaveBeenCalledWith(2);
   });
 
   it('adds logical column numbers only to duplicate comparison headers', () => {

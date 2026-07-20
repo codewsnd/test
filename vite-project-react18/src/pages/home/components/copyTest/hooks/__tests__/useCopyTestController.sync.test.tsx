@@ -74,6 +74,7 @@ vi.mock('../useCopyTestSession', () => ({
     getCurrentValidationImages: vi.fn(() => []),
     handleComparisonColumnChange: vi.fn(),
     handleTableChange: vi.fn(),
+    resetSession: vi.fn(),
     resetValidationSnapshots: vi.fn(),
     setSelectedRowIndexes: vi.fn(),
     tables: [],
@@ -93,6 +94,7 @@ vi.mock('../useCopyTestUpload', () => ({
 describe('useCopyTestController synchronous guards', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    hoisted.actionState.uploadBusy = false;
     hoisted.sessionState.originalStorageHtml = '';
   });
 
@@ -139,5 +141,16 @@ describe('useCopyTestController synchronous guards', () => {
     });
 
     expect(hoisted.removeUploadImage).toHaveBeenCalledWith('screen-md5');
+  });
+
+  it('does not remove an upload image while upload interactions are busy', () => {
+    hoisted.actionState.uploadBusy = true;
+    const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
+
+    act(() => {
+      result.current.handleRemoveUploadImage('screen-md5');
+    });
+
+    expect(hoisted.removeUploadImage).not.toHaveBeenCalled();
   });
 });

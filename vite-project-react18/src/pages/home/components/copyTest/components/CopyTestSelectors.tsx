@@ -2,7 +2,7 @@
  * 文件作用：渲染表格选择、Comparison Column 选择和操作按钮。
  */
 import React from 'react';
-import { Button, Select, Space, Typography } from 'antd';
+import { Button, Dropdown, Select, Space, Typography } from 'antd';
 import { CloudUploadOutlined, UploadOutlined } from '@ant-design/icons';
 import { isCopyTestGeneratedHeader } from '../table/copyTestTableParser';
 import type { CopyTestHeader, CopyTestTableEntry } from '../types';
@@ -43,29 +43,42 @@ interface CopyTestSelectorsProps {
 
 /** 将解析表格转为表格下拉框选项。 */
 const buildTableOptions = (tables: CopyTestTableEntry[]) => {
-  return tables.map(table => ({
+  return tables.map((table, displayIndex) => ({
     value: table.index,
-    label: getCopyTestTableOptionLabel(table),
+    label: getCopyTestTableOptionLabel(displayIndex),
   }));
 };
 
-/** 过滤空表头和生成列，构建 Comparison Column 选项。 */
+/** 为空表头生成只用于界面展示的原始列序号标签。 */
+const getComparisonColumnOptionLabel = (header: CopyTestHeader): string => {
+  if (header.label.trim() === '') {
+    return `Column ${header.index + 1}`;
+  }
+  return header.label;
+};
+
+/** 过滤生成列并构建 Comparison Column 选项。 */
 const buildComparisonOptions = (headers: CopyTestHeader[]) => {
-  /** 下拉框允许选择的非空来源表头。 */
+  /** 下拉框允许选择的来源表头，空表头仍保留原始逻辑列。 */
   const selectableHeaders = headers.filter(
-    header => header.label.trim() !== '' && !isCopyTestGeneratedHeader(header)
+    header => !isCopyTestGeneratedHeader(header)
   );
-  /** 每个原始表头文本在可选来源列中的出现次数。 */
-  const headerLabelCounts = selectableHeaders.reduce((counts, header) => {
-    counts.set(header.label, (counts.get(header.label) || 0) + 1);
+  /** 每个来源表头及其只用于界面展示的标签。 */
+  const labeledHeaders = selectableHeaders.map(header => ({
+    header,
+    label: getComparisonColumnOptionLabel(header),
+  }));
+  /** 每个展示标签在可选来源列中的出现次数。 */
+  const headerLabelCounts = labeledHeaders.reduce((counts, item) => {
+    counts.set(item.label, (counts.get(item.label) || 0) + 1);
     return counts;
   }, new Map<string, number>());
 
-  return selectableHeaders.map(header => ({
-    value: header.index,
-    label: (headerLabelCounts.get(header.label) || 0) > 1
-      ? `${header.label} (Column ${header.index + 1})`
-      : header.label,
+  return labeledHeaders.map(item => ({
+    value: item.header.index,
+    label: (headerLabelCounts.get(item.label) || 0) > 1 && item.header.label.trim() !== ''
+      ? `${item.label} (Column ${item.header.index + 1})`
+      : item.label,
   }));
 };
 
@@ -102,14 +115,30 @@ const CopyTestActionButtons: React.FC<Pick<
       >
         Upload Screenshot
       </Button>
-      <Button
-        icon={<CloudUploadOutlined />}
-        disabled={!canExportToConfluence}
-        loading={exporting}
-        onClick={onExportToConfluence}
+      <Dropdown
+        menu={{
+          items: [
+            {
+              key: 'confluence',
+              label: 'Confluence',
+              disabled: !canExportToConfluence,
+              onClick: onExportToConfluence,
+            },
+            { key: 'pdf', label: 'PDF', disabled: true },
+            { key: 'word', label: 'Word', disabled: true },
+            { key: 'excel', label: 'Excel', disabled: true },
+          ],
+        }}
+        trigger={['hover']}
       >
-        Export to Confluence
-      </Button>
+        <Button
+          icon={<CloudUploadOutlined />}
+          disabled={!canExportToConfluence}
+          loading={exporting}
+        >
+          Export
+        </Button>
+      </Dropdown>
     </>
   );
 };

@@ -43,6 +43,8 @@ interface UploadScreenshotModalProps {
 
 /** 单张上传截图行的入参。 */
 interface UploadImageRowProps {
+  /** 当前截图列表交互是否被异步任务锁定。 */
+  disabled: boolean;
   /** 需要展示的内存截图。 */
   image: CopyTestMemoryImage;
   /** 按照内存图片 MD5 删除截图的回调。 */
@@ -71,6 +73,7 @@ const UploadLimitSummary: React.FC<Pick<
 
 /** 渲染单张截图预览行。 */
 const UploadImageRow: React.FC<UploadImageRowProps> = ({
+  disabled,
   image,
   onRemoveImage,
 }) => {
@@ -91,6 +94,7 @@ const UploadImageRow: React.FC<UploadImageRowProps> = ({
       </div>
       <Button
         aria-label={`Delete ${image.fileName}`}
+        disabled={disabled}
         icon={<DeleteOutlined />}
         onClick={() => onRemoveImage(image.md5)}
       />
@@ -101,11 +105,16 @@ const UploadImageRow: React.FC<UploadImageRowProps> = ({
 /** 渲染已上传截图列表。 */
 const UploadImageList: React.FC<Pick<
   UploadScreenshotModalProps,
-  'onRemoveImage' | 'uploadImages'
+  'onRemoveImage' | 'preparingUpload' | 'processing' | 'uploadImages'
 >> = ({
   onRemoveImage,
+  preparingUpload,
+  processing,
   uploadImages,
 }) => {
+  /** 文件准备或校验期间统一锁定截图列表操作。 */
+  const disabled = preparingUpload || processing;
+
   if (uploadImages.length === 0) {
     return (
       <div className="rounded border border-dashed border-gray-300 px-4 py-8 text-center">
@@ -119,6 +128,7 @@ const UploadImageList: React.FC<Pick<
       {uploadImages.map(image => (
         <UploadImageRow
           key={image.md5}
+          disabled={disabled}
           image={image}
           onRemoveImage={onRemoveImage}
         />
@@ -142,6 +152,9 @@ export const UploadScreenshotModal: React.FC<UploadScreenshotModalProps> = ({
 }) => {
   /** 隐藏文件输入框的 DOM 引用。 */
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  /** 文件准备或校验期间统一锁定上传弹窗交互。 */
+  const uploadInteractionDisabled = preparingUpload || processing;
 
   /** 打开系统文件选择器。 */
   const handleChooseImages = (): void => {
@@ -169,7 +182,7 @@ export const UploadScreenshotModal: React.FC<UploadScreenshotModalProps> = ({
         <Button
           key="validate"
           type="primary"
-          disabled={!canValidate}
+          disabled={!canValidate || uploadInteractionDisabled}
           loading={processing}
           onClick={onValidate}
         >
@@ -180,6 +193,7 @@ export const UploadScreenshotModal: React.FC<UploadScreenshotModalProps> = ({
       <Space direction="vertical" size="middle" className="w-full">
         <UploadLimitSummary uploadImages={uploadImages} uploadTotalSize={uploadTotalSize} />
         <Button
+          disabled={uploadInteractionDisabled}
           icon={<UploadOutlined />}
           loading={preparingUpload}
           onClick={handleChooseImages}
@@ -191,10 +205,16 @@ export const UploadScreenshotModal: React.FC<UploadScreenshotModalProps> = ({
           type="file"
           accept="image/*"
           multiple
+          disabled={uploadInteractionDisabled}
           className="hidden"
           onChange={handleFilesSelected}
         />
-        <UploadImageList uploadImages={uploadImages} onRemoveImage={onRemoveImage} />
+        <UploadImageList
+          onRemoveImage={onRemoveImage}
+          preparingUpload={preparingUpload}
+          processing={processing}
+          uploadImages={uploadImages}
+        />
       </Space>
     </Modal>
   );

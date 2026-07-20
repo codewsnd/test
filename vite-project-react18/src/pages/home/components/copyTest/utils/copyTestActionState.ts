@@ -11,6 +11,8 @@ export interface CopyTestActionStateParams {
   exportLoading: boolean;
   /** 当前 Comparison Column 是否包含可回写的本地变更，包括清空双列。 */
   hasExportableContent: boolean;
+  /** 当前 URL 是否对应一份已完成导入且仍有效的表格会话。 */
+  hasActiveImportedSession: boolean;
   /** 当前 Comparison Column 的逻辑列下标。 */
   selectedColumnIndex?: number;
   /** 当前勾选的来源原子组数量。 */
@@ -74,34 +76,44 @@ const isCopyTestImportBusy = (
 
 /** 判断当前表格和 Comparison Column 是否可用于后续操作。 */
 const canUseSelectedTable = (
+  hasActiveImportedSession: boolean,
   selectedTable: CopyTestTableEntry | undefined,
   selectedColumnIndex: number | undefined,
   busy: boolean
 ): boolean => {
-  return Boolean(selectedTable)
+  return hasActiveImportedSession
+    && Boolean(selectedTable)
     && hasSelectedComparisonColumn(selectedColumnIndex)
     && !busy;
 };
 
 /** 判断当前选择是否允许进入截图上传流程。 */
 const canUploadScreenshots = (
+  hasActiveImportedSession: boolean,
   selectedTable: CopyTestTableEntry | undefined,
   selectedColumnIndex: number | undefined,
   selectedRowCount: number,
   busy: boolean
 ): boolean => {
-  return canUseSelectedTable(selectedTable, selectedColumnIndex, busy) && selectedRowCount > 0;
+  return canUseSelectedTable(
+    hasActiveImportedSession,
+    selectedTable,
+    selectedColumnIndex,
+    busy
+  ) && selectedRowCount > 0;
 };
 
 /** 判断当前生成结果是否满足 Confluence 回写条件。 */
 const canWriteConfluenceStorage = (
+  hasActiveImportedSession: boolean,
   hasExportableContent: boolean,
   storageHtml: string,
   selectedColumnIndex: number | undefined,
   storageLoading: boolean,
   uploadBusy: boolean
 ): boolean => {
-  return Boolean(storageHtml)
+  return hasActiveImportedSession
+    && Boolean(storageHtml)
     && hasExportableContent
     && hasSelectedComparisonColumn(selectedColumnIndex)
     && !storageLoading
@@ -113,6 +125,7 @@ export const buildCopyTestActionState = ({
   attachmentsLoading,
   exportLoading,
   hasExportableContent,
+  hasActiveImportedSession,
   selectedColumnIndex,
   selectedRowCount,
   selectedTable,
@@ -136,10 +149,17 @@ export const buildCopyTestActionState = ({
   );
 
   /** 上传和校验入口共同依赖的选择可用状态。 */
-  const canUpload = canUploadScreenshots(selectedTable, selectedColumnIndex, selectedRowCount, uploadBusy);
+  const canUpload = canUploadScreenshots(
+    hasActiveImportedSession,
+    selectedTable,
+    selectedColumnIndex,
+    selectedRowCount,
+    uploadBusy || storageLoading || attachmentsLoading
+  );
 
   return {
     canExportToConfluence: canWriteConfluenceStorage(
+      hasActiveImportedSession,
       hasExportableContent,
       storageHtml,
       selectedColumnIndex,

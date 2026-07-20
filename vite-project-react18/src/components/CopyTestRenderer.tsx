@@ -2,19 +2,18 @@ import React from 'react';
 import { Card } from 'antd';
 import { CheckSquareOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import CopyTest, {
-  COPY_TEST_RENDERER_SCOPE_ATTRIBUTE,
   COPY_TEST_TRIGGER_CLASS_NAME,
 } from '@/pages/home/components/copyTest/CopyTest';
 
 export const CopyTestRenderer: React.FC = () => {
   return (
-    <div className="my-4" {...{ [COPY_TEST_RENDERER_SCOPE_ATTRIBUTE]: 'true' }}>
+    <div className="my-4">
       <h2>
         I can help you validate copy deck content against UI screenshots and reference language.
       </h2>
 
       <Card
-        className={`max-w-md cursor-pointer relative bg-white ${COPY_TEST_TRIGGER_CLASS_NAME}`}
+        className={`max-w-md cursor-pointer relative bg-white `}
         hoverable
       >
         <div className="flex gap-3 items-start">
@@ -25,7 +24,7 @@ export const CopyTestRenderer: React.FC = () => {
             <div className="text-base font-medium text-gray-800">
               Copy Test
             </div>
-            <div className="text-sm text-gray-500">
+            <div className={`text-sm text-gray-500 ${COPY_TEST_TRIGGER_CLASS_NAME}`}>
               Confluence validation
             </div>
           </div>

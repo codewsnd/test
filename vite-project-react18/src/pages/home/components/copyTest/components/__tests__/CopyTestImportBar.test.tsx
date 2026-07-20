@@ -4,8 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { CopyTestImportBar } from '../CopyTestImportBar';
 
 vi.mock('antd', () => {
-  const Button = ({ children, loading, onClick }: { children?: React.ReactNode; loading?: boolean; onClick?: () => void }) => (
-    <button data-loading={loading ? 'true' : 'false'} onClick={onClick}>{children}</button>
+  /** 支持禁用和加载状态的测试按钮替身。 */
+  const Button = ({ children, disabled, loading, onClick }: { children?: React.ReactNode; disabled?: boolean; loading?: boolean; onClick?: () => void }) => (
+    <button disabled={disabled} data-loading={loading ? 'true' : 'false'} onClick={onClick}>{children}</button>
   );
   const Form = {
     Item: ({ children, help }: { children?: React.ReactNode; help?: React.ReactNode }) => (
@@ -36,6 +37,29 @@ describe('CopyTestImportBar', () => {
     fireEvent.click(screen.getByText('Import'));
     expect(onUrlChange).toHaveBeenCalledWith('http://next');
     expect(onImport).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables both URL input and Import button while another operation is busy', () => {
+    /** 用于确认禁用按钮不会触发导入的回调。 */
+    const onImport = vi.fn();
+    render(
+      <CopyTestImportBar
+        confluenceUrl="http://wiki"
+        disabled={true}
+        loading={false}
+        onConfluenceUrlChange={vi.fn()}
+        onImport={onImport}
+      />
+    );
+
+    /** 忙碌状态下应禁用的 URL 输入框。 */
+    const input = screen.getByPlaceholderText('Confluence URL');
+    /** 忙碌状态下应禁用的导入按钮。 */
+    const importButton = screen.getByRole('button', { name: 'Import' });
+    expect((input as HTMLInputElement).disabled).toBe(true);
+    expect((importButton as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(importButton);
+    expect(onImport).not.toHaveBeenCalled();
   });
 
   it('renders the exact inline error below the URL input', () => {

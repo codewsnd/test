@@ -14,6 +14,7 @@ import {
   bindResultImages,
   deleteCopyTestEvidenceImage,
   ensureCopyTestWorkingColumns,
+  hydrateCopyTestValidationSnapshot,
   type CopyTestValidationSnapshot,
 } from '../table/copyTestTableEditor';
 import {
@@ -68,6 +69,8 @@ export interface UseCopyTestSessionResult {
   handleTableChange: (value: number) => void;
   /** 最近一次成功导入或导出后的完整 storage。 */
   originalStorageHtml: string;
+  /** 清空当前导入页面、表格选择和本地校验快照。 */
+  resetSession: () => void;
   /** 清空各列保存的校验图片快照。 */
   resetValidationSnapshots: () => void;
   /** 当前选中 Comparison Column 的解析上下文。 */
@@ -99,6 +102,24 @@ type ValidationResultSnapshotMap = Record<string, CopyTestValidationResultWithEv
 /** 未产生校验图片时复用稳定空数组。 */
 const EMPTY_VALIDATION_IMAGES: CopyTestImage[] = [];
 
+/** 构建局部校验合并快照所需的上下文。 */
+interface BuildMergedValidationSnapshotParams {
+  /** 当前 Comparison Column 的逻辑列下标。 */
+  columnIndex: number;
+  /** 当前 Comparison Column 的原始表头文本。 */
+  columnLabel: string;
+  /** 本次 Validate 实际可用的内存图片。 */
+  currentImages: CopyTestImage[];
+  /** 本次 Validate 返回且只应覆盖同 rowIndex 历史值的结果。 */
+  currentResults: CopyTestValidationResultWithEvidence[];
+  /** 最近一次导入时成功加载的 Evidence 图片。 */
+  importedImages: CopyTestImage[];
+  /** 当前 Pair 上一次保存且可能带真实 base64 的图片。 */
+  previousImages: CopyTestImage[];
+  /** 当前 Pair 即将应用局部 Validate 的工作表格。 */
+  table: CopyTestTableEntry;
+}
+
 /** 判断图片是否包含可用于浏览器预览或附件上传的实际内容。 */
 const hasCopyTestImageContent = (image: CopyTestImage): boolean => {
   return image.base64.trim() !== '';
@@ -118,6 +139,68 @@ const mergeCopyTestImageIdentities = (
     }
   });
   return Array.from(imageByFileName.values());
+};
+
+/** 按 rowIndex 使用本次结果替换历史结果，并保持物理数据行顺序。 */
+const mergeCopyTestValidationResults = (
+  historicalResults: CopyTestValidationResultWithEvidence[],
+  currentResults: CopyTestValidationResultWithEvidence[]
+): CopyTestValidationResultWithEvidence[] => {
+  /** 每个业务锚点行当前唯一生效的校验结果。 */
+  const resultByRowIndex = new Map<number, CopyTestValidationResultWithEvidence>();
+  historicalResults.forEach(result => resultByRowIndex.set(result.rowIndex, result));
+  currentResults.forEach(result => resultByRowIndex.set(result.rowIndex, result));
+  return Array.from(resultByRowIndex.values()).sort(
+    /** 按业务数据行下标恢复从上到下的稳定顺序。 */
+    (left, right) => left.rowIndex - right.rowIndex
+  );
+};
+
+/** 读取合并结果仍实际引用的全部 Evidence 文件名。 */
+const getReferencedValidationImageFileNames = (
+  results: CopyTestValidationResultWithEvidence[]
+): Set<string> => {
+  return new Set(results.flatMap(result => result.evidenceImageFileNames));
+};
+
+/** 从 working DOM 恢复历史结果，并只用本次 rowIndex 覆盖后构建完整快照。 */
+const buildMergedValidationSnapshot = ({
+  columnIndex,
+  columnLabel,
+  currentImages,
+  currentResults,
+  importedImages,
+  previousImages,
+  table,
+}: BuildMergedValidationSnapshotParams): CopyTestValidationSnapshot => {
+  /** working DOM 中当前仍真实存在的历史 Result/Evidence 关系。 */
+  const historicalSnapshot = hydrateCopyTestValidationSnapshot(
+    table,
+    columnIndex,
+    columnLabel
+  );
+  /** 用已有内存内容补齐 DOM 恢复出的轻量图片身份。 */
+  const availableImages = mergeCopyTestImageIdentities(
+    historicalSnapshot?.images || [],
+    previousImages,
+    importedImages,
+    currentImages
+  );
+  /** 重新绑定真实图片后的历史逐行结果。 */
+  const historicalResults = bindResultImages(
+    historicalSnapshot?.results || [],
+    availableImages
+  );
+  /** 本次 rowIndex 覆盖历史值后的完整逐行结果。 */
+  const mergedResults = mergeCopyTestValidationResults(historicalResults, currentResults);
+  /** 完整结果当前仍实际引用的 Evidence 文件名。 */
+  const referencedFileNames = getReferencedValidationImageFileNames(mergedResults);
+  /** 仅保存仍被结果引用的图片，并优先沿用真实 base64。 */
+  const mergedImages = availableImages.filter(image => referencedFileNames.has(image.fileName));
+  return {
+    images: mergedImages,
+    results: bindResultImages(mergedResults, mergedImages),
+  };
 };
 
 /** 生成表格来源列 Pair 的待回写状态键。 */
@@ -237,6 +320,13 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     validationResultSnapshotsRef.current = {};
   };
 
+  /** 清空当前导入页面及所有只属于该页面的内存状态。 */
+  const resetSession = (): void => {
+    importedPreviewImagesRef.current = [];
+    resetValidationSnapshots();
+    dispatch({ type: 'RESET' });
+  };
+
   /** 应用导入的 storage。 */
   const applyLoadedStorage = (
     nextStorageHtml: string,
@@ -352,13 +442,25 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
       return;
     }
 
-    /** 写入严格校验结果后的工作表格。 */
-    const nextTable = applyCopyTestValidationResults(
-      targetTable,
-      results,
+    /** 当前表格与来源列共用的校验快照键。 */
+    const snapshotKey = buildSnapshotKey(tableIndex, columnIndex, columnLabel);
+    /** working DOM 历史与本次局部结果合并后的完整 Pair 快照。 */
+    const mergedSnapshot = buildMergedValidationSnapshot({
       columnIndex,
       columnLabel,
-      images
+      currentImages: images,
+      currentResults: results,
+      importedImages: importedPreviewImagesRef.current,
+      previousImages: validationImageSnapshotsRef.current[snapshotKey] || [],
+      table: targetTable,
+    });
+    /** 写入完整合并校验结果后的工作表格。 */
+    const nextTable = applyCopyTestValidationResults(
+      targetTable,
+      mergedSnapshot.results,
+      columnIndex,
+      columnLabel,
+      mergedSnapshot.images
     );
     /** 校验结果即使为空也必须作为可回写的 Pair 变更保存。 */
     const pendingExportPairKey = buildPendingExportPairKey(
@@ -366,7 +468,13 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
       getSourceColumnKey(columnIndex, columnLabel)
     );
     updateWorkingTable(nextTable, pendingExportPairKey);
-    saveValidationSnapshot(tableIndex, columnIndex, columnLabel, images, results);
+    saveValidationSnapshot(
+      tableIndex,
+      columnIndex,
+      columnLabel,
+      mergedSnapshot.images,
+      mergedSnapshot.results
+    );
   };
 
   /** 删除当前列 Evidence 图片引用。 */
@@ -450,6 +558,7 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     handleComparisonColumnChange,
     handleTableChange,
     originalStorageHtml,
+    resetSession,
     resetValidationSnapshots,
     selectedColumnContext,
     selectedColumnHasExportableContent,

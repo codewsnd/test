@@ -1,5 +1,10 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import {
+  findGeneratedColumnIndexes,
+  getSourceColumnKey,
+  parseCopyTestStorageTables,
+} from '../../table/copyTestTableParser';
 import { useCopyTestSession } from '../useCopyTestSession';
 
 const image = { base64: 'data:image/png;base64,QUJD', fileName: 'screen-a.png' };
@@ -13,6 +18,13 @@ const storageHtml = [
   '<tr><td>Hello</td><td rowspan="2">你好</td></tr>',
   '<tr><td>World</td></tr>',
   '<tr><td>Submit</td><td>提交</td></tr>',
+  '</table>',
+].join('');
+
+/** 第二列为空表头、但仍可按原始逻辑列下标选择的会话表格。 */
+const blankHeaderStorageHtml = [
+  '<table><tr><th>ID</th><th><br /></th></tr>',
+  '<tr><td>1</td><td>copy</td></tr>',
   '</table>',
 ].join('');
 
@@ -42,6 +54,25 @@ const importedStorageHtml = [
 ].join('');
 
 describe('useCopyTestSession', () => {
+  it('selects a blank header by original index without changing its ownership label', () => {
+    /** 用于验证 UI 占位标签不会进入业务 ownership 的 CopyTest 会话。 */
+    const { result } = renderHook(() => useCopyTestSession());
+    act(() => {
+      expect(result.current.applyLoadedStorage(blankHeaderStorageHtml)).toBe(1);
+    });
+    act(() => {
+      result.current.handleComparisonColumnChange(1);
+    });
+
+    expect(result.current.selectedColumnIndex).toBe(1);
+    expect(result.current.selectedHeader?.label).toBe('');
+    expect(getSourceColumnKey(1, result.current.selectedHeader?.label || '')).toBe('1:');
+    expect(result.current.selectedRowIndexes).toEqual([0]);
+    expect(result.current.buildSelectedRowsForValidation()).toEqual([
+      { expected: 'copy', rowIndex: 0 },
+    ]);
+  });
+
   it('manages storage, selection, validation snapshots, export commit, and deletion', () => {
     const { result } = renderHook(() => useCopyTestSession());
     act(() => {
@@ -163,6 +194,29 @@ describe('useCopyTestSession', () => {
     expect(result.current.getCurrentPreviewImages()).toEqual([importedImage]);
   });
 
+  it('resets imported tables, selections, and image identities as one session', () => {
+    const { result } = renderHook(() => useCopyTestSession());
+    act(() => {
+      result.current.applyLoadedStorage(importedStorageHtml, [importedImage]);
+    });
+    act(() => {
+      result.current.handleComparisonColumnChange(0);
+    });
+    expect(result.current.selectedColumnIndex).toBe(0);
+
+    act(() => {
+      result.current.resetSession();
+    });
+
+    expect(result.current.originalStorageHtml).toBe('');
+    expect(result.current.tables).toEqual([]);
+    expect(result.current.selectedTable).toBeUndefined();
+    expect(result.current.selectedColumnIndex).toBeUndefined();
+    expect(result.current.selectedRowIndexes).toEqual([]);
+    expect(result.current.getCurrentPreviewImages()).toEqual([]);
+    expect(result.current.getCurrentValidationImages()).toEqual([]);
+  });
+
   it('normalizes four selected physical rows into three atomic source groups', () => {
     const { result } = renderHook(() => useCopyTestSession());
     act(() => {
@@ -183,6 +237,146 @@ describe('useCopyTestSession', () => {
       { expected: 'copy 2 and 3', rowIndex: 1 },
       { expected: 'copy 4', rowIndex: 3 },
     ]);
+  });
+
+  it('preserves an unselected no-image Failed result during partial validation after import', () => {
+    /** 先生成同时包含无图失败结果和有图通过结果的合法 Pair。 */
+    const generated = renderHook(() => useCopyTestSession());
+    act(() => {
+      generated.result.current.applyLoadedStorage(storageHtml);
+    });
+    act(() => {
+      generated.result.current.handleComparisonColumnChange(1);
+    });
+    act(() => {
+      generated.result.current.applyValidationResults([
+        {
+          evidenceImageFileNames: [],
+          evidenceImages: [],
+          languageIssues: ['Historical missing copy'],
+          passed: false,
+          rowIndex: 0,
+        },
+        {
+          evidenceImageFileNames: ['screen-a.png'],
+          evidenceImages: [image],
+          languageIssues: [],
+          passed: true,
+          rowIndex: 2,
+        },
+      ], [image], 1, 'Target', 0);
+    });
+    /** 模拟回写后再次导入的完整工作表格。 */
+    const generatedStorageHtml = generated.result.current.selectedTable?.workingHtml || '';
+    /** 再次导入后的新会话没有任何内存结果快照。 */
+    const imported = renderHook(() => useCopyTestSession());
+    act(() => {
+      imported.result.current.applyLoadedStorage(generatedStorageHtml, [image]);
+    });
+    act(() => {
+      imported.result.current.handleComparisonColumnChange(1);
+    });
+
+    act(() => {
+      imported.result.current.applyValidationResults([{
+        evidenceImageFileNames: ['screen-b.png'],
+        evidenceImages: [secondImage],
+        languageIssues: [],
+        passed: true,
+        rowIndex: 2,
+      }], [secondImage], 1, 'Target', 0);
+    });
+
+    /** 局部校验只能替换 rowIndex 2，未选中的无图失败结果必须保留。 */
+    const updatedHtml = imported.result.current.selectedTable?.workingHtml || '';
+    expect(updatedHtml).toContain('Historical missing copy');
+    expect(updatedHtml).toContain('screen-b.png');
+    expect(updatedHtml).not.toContain('screen-a.png');
+    expect(imported.result.current.getCurrentValidationImages()).toEqual([secondImage]);
+  });
+
+  it('preserves unselected atomic rowspan groups during partial validation after import', () => {
+    /** 先为四个物理行、三个来源原子组生成完整校验结果。 */
+    const generated = renderHook(() => useCopyTestSession());
+    act(() => {
+      generated.result.current.applyLoadedStorage(middleMergedStorageHtml);
+    });
+    act(() => {
+      generated.result.current.handleComparisonColumnChange(1);
+    });
+    act(() => {
+      generated.result.current.applyValidationResults([
+        {
+          evidenceImageFileNames: ['screen-a.png'],
+          evidenceImages: [image],
+          languageIssues: [],
+          passed: true,
+          rowIndex: 0,
+        },
+        {
+          evidenceImageFileNames: ['screen-b.png'],
+          evidenceImages: [secondImage],
+          languageIssues: [],
+          passed: true,
+          rowIndex: 1,
+        },
+        {
+          evidenceImageFileNames: ['screen-c.png'],
+          evidenceImages: [thirdImage],
+          languageIssues: [],
+          passed: true,
+          rowIndex: 3,
+        },
+      ], [image, secondImage, thirdImage], 1, 'Target', 0);
+    });
+    /** 模拟回写后重新导入，并保留三张附件的真实预览内容。 */
+    const generatedStorageHtml = generated.result.current.selectedTable?.workingHtml || '';
+    /** 用于验证 DOM 恢复路径的新会话。 */
+    const imported = renderHook(() => useCopyTestSession());
+    act(() => {
+      imported.result.current.applyLoadedStorage(
+        generatedStorageHtml,
+        [image, secondImage, thirdImage]
+      );
+    });
+    act(() => {
+      imported.result.current.handleComparisonColumnChange(1);
+    });
+
+    act(() => {
+      imported.result.current.applyValidationResults([{
+        evidenceImageFileNames: [],
+        evidenceImages: [],
+        languageIssues: ['Updated first row only'],
+        passed: false,
+        rowIndex: 0,
+      }], [], 1, 'Target', 0);
+    });
+
+    /** 本次只替换首行，2/3 原子组与第 4 行的图片关系必须继续存在。 */
+    const updatedHtml = imported.result.current.selectedTable?.workingHtml || '';
+    expect(updatedHtml).toContain('Updated first row only');
+    expect(updatedHtml).not.toContain('screen-a.png');
+    expect(updatedHtml).toContain('screen-b.png');
+    expect(updatedHtml).toContain('screen-c.png');
+    expect(imported.result.current.getCurrentValidationImages()).toEqual([
+      secondImage,
+      thirdImage,
+    ]);
+
+    /** 重新解析更新结果，确认 2/3 行的 Result 与 Evidence 仍共享 rowspan=2。 */
+    const updatedTable = parseCopyTestStorageTables(updatedHtml)[0];
+    /** 当前 Target 来源列对应的生成双列下标。 */
+    const generatedIndexes = findGeneratedColumnIndexes(
+      updatedTable.headers,
+      getSourceColumnKey(1, 'Target')
+    );
+    expect(updatedTable.model.rows[2].slots[generatedIndexes.result!]?.owned).toBe(true);
+    expect(updatedTable.model.rows[2].slots[generatedIndexes.result!]?.cell.rowSpan).toBe(2);
+    expect(updatedTable.model.rows[3].slots[generatedIndexes.result!]?.owned).toBe(false);
+    expect(updatedTable.model.rows[2].slots[generatedIndexes.evidence!]?.owned).toBe(true);
+    expect(updatedTable.model.rows[2].slots[generatedIndexes.evidence!]?.cell.rowSpan).toBe(2);
+    expect(updatedTable.model.rows[3].slots[generatedIndexes.evidence!]?.owned).toBe(false);
   });
 
   it('preserves unloaded Evidence identities across consecutive imported-image deletions', () => {

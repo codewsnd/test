@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
-  COPY_TEST_EVIDENCE_COLUMN_WIDTH,
+  COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH,
+  COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH,
+} from '../../constants';
+import {
   COPY_TEST_EVIDENCE_IMAGE_HEIGHT,
   COPY_TEST_EVIDENCE_IMAGE_WIDTH,
   COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE,
   COPY_TEST_GENERATED_EVIDENCE_TYPE,
   COPY_TEST_GENERATED_RESULT_TYPE,
-  COPY_TEST_RESULT_COLUMN_WIDTH,
 } from '../tableConstants';
 import { parseHtml } from '../tableModel';
 import {
@@ -246,9 +248,15 @@ describe('copyTestTableImages', () => {
 
     expect(payload.images).toEqual([{ base64: A_PROVIDED_BASE64, fileName: 'a.png' }]);
     expect(aResultCells.map(cell => cell.style.width))
-      .toEqual([`${COPY_TEST_RESULT_COLUMN_WIDTH}px`, `${COPY_TEST_RESULT_COLUMN_WIDTH}px`]);
+      .toEqual([
+        `${COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH}px`,
+        `${COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH}px`,
+      ]);
     expect(aEvidenceCells.map(cell => cell.style.width))
-      .toEqual([`${COPY_TEST_EVIDENCE_COLUMN_WIDTH}px`, `${COPY_TEST_EVIDENCE_COLUMN_WIDTH}px`]);
+      .toEqual([
+        `${COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH}px`,
+        `${COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH}px`,
+      ]);
     expect(aCells).toContain(`ac:width="${COPY_TEST_EVIDENCE_IMAGE_WIDTH}"`);
     expect(aCells).toContain(`ac:height="${COPY_TEST_EVIDENCE_IMAGE_HEIGHT}"`);
     expect(aCells).toContain('data-copy-test-result-image-id="a-id"');

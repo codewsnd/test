@@ -23,7 +23,7 @@ vi.mock('antd', () => {
 
 describe('UploadScreenshotModal', () => {
   it('renders upload list, empty state, and fires file/remove/validate callbacks', () => {
-    const onFilesSelected = vi.fn();
+    const onFilesSelected = vi.fn(() => Promise.resolve());
     const onRemove = vi.fn();
     const onValidate = vi.fn();
     render(
@@ -64,5 +64,61 @@ describe('UploadScreenshotModal', () => {
       />
     );
     expect(screen.getByText('No screenshots selected')).toBeTruthy();
+  });
+
+  it.each([
+    { preparingUpload: true, processing: false, stateLabel: '文件准备' },
+    { preparingUpload: false, processing: true, stateLabel: '校验' },
+  ])('$stateLabel期间锁定截图选择、删除和校验操作', ({
+    preparingUpload,
+    processing,
+  }) => {
+    /** 记录锁定期间意外触发的文件选择。 */
+    const onFilesSelected = vi.fn(() => Promise.resolve());
+    /** 记录锁定期间意外触发的图片删除。 */
+    const onRemoveImage = vi.fn();
+    /** 记录锁定期间意外触发的校验操作。 */
+    const onValidate = vi.fn();
+
+    render(
+      <UploadScreenshotModal
+        canValidate={true}
+        onClose={vi.fn()}
+        onFilesSelected={onFilesSelected}
+        onRemoveImage={onRemoveImage}
+        onValidate={onValidate}
+        open={true}
+        preparingUpload={preparingUpload}
+        processing={processing}
+        uploadImages={[{
+          base64: 'data:image/png;base64,QUJD',
+          fileName: 'screen-a.png',
+          md5: 'md5-a',
+          size: 3,
+        }]}
+        uploadTotalSize={3}
+      />
+    );
+
+    /** 系统文件选择器入口。 */
+    const selectButton = screen.getByText('Select screenshots').closest('button');
+    /** 单图删除入口。 */
+    const deleteButton = screen.getByLabelText('Delete screen-a.png') as HTMLButtonElement;
+    /** 隐藏的浏览器文件输入框。 */
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    /** Validate 操作入口。 */
+    const validateButton = screen.getByText('Validate').closest('button');
+
+    expect(selectButton?.disabled).toBe(true);
+    expect(deleteButton.disabled).toBe(true);
+    expect(fileInput.disabled).toBe(true);
+    expect(validateButton?.disabled).toBe(true);
+
+    fireEvent.click(selectButton as HTMLButtonElement);
+    fireEvent.click(deleteButton);
+    fireEvent.click(validateButton as HTMLButtonElement);
+    expect(onFilesSelected).not.toHaveBeenCalled();
+    expect(onRemoveImage).not.toHaveBeenCalled();
+    expect(onValidate).not.toHaveBeenCalled();
   });
 });
