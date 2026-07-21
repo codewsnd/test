@@ -103,6 +103,25 @@ const DISABLED_ATTRIBUTE = 'disabled';
 /** iframe 预览里目标 table 的选择器。 */
 const PREVIEW_TABLE_SELECTOR = 'table';
 
+/** 解析相对预览 URL 时使用的固定安全基准地址。 */
+const PREVIEW_SAFE_URL_BASE = 'https://copy-test.invalid/';
+
+/** href 与 src 均允许使用的普通 Web 协议。 */
+const PREVIEW_WEB_PROTOCOLS = ['http:', 'https:'] as const;
+
+/** href 允许使用的非执行型协议集合。 */
+const PREVIEW_ALLOWED_LINK_PROTOCOLS: ReadonlySet<string> = new Set([
+  ...PREVIEW_WEB_PROTOCOLS,
+  'mailto:',
+  'tel:',
+]);
+
+/** src 允许使用的非执行型协议集合。 */
+const PREVIEW_ALLOWED_RESOURCE_PROTOCOLS: ReadonlySet<string> = new Set(PREVIEW_WEB_PROTOCOLS);
+
+/** 需要执行协议白名单校验的 URL 属性名。 */
+const PREVIEW_URL_ATTRIBUTE_NAMES: ReadonlySet<string> = new Set(['href', 'src']);
+
 /** 标记预览表已应用固定 Header 列宽的属性。 */
 const PREVIEW_FIXED_WIDTH_TABLE_ATTRIBUTE = 'data-copy-test-preview-fixed-width-table';
 
@@ -830,7 +849,22 @@ const applyPreviewColumnVisibility = (
   });
 };
 
-/** 移除 preview 中不应运行的外部脚本和事件属性。 */
+/** 判断 href 或 src 是否只使用预览允许的非执行型协议。 */
+const isSafePreviewUrl = (attributeName: string, attributeValue: string): boolean => {
+  /** 当前 URL 属性允许使用的协议集合。 */
+  const allowedProtocols = attributeName === 'href'
+    ? PREVIEW_ALLOWED_LINK_PROTOCOLS
+    : PREVIEW_ALLOWED_RESOURCE_PROTOCOLS;
+  try {
+    /** 使用安全基准地址解析相对 URL 后得到的规范化协议。 */
+    const protocol = new URL(attributeValue.trim(), PREVIEW_SAFE_URL_BASE).protocol.toLowerCase();
+    return allowedProtocols.has(protocol);
+  } catch {
+    return false;
+  }
+};
+
+/** 移除 preview 中不应运行的外部脚本、事件属性和非安全 URL。 */
 const stripUnsafePreviewRuntime = (doc: Document): void => {
   doc.querySelectorAll('script').forEach(script => script.remove());
   doc.querySelectorAll('*').forEach(element => {
@@ -840,7 +874,7 @@ const stripUnsafePreviewRuntime = (doc: Document): void => {
       if (attributeName.startsWith('on')) {
         element.removeAttribute(attribute.name);
       }
-      if ((attributeName === 'href' || attributeName === 'src') && attribute.value.trim().toLowerCase().startsWith('javascript:')) {
+      if (PREVIEW_URL_ATTRIBUTE_NAMES.has(attributeName) && !isSafePreviewUrl(attributeName, attribute.value)) {
         element.removeAttribute(attribute.name);
       }
     });
