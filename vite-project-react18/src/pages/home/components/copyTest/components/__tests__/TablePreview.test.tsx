@@ -233,6 +233,7 @@ describe('TablePreview', () => {
     expect(selectedSrcDoc).not.toContain('unsafeScript');
     expect(selectedSrcDoc).not.toContain('javascript:unsafe');
     expect(selectedSrcDoc).not.toContain('onclick=');
+    expect(selectedDocument.querySelector('a')?.hasAttribute('href')).toBe(false);
     expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
     expect(selectedDocument.querySelectorAll('img[src="blob:preview-1"]')).toHaveLength(2);
     expect(selectedDocument.querySelectorAll(EVIDENCE_DELETE_BUTTON_SELECTOR)).toHaveLength(2);
