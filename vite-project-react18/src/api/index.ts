@@ -5,6 +5,7 @@ const CORE_API_URL = import.meta.env.VITE_API_CORE_URL || 'http://localhost:8000
 export interface AiChatRequest {
   requestId?: string;
   agentId?: string;
+  maxTokens?: number;
   modelName?: string;
   documents?: Array<{
     content?: string;

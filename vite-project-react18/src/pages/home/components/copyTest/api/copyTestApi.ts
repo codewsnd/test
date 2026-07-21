@@ -7,7 +7,7 @@ import {
 } from '@/api';
 import { getEmployeeId } from '@/utils/userUtils';
 import {
-  buildCopyTestValidationPrompt,
+  buildCopyTestValidationPrompt, COPY_TEST_MAX_OUTPUT_TOKENS,
   COPY_TEST_VALIDATION_MODEL,
   COPY_TEST_VALIDATION_SYSTEM_PROMPT,
 } from '../prompt/copyTestValidationPrompt';
@@ -384,6 +384,7 @@ export const buildCopyTestValidationRequest = (
   targetColumnName: string
 ): AiChatRequest => {
   return {
+    maxTokens: COPY_TEST_MAX_OUTPUT_TOKENS,
     modelName: COPY_TEST_VALIDATION_MODEL,
     documents: [
       {

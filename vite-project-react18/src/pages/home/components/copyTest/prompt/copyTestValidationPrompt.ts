@@ -5,6 +5,7 @@ import type { CopyTestRowInput } from '../api/copyTestApi';
 
 /** CopyTest 校验固定使用的模型名称。 */
 export const COPY_TEST_VALIDATION_MODEL = 'gpt-5.4';
+export const COPY_TEST_MAX_OUTPUT_TOKENS = 100000;
 
 /** CopyTest 校验请求中的单个截图标识。 */
 interface CopyTestValidationScreenshotInput {
