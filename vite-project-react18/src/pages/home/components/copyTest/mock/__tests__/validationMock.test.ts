@@ -86,7 +86,7 @@ describe('validationMock aiChat boundary', () => {
     });
   });
 
-  it('uses empty Evidence and a non-empty issue when no screenshots exist', () => {
+  it('uses empty Evidence and an accurate boundary issue when no screenshots exist', () => {
     const response = buildMockCopyTestAiChatResponse(
       buildRequest([], [{ expected: 'copy', rowIndex: 7 }]),
       {
@@ -99,9 +99,30 @@ describe('validationMock aiChat boundary', () => {
       results: [
         {
           evidenceImageFileNames: [],
-          languageIssues: ['OCR text does not match the selected comparison copy.'],
+          languageIssues: ['No uploaded screenshot is available for validation.'],
           passed: false,
           rowIndex: 7,
+        },
+      ],
+    });
+  });
+
+  it('always references a real uploaded screenshot even at the minimum random boundary', () => {
+    const response = buildMockCopyTestAiChatResponse(
+      buildRequest(['screen-a.png', 'screen-b.png'], [{ expected: 'copy', rowIndex: 3 }]),
+      {
+        now: () => new Date('2026-07-14T00:00:00.000Z'),
+        random: () => 0,
+      }
+    );
+
+    expect(JSON.parse(response.data?.content || '')).toEqual({
+      results: [
+        {
+          evidenceImageFileNames: ['screen-a.png'],
+          languageIssues: [],
+          passed: true,
+          rowIndex: 3,
         },
       ],
     });

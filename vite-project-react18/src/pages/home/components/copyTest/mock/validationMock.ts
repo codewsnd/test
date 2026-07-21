@@ -19,6 +19,9 @@ const RANDOM_PASS_RATE = 0.65;
 /** 单行随机 Evidence 最多引用的图片数量。 */
 const MAX_RANDOM_IMAGE_COUNT = 2;
 
+/** 没有上传截图时返回的真实边界失败原因。 */
+const NO_SCREENSHOT_FAILURE_REASON = 'No uploaded screenshot is available for validation.';
+
 /** 随机失败结果可使用的真实测试问题说明。 */
 const RANDOM_FAILURE_REASONS = [
   'OCR text does not match the selected comparison copy.',
@@ -82,8 +85,8 @@ const getRandomImageFileNames = (
 
   /** 当前行允许随机引用的最大图片数量。 */
   const maxImageCount = Math.min(fileNames.length, MAX_RANDOM_IMAGE_COUNT);
-  /** 当前行随机生成的 Evidence 数量，允许为零以覆盖缺失场景。 */
-  const imageCount = getRandomInt(0, maxImageCount, random);
+  /** 当前行随机生成的 Evidence 数量；存在上传图片时至少引用一张真实图片。 */
+  const imageCount = getRandomInt(1, maxImageCount, random);
   /** 尚未被当前行选中的上传图片副本。 */
   const availableFileNames = [...fileNames];
   /** 当前行最终引用的唯一 Evidence 文件名。 */
@@ -103,6 +106,21 @@ const getRandomFailureReason = (random: () => number): string => {
   return RANDOM_FAILURE_REASONS[reasonIndex];
 };
 
+/** 根据通过状态和真实 Evidence 生成契合当前结果的问题列表。 */
+const buildMockLanguageIssues = (
+  passed: boolean,
+  evidenceImageFileNames: string[],
+  random: () => number
+): string[] => {
+  if (passed) {
+    return [];
+  }
+  if (evidenceImageFileNames.length === 0) {
+    return [NO_SCREENSHOT_FAILURE_REASON];
+  }
+  return [getRandomFailureReason(random)];
+};
+
 /** 为一个选中行生成严格的逐行校验结果。 */
 const buildRandomValidationResult = (
   row: CopyTestValidationRuntimeContext['selectedRows'][number],
@@ -115,7 +133,7 @@ const buildRandomValidationResult = (
   const passed = evidenceImageFileNames.length > 0 && random() < RANDOM_PASS_RATE;
   return {
     evidenceImageFileNames,
-    languageIssues: passed ? [] : [getRandomFailureReason(random)],
+    languageIssues: buildMockLanguageIssues(passed, evidenceImageFileNames, random),
     passed,
     rowIndex: row.rowIndex,
   };

@@ -887,15 +887,7 @@ const buildResultScreenMap = (evidenceGroups: EvidenceGroup[]): Map<number, Scre
   }));
 };
 
-/** 判断 AI Result 是否包含可展示的 Screen 或无图失败原因。 */
-const isRenderableValidationResult = (
-  result: CopyTestValidationResultWithEvidence,
-  screens: ScreenRef[]
-): boolean => {
-  return screens.length > 0 || (!result.passed && getFailureReasons(result).length > 0);
-};
-
-/** 写入全部 AI Result；没有 Evidence 的 Failed 结果使用空 Screen 列表。 */
+/** 只写入至少包含一个 Evidence Screen 的 AI Result。 */
 const writeValidationResultCells = (
   doc: Document,
   context: GeneratedColumnContext,
@@ -912,7 +904,7 @@ const writeValidationResultCells = (
 
     /** 当前来源原子组经 Evidence Planner 分配的 Screen 子集。 */
     const screens = screensByAnchorRowIndex.get(item.rowGroup.anchorRowIndex) || [];
-    if (!isRenderableValidationResult(item.result, screens)) {
+    if (screens.length === 0) {
       return;
     }
 
@@ -1059,11 +1051,11 @@ const hydrateValidationResult = (
   const passed = resultRoot.querySelector(COPY_TEST_CONTENT_LABEL_TAG)?.textContent?.trim() === PASSED_LABEL;
   /** 当前逐行 Result 真正引用的图片文件名。 */
   const evidenceImageFileNames = readResultImageFileNames(resultRoot);
-  /** 当前失败 Result 中可恢复的问题说明。 */
-  const languageIssues = passed ? [] : readResultLanguageIssues(resultRoot);
-  if (evidenceImageFileNames.length === 0 && (passed || languageIssues.length === 0)) {
+  if (evidenceImageFileNames.length === 0) {
     return null;
   }
+  /** 当前失败 Result 中可恢复的问题说明。 */
+  const languageIssues = passed ? [] : readResultLanguageIssues(resultRoot);
 
   return {
     evidenceImageFileNames,

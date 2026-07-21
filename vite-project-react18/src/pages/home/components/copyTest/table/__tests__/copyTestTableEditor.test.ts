@@ -261,7 +261,7 @@ describe('copyTestTableEditor', () => {
     expect(validated.workingHtml).not.toContain(SCREEN_3.fileName);
   });
 
-  it('keeps Failed and language issues when a rowspan source group has no Evidence', () => {
+  it('clears Result status when a rowspan source group has no Evidence', () => {
     /** 中间合并原子组没有命中图片、前后两组命中同一图片的校验结果。 */
     const results = bindResultImages([
       {
@@ -283,7 +283,7 @@ describe('copyTestTableEditor', () => {
         rowIndex: 3,
       },
     ], images);
-    /** 应用无 Evidence 失败结果后的工作表格。 */
+    /** 应用包含无 Evidence 失败结果的工作表格。 */
     const validated = applyCopyTestValidationResults(
       parseCopyTestStorageTables(middleMergedStorageHtml)[0],
       results,
@@ -295,7 +295,7 @@ describe('copyTestTableEditor', () => {
     const sourceKey = getSourceColumnKey(1, 'Target');
     /** Target 生成双列的逻辑下标。 */
     const indexes = findGeneratedColumnIndexes(validated.headers, sourceKey);
-    /** 无 Evidence 失败原子组的 Result 单元格。 */
+    /** 无 Evidence 原子组恢复为空的 Result 单元格。 */
     const failedResultCell = validated.model.rows[2].slots[indexes.result!]!.cell.element;
     /** 无 Evidence 失败原子组的 Evidence 单元格。 */
     const emptyEvidenceCell = validated.model.rows[2].slots[indexes.evidence!]!.cell.element;
@@ -305,8 +305,10 @@ describe('copyTestTableEditor', () => {
     });
 
     expect(failedResultCell.getAttribute('rowspan')).toBe('2');
-    expect(failedResultCell.textContent).toContain('Failed:');
-    expect(failedResultCell.textContent).toContain('Expected copy is missing.');
+    expect(failedResultCell.textContent?.trim()).toBe('');
+    expect(failedResultCell.querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    )).toBeNull();
     expect(getResultImageIds(failedResultCell)).toEqual([]);
     expect(emptyEvidenceCell.getAttribute('rowspan')).toBe('2');
     expect(emptyEvidenceCell.querySelector(
@@ -319,7 +321,7 @@ describe('copyTestTableEditor', () => {
 
     /** 模拟回写后重新 Import 的工作表格。 */
     const imported = parseCopyTestStorageTables(validated.workingHtml)[0];
-    /** 删除首个 Evidence 组的唯一图片，验证中间无图 Failed 不受影响。 */
+    /** 删除首个 Evidence 组的唯一图片，验证无图行不会恢复 Result。 */
     const imageId = getCopyTestImageId(SCREEN_1);
     const deleted = deleteCopyTestEvidenceImage(
       imported,
@@ -335,20 +337,45 @@ describe('copyTestTableEditor', () => {
       rowIndex: result.rowIndex,
     }))).toEqual([
       {
-        evidenceImageFileNames: [],
-        languageIssues: ['Expected copy is missing.'],
-        rowIndex: 1,
-      },
-      {
         evidenceImageFileNames: [SCREEN_1.fileName],
         languageIssues: [],
         rowIndex: 3,
       },
     ]);
-    expect(deleted.table.model.rows[2].slots[indexes.result!]!.cell.element.textContent).toContain('Failed:');
-    expect(deleted.table.model.rows[2].slots[indexes.result!]!.cell.element.textContent).toContain(
-      'Expected copy is missing.'
+    expect(deleted.table.model.rows[2].slots[indexes.result!]!.cell.element.textContent?.trim()).toBe('');
+  });
+
+  it('keeps a four-row source group blank in both generated columns without Evidence', () => {
+    /** 与截图中 Permissions flow 06 一致的四物理行来源合并组。 */
+    const table = parseCopyTestStorageTables([
+      '<table><tr><th>ID</th><th>Feature group</th></tr>',
+      '<tr><td>1</td><td rowspan="4">Permissions flow 06</td></tr>',
+      '<tr><td>2</td></tr><tr><td>3</td></tr><tr><td>4</td></tr></table>',
+    ].join(''))[0];
+    /** AI 返回失败原因但没有关联任何 Evidence 的结果。 */
+    const results = bindResultImages([{
+      evidenceImageFileNames: [],
+      languageIssues: ['OCR text does not match the selected comparison copy.'],
+      passed: false,
+      rowIndex: 0,
+    }], images);
+    /** 应用结果后仍需要保留来源组的四行跨度。 */
+    const validated = applyCopyTestValidationResults(table, results, 1, 'Feature group', images);
+    /** 当前来源列生成双列的逻辑下标。 */
+    const indexes = findGeneratedColumnIndexes(
+      validated.headers,
+      getSourceColumnKey(1, 'Feature group')
     );
+    /** 四行组锚点对应的空 Result 和 Evidence 单元格。 */
+    const resultCell = validated.model.rows[1].slots[indexes.result!]!.cell.element;
+    const evidenceCell = validated.model.rows[1].slots[indexes.evidence!]!.cell.element;
+
+    expect(resultCell.getAttribute('rowspan')).toBe('4');
+    expect(evidenceCell.getAttribute('rowspan')).toBe('4');
+    expect(resultCell.textContent?.trim()).toBe('');
+    expect(evidenceCell.textContent?.trim()).toBe('');
+    expect(validated.workingHtml).not.toContain('Failed:');
+    expect(validated.workingHtml).not.toContain('OCR text does not match');
   });
 
   it('hydrates the new DOM contract when deleting after a table reload without a memory snapshot', () => {

@@ -239,8 +239,8 @@ describe('useCopyTestSession', () => {
     ]);
   });
 
-  it('preserves an unselected no-image Failed result during partial validation after import', () => {
-    /** 先生成同时包含无图失败结果和有图通过结果的合法 Pair。 */
+  it('does not restore an unselected no-image Failed result during partial validation after import', () => {
+    /** 先提交同时包含无图失败结果和有图通过结果的 AI 响应。 */
     const generated = renderHook(() => useCopyTestSession());
     act(() => {
       generated.result.current.applyLoadedStorage(storageHtml);
@@ -287,9 +287,9 @@ describe('useCopyTestSession', () => {
       }], [secondImage], 1, 'Target', 0);
     });
 
-    /** 局部校验只能替换 rowIndex 2，未选中的无图失败结果必须保留。 */
+    /** 局部校验只能替换 rowIndex 2，历史无图失败结果仍不可恢复。 */
     const updatedHtml = imported.result.current.selectedTable?.workingHtml || '';
-    expect(updatedHtml).toContain('Historical missing copy');
+    expect(updatedHtml).not.toContain('Historical missing copy');
     expect(updatedHtml).toContain('screen-b.png');
     expect(updatedHtml).not.toContain('screen-a.png');
     expect(imported.result.current.getCurrentValidationImages()).toEqual([secondImage]);
@@ -355,7 +355,7 @@ describe('useCopyTestSession', () => {
 
     /** 本次只替换首行，2/3 原子组与第 4 行的图片关系必须继续存在。 */
     const updatedHtml = imported.result.current.selectedTable?.workingHtml || '';
-    expect(updatedHtml).toContain('Updated first row only');
+    expect(updatedHtml).not.toContain('Updated first row only');
     expect(updatedHtml).not.toContain('screen-a.png');
     expect(updatedHtml).toContain('screen-b.png');
     expect(updatedHtml).toContain('screen-c.png');
