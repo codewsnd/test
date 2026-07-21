@@ -34,6 +34,7 @@ import {
 import {
   buildCopyTestRowGroups,
   findGeneratedColumnIndexes,
+  getSourceColumnDisplayLabel,
   getSourceColumnKey,
   refreshWorkingTable,
   type CopyTestRowGroup,
@@ -274,6 +275,8 @@ const appendGeneratedColumn = (
   selectedColumnLabel: string,
   sourceColumnKey: string
 ): void => {
+  /** 当前来源列用于生成双列表头的可辨识展示名。 */
+  const sourceColumnDisplayLabel = getSourceColumnDisplayLabel(selectedColumnIndex, selectedColumnLabel);
   model.rows.forEach(
     /** 在表头及每个来源行组锚点末尾追加生成单元格。 */
     ({ element: row, index: rowIndex }) => {
@@ -282,13 +285,32 @@ const appendGeneratedColumn = (
       }
 
       /** 仅表头行需要生成列标题。 */
-      const label = rowIndex === 0 ? getGeneratedColumnLabel(type, selectedColumnLabel) : undefined;
+      const label = rowIndex === 0 ? getGeneratedColumnLabel(type, sourceColumnDisplayLabel) : undefined;
       /** 当前行待追加的 Result 或 Evidence 单元格。 */
       const cell = createGeneratedCell(doc, type, sourceColumnKey, label);
       applyCellRowSpan(cell, rowIndex > 0 ? getSourceRowSpan(model, rowIndex, selectedColumnIndex) : 1);
       row.appendChild(cell);
     }
   );
+};
+
+/** 同步已有 managed 生成列的表头，修正历史空来源表头产生的不可区分标题。 */
+const syncGeneratedColumnHeaderLabel = (
+  model: CopyTestTableModel,
+  columnIndex: number,
+  type: CopyTestGeneratedColumnType,
+  selectedColumnIndex: number,
+  selectedColumnLabel: string
+): void => {
+  /** 表头行中直接拥有当前生成列的逻辑槽位。 */
+  const headerSlot = model.rows[0]?.slots[columnIndex];
+  if (!headerSlot?.owned) {
+    return;
+  }
+
+  /** 当前来源列用于生成双列表头的可辨识展示名。 */
+  const sourceColumnDisplayLabel = getSourceColumnDisplayLabel(selectedColumnIndex, selectedColumnLabel);
+  headerSlot.cell.element.textContent = getGeneratedColumnLabel(type, sourceColumnDisplayLabel);
 };
 
 /** 给已有生成列补齐 metadata。 */
@@ -424,6 +446,20 @@ const ensureCopyTestGeneratedColumns = (
 
   applyGeneratedMetadataToColumn(model, indexes.result, COPY_TEST_GENERATED_RESULT_TYPE, sourceColumnKey);
   applyGeneratedMetadataToColumn(model, indexes.evidence, COPY_TEST_GENERATED_EVIDENCE_TYPE, sourceColumnKey);
+  syncGeneratedColumnHeaderLabel(
+    model,
+    indexes.result,
+    COPY_TEST_GENERATED_RESULT_TYPE,
+    selectedColumnIndex,
+    selectedColumnLabel
+  );
+  syncGeneratedColumnHeaderLabel(
+    model,
+    indexes.evidence,
+    COPY_TEST_GENERATED_EVIDENCE_TYPE,
+    selectedColumnIndex,
+    selectedColumnLabel
+  );
   if (resultColumnCreated) {
     syncGeneratedColumnSpans(
       doc,

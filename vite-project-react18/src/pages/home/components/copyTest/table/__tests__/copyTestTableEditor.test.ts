@@ -195,6 +195,48 @@ describe('copyTestTableEditor', () => {
     expect(createdEmptyColumns.workingHtml).toContain('Test Evidence - Missing');
   });
 
+  it('uses Column N labels for new and existing managed pairs with a blank source header', () => {
+    /** 仅包含一个空来源表头、尚未生成 Test 双列的表格。 */
+    const blankHeaderTable = parseCopyTestStorageTables(
+      '<table><tr><th><br /></th></tr><tr><td>copy</td></tr></table>'
+    )[0];
+    /** 空来源表头对应的稳定 ownership key，不能包含展示用 Column N。 */
+    const sourceKey = getSourceColumnKey(0, '');
+    /** 首次选择空来源列后创建的可辨识 Test 双列。 */
+    const created = ensureCopyTestWorkingColumns(blankHeaderTable, 0, '');
+
+    expect(created.headers.map(header => header.label)).toEqual([
+      '',
+      'Test Result - Column 1',
+      'Test Evidence - Column 1',
+    ]);
+    expect(findGeneratedColumnIndexes(created.headers, sourceKey)).toEqual({
+      evidence: 2,
+      result: 1,
+    });
+    expect(created.headers.slice(1).every(header => header.sourceColumnKey === sourceKey)).toBe(true);
+
+    /** 模拟已经回写过旧版不可区分表头的严格 managed Pair。 */
+    const existingPairTable = parseCopyTestStorageTables([
+      '<table><tr><th></th>',
+      '<th data-copy-test-column-type="result" data-copy-test-source-column-key="0:" data-copy-test-owner-id="0:" data-copy-test-schema="2">Test Result -</th>',
+      '<th data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:" data-copy-test-owner-id="0:" data-copy-test-schema="2">Test Evidence -</th></tr>',
+      '<tr><td>copy</td><td></td><td></td></tr></table>',
+    ].join(''))[0];
+    /** 重新选择空来源列后修正表头、但不新增 Pair 的工作表格。 */
+    const repaired = ensureCopyTestWorkingColumns(existingPairTable, 0, '');
+
+    expect(repaired.headers.map(header => header.label)).toEqual([
+      '',
+      'Test Result - Column 1',
+      'Test Evidence - Column 1',
+    ]);
+    expect(findGeneratedColumnIndexes(repaired.headers, sourceKey)).toEqual({
+      evidence: 2,
+      result: 1,
+    });
+  });
+
   it('merges the three selected rows while keeping each Result image subset independent', () => {
     const table = parseCopyTestStorageTables([
       '<table><tr><th>ID</th><th>Target</th></tr>',

@@ -98,6 +98,13 @@ export const getSourceColumnKey = (columnIndex: number, columnLabel: string): st
   return getCopyTestSourceColumnKey(columnIndex, columnLabel);
 };
 
+/** 为空来源表头生成 Column N 展示名，非空表头返回规范化后的原文。 */
+export const getSourceColumnDisplayLabel = (columnIndex: number, columnLabel: string): string => {
+  /** 去除来源表头首尾空白并合并连续空白后的展示文本。 */
+  const normalizedLabel = normalizeLabel(columnLabel);
+  return normalizedLabel || `Column ${columnIndex + 1}`;
+};
+
 /** 判断列头是否是生成列。 */
 export const isCopyTestGeneratedHeader = (header: CopyTestHeader): boolean => {
   return (

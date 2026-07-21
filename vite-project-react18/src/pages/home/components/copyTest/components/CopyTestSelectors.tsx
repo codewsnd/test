@@ -4,7 +4,10 @@
 import React from 'react';
 import { Button, Dropdown, Select, Space, Typography } from 'antd';
 import { CloudUploadOutlined, UploadOutlined } from '@ant-design/icons';
-import { isCopyTestGeneratedHeader } from '../table/copyTestTableParser';
+import {
+  getSourceColumnDisplayLabel,
+  isCopyTestGeneratedHeader,
+} from '../table/copyTestTableParser';
 import type { CopyTestHeader, CopyTestTableEntry } from '../types';
 import { getCopyTestTableOptionLabel } from '../utils/tableOptionUtils';
 
@@ -49,14 +52,6 @@ const buildTableOptions = (tables: CopyTestTableEntry[]) => {
   }));
 };
 
-/** 为空表头生成只用于界面展示的原始列序号标签。 */
-const getComparisonColumnOptionLabel = (header: CopyTestHeader): string => {
-  if (header.label.trim() === '') {
-    return `Column ${header.index + 1}`;
-  }
-  return header.label;
-};
-
 /** 过滤生成列并构建 Comparison Column 选项。 */
 const buildComparisonOptions = (headers: CopyTestHeader[]) => {
   /** 下拉框允许选择的来源表头，空表头仍保留原始逻辑列。 */
@@ -66,7 +61,7 @@ const buildComparisonOptions = (headers: CopyTestHeader[]) => {
   /** 每个来源表头及其只用于界面展示的标签。 */
   const labeledHeaders = selectableHeaders.map(header => ({
     header,
-    label: getComparisonColumnOptionLabel(header),
+    label: getSourceColumnDisplayLabel(header.index, header.label),
   }));
   /** 每个展示标签在可选来源列中的出现次数。 */
   const headerLabelCounts = labeledHeaders.reduce((counts, item) => {
