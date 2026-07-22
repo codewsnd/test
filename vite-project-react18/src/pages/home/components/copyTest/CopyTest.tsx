@@ -2,7 +2,7 @@
  * 文件作用：组装 CopyTest 弹窗、控制主要 UI 区域和确认弹窗。
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { Modal } from 'antd';
+import { message, Modal } from 'antd';
 import {
   CopyTestImportBar,
   CopyTestLoadingBlock,
@@ -11,6 +11,10 @@ import {
   TablePreview,
   UploadScreenshotModal,
 } from './components';
+import {
+  exportCopyTestTable,
+  type CopyTestFileExportFormat,
+} from './export';
 import { useCopyTestController } from './hooks/useCopyTestController';
 import type { CopyTestProps } from './types';
 
@@ -31,6 +35,9 @@ const COPY_TEST_MODAL_HEIGHT = `calc(100vh - ${COPY_TEST_MODAL_VIEWPORT_MARGIN *
 
 /** 弹窗各层容器共用的溢出策略。 */
 const COPY_TEST_MODAL_OVERFLOW = 'hidden';
+
+/** 本地文件导出失败时显示的统一提示。 */
+const COPY_TEST_FILE_EXPORT_ERROR_MESSAGE = 'Failed to export the selected table';
 
 /** 点击后打开 CopyTest 弹窗的 className。 */
 export const COPY_TEST_TRIGGER_CLASS_NAME = 'copy-test-modal-trigger';
@@ -99,6 +106,16 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
   /** 当前表格会话与上传流程状态。 */
   const { tableState, uploadState } = controller;
 
+  /** PDF、Word 或 Excel 文件当前是否正在生成。 */
+  const [fileExporting, setFileExporting] = useState(false);
+
+  /** 当前完整工作表是否允许下载到本地文件。 */
+  const canExportFile = Boolean(tableState.selectedTable)
+    && !controller.importBusy
+    && !controller.validationLoading
+    && !controller.exportLoading
+    && !fileExporting;
+
   /** 仅在导入结果有效时展示已导入的表格工作区。 */
   const showTableWorkspace = controller.hasActiveImportedSession
     && !controller.importError
@@ -108,6 +125,31 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
   const openFromTrigger = useCallback((): void => {
     setInternalOpen(true);
   }, []);
+
+  /** 使用点击瞬间的 workingHtml 和当前 Evidence 图片下载选中表格。 */
+  const handleExportFile = useCallback(async (
+    format: CopyTestFileExportFormat
+  ): Promise<void> => {
+    /** 点击时锁定的当前选中工作表。 */
+    const selectedTable = tableState.selectedTable;
+    if (!selectedTable || fileExporting) {
+      return;
+    }
+
+    setFileExporting(true);
+    try {
+      await exportCopyTestTable({
+        format,
+        images: tableState.getCurrentPreviewImages(),
+        tableHtml: selectedTable.workingHtml,
+      });
+    } catch (error) {
+      console.error('CopyTest file export failed:', error);
+      message.error(COPY_TEST_FILE_EXPORT_ERROR_MESSAGE);
+    } finally {
+      setFileExporting(false);
+    }
+  }, [fileExporting, tableState]);
 
   useEffect(() => {
     if (controlled) {
@@ -159,11 +201,14 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
         {showTableWorkspace && (
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
             <CopyTestSelectors
+              canExportFile={canExportFile}
               canExportToConfluence={controller.canExportToConfluence}
               canUpload={controller.canUpload}
               exporting={controller.exportLoading}
+              fileExporting={fileExporting}
               onChooseImages={controller.handleChooseImages}
               onComparisonColumnChange={controller.handleComparisonColumnChange}
+              onExportFile={handleExportFile}
               onExportToConfluence={controller.handleExportToConfluence}
               onTableChange={controller.handleTableChange}
               preparingUpload={uploadState.preparingUpload}

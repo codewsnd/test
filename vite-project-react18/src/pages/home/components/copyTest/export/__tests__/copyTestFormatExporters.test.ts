@@ -1,0 +1,562 @@
+import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  buildCopyTestExcelMerges,
+  buildCopyTestExcelRows,
+  createCopyTestExcelBlob,
+} from '../copyTestExcelExporter';
+import {
+  buildCopyTestPdfPageLayout,
+  buildCopyTestPdfTableRows,
+  createCopyTestPdfBlob,
+} from '../copyTestPdfExporter';
+import { createCopyTestWordBlob } from '../copyTestWordExporter';
+import type {
+  CopyTestExportCellImage,
+  CopyTestExportTableModel,
+} from '../copyTestExportTypes';
+
+/** 可被 jsPDF 和 docx 真实解析的一像素 PNG。 */
+const ONE_PIXEL_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+/** 与第一张图片二进制不同的一像素红色 PNG。 */
+const RED_ONE_PIXEL_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+
+/** 三种格式共用的完整五列合并表格模型。 */
+const EXPORT_MODEL: CopyTestExportTableModel = {
+  columnCount: 5,
+  missingImageFileNames: [],
+  rowCount: 3,
+  rows: [
+    {
+      cells: [
+        { colSpan: 2, columnIndex: 0, header: true, images: [], kind: 'normal', rowIndex: 0, rowSpan: 1, text: 'Feature / Owner' },
+        { colSpan: 1, columnIndex: 2, header: true, images: [], kind: 'result', rowIndex: 0, rowSpan: 1, text: 'Test Result - Feature' },
+        { colSpan: 1, columnIndex: 3, header: true, images: [], kind: 'evidence', rowIndex: 0, rowSpan: 1, text: 'Test Evidence - Feature' },
+        { colSpan: 1, columnIndex: 4, header: true, images: [], kind: 'normal', rowIndex: 0, rowSpan: 1, text: 'Notes' },
+      ],
+      index: 0,
+    },
+    {
+      cells: [
+        { colSpan: 1, columnIndex: 0, header: false, images: [], kind: 'normal', rowIndex: 1, rowSpan: 2, text: 'Flow' },
+        { colSpan: 1, columnIndex: 1, header: false, images: [], kind: 'normal', rowIndex: 1, rowSpan: 1, text: 'Owner A' },
+        { colSpan: 1, columnIndex: 2, header: false, images: [], kind: 'result', rowIndex: 1, rowSpan: 1, text: 'Passed:\n• Screen01' },
+        {
+          colSpan: 1,
+          columnIndex: 3,
+          header: false,
+          images: [
+            { dataUrl: ONE_PIXEL_PNG, fileName: 'screen-a.png', height: 40, label: 'Screen01', width: 60 },
+            { dataUrl: RED_ONE_PIXEL_PNG, fileName: 'screen-b.png', height: 50, label: 'Screen02', width: 70 },
+          ],
+          kind: 'evidence',
+          rowIndex: 1,
+          rowSpan: 2,
+          text: 'Screen01\nScreen02',
+        },
+        { colSpan: 1, columnIndex: 4, header: false, images: [], kind: 'normal', rowIndex: 1, rowSpan: 1, text: 'Passed:\nFirst note' },
+      ],
+      index: 1,
+    },
+    {
+      cells: [
+        { colSpan: 1, columnIndex: 1, header: false, images: [], kind: 'normal', rowIndex: 2, rowSpan: 1, text: 'Owner B' },
+        { colSpan: 1, columnIndex: 2, header: false, images: [], kind: 'result', rowIndex: 2, rowSpan: 1, text: 'Failed:\n• Copy mismatch' },
+        { colSpan: 1, columnIndex: 4, header: false, images: [], kind: 'normal', rowIndex: 2, rowSpan: 1, text: 'LAST-CELL' },
+      ],
+      index: 2,
+    },
+  ],
+};
+
+/** 首行表头跨入第二物理行的 PDF 合并回归模型。 */
+const HEADER_ROWSPAN_PDF_MODEL: CopyTestExportTableModel = {
+  columnCount: 3,
+  missingImageFileNames: [],
+  rowCount: 3,
+  rows: [
+    {
+      cells: [
+        { colSpan: 1, columnIndex: 0, header: true, images: [], kind: 'normal', rowIndex: 0, rowSpan: 2, text: 'Merged header' },
+        { colSpan: 1, columnIndex: 1, header: true, images: [], kind: 'normal', rowIndex: 0, rowSpan: 1, text: 'Header B' },
+        { colSpan: 1, columnIndex: 2, header: true, images: [], kind: 'result', rowIndex: 0, rowSpan: 1, text: 'Test Result' },
+      ],
+      index: 0,
+    },
+    {
+      cells: [
+        { colSpan: 1, columnIndex: 1, header: true, images: [], kind: 'normal', rowIndex: 1, rowSpan: 1, text: 'Subheader B' },
+        { colSpan: 1, columnIndex: 2, header: true, images: [], kind: 'result', rowIndex: 1, rowSpan: 1, text: 'Subheader Result' },
+      ],
+      index: 1,
+    },
+    {
+      cells: [
+        { colSpan: 1, columnIndex: 0, header: false, images: [], kind: 'normal', rowIndex: 2, rowSpan: 1, text: 'Source value' },
+        { colSpan: 1, columnIndex: 1, header: false, images: [], kind: 'normal', rowIndex: 2, rowSpan: 1, text: 'Detail value' },
+        { colSpan: 1, columnIndex: 2, header: false, images: [], kind: 'result', rowIndex: 2, rowSpan: 1, text: 'Passed:\n• Screen01' },
+      ],
+      index: 2,
+    },
+  ],
+};
+
+/** 构建用于验证 PDF 单个高 Evidence 单元格的完整模型。 */
+const buildSingleEvidencePdfModel = (
+  text: string,
+  images: CopyTestExportCellImage[],
+  headerText = 'Test Evidence - Feature'
+): CopyTestExportTableModel => {
+  return {
+    columnCount: 1,
+    missingImageFileNames: [],
+    rowCount: 2,
+    rows: [
+      {
+        cells: [{
+          colSpan: 1,
+          columnIndex: 0,
+          header: true,
+          images: [],
+          kind: 'evidence',
+          rowIndex: 0,
+          rowSpan: 1,
+          text: headerText,
+        }],
+        index: 0,
+      },
+      {
+        cells: [{
+          colSpan: 1,
+          columnIndex: 0,
+          header: false,
+          images,
+          kind: 'evidence',
+          rowIndex: 1,
+          rowSpan: 1,
+          text,
+        }],
+        index: 1,
+      },
+    ],
+  };
+};
+
+/** 读取宽高表格指定列对应的单元格类型。 */
+const getWidePdfCellKind = (columnIndex: number): 'evidence' | 'normal' | 'result' => {
+  if (columnIndex === 9) {
+    return 'result';
+  }
+  if (columnIndex === 10) {
+    return 'evidence';
+  }
+  return 'normal';
+};
+
+/** 生成宽高表格单元格中可追踪的测试文字。 */
+const getWidePdfCellText = (
+  rowIndex: number,
+  columnIndex: number,
+  rowCount: number,
+  columnCount: number
+): string => {
+  if (rowIndex === rowCount - 1 && columnIndex === columnCount - 1) {
+    return 'LAST-ROW-LAST-COLUMN';
+  }
+  if (rowIndex === 0) {
+    return `Column ${columnIndex + 1}`;
+  }
+  return `Row ${rowIndex + 1} Column ${columnIndex + 1}`;
+};
+
+/** 构建同时超过 A4 宽度和高度的多行 PDF 表格模型。 */
+const buildWideMultiRowPdfModel = (): CopyTestExportTableModel => {
+  /** 用于覆盖宽表分页风险的逻辑列数。 */
+  const columnCount = 12;
+  /** 用于覆盖高表分页风险的物理行数。 */
+  const rowCount = 32;
+  return {
+    columnCount,
+    missingImageFileNames: [],
+    rowCount,
+    rows: Array.from({ length: rowCount }, (_, rowIndex) => ({
+      cells: Array.from({ length: columnCount }, (_, columnIndex) => ({
+        colSpan: 1,
+        columnIndex,
+        header: rowIndex === 0,
+        images: [],
+        kind: getWidePdfCellKind(columnIndex),
+        rowIndex,
+        rowSpan: 1,
+        text: getWidePdfCellText(rowIndex, columnIndex, rowCount, columnCount),
+      })),
+      index: rowIndex,
+    })),
+  };
+};
+
+/** 从 CFB ZIP 容器中读取一个文件的二进制内容。 */
+const readArchiveFile = (
+  archive: ReturnType<typeof XLSX.CFB.read>,
+  path: string
+): Uint8Array => {
+  /** 当前 ZIP 路径对应的 CFB 文件条目。 */
+  const entry = XLSX.CFB.find(archive, `Root Entry/${path}`) as {
+    /** 当前文件解压后的二进制内容。 */
+    content?: ArrayLike<number>;
+  } | null;
+  return Uint8Array.from(entry?.content || []);
+};
+
+/** 从 CFB ZIP 容器中读取一个 UTF-8 XML 文件。 */
+const readArchiveXml = (
+  archive: ReturnType<typeof XLSX.CFB.read>,
+  path: string
+): string => {
+  return new TextDecoder().decode(readArchiveFile(archive, path));
+};
+
+/** 将 Blob 解包为可以检查 OOXML 内部文件的 CFB ZIP 容器。 */
+const readBlobArchive = async (
+  blob: Blob
+): Promise<ReturnType<typeof XLSX.CFB.read>> => {
+  return XLSX.CFB.read(new Uint8Array(await blob.arrayBuffer()), { type: 'array' });
+};
+
+/** 将测试 data URL 解码为用于媒体文件比对的二进制。 */
+const decodeTestImage = (dataUrl: string): Uint8Array => {
+  return Uint8Array.from(globalThis.atob(dataUrl.split(',')[1]), character => {
+    return character.charCodeAt(0);
+  });
+};
+
+/** 从真实 PDF Blob 中统计页面对象数量。 */
+const getTestPdfPageCount = async (blob: Blob): Promise<number> => {
+  /** PDF 目录中不包含 Pages 容器的实际 Page 对象。 */
+  const pageObjects = new TextDecoder('latin1')
+    .decode(await blob.arrayBuffer())
+    .match(/\/Type \/Page\b/g);
+  return pageObjects?.length || 0;
+};
+
+/** 从真实 PDF Blob 的第一页读取 MediaBox 点数宽高。 */
+const getTestPdfMediaBox = async (blob: Blob): Promise<{ height: number; width: number }> => {
+  /** PDF 文本中第一页声明的 MediaBox 四个坐标。 */
+  const mediaBox = /\/MediaBox \[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/.exec(
+    new TextDecoder('latin1').decode(await blob.arrayBuffer())
+  );
+  if (!mediaBox) {
+    throw new Error('PDF MediaBox was not found');
+  }
+  return {
+    height: Number(mediaBox[2]),
+    width: Number(mediaBox[1]),
+  };
+};
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('CopyTest format exporters', () => {
+  it('exports the complete table, colored Result labels and real Evidence images to Excel', async () => {
+    expect(buildCopyTestExcelRows(EXPORT_MODEL)[1]).toEqual([
+      'Flow',
+      'Owner A',
+      'Passed:\n• Screen01',
+      'Screen01\nScreen02',
+      'Passed:\nFirst note',
+    ]);
+    expect(buildCopyTestExcelMerges(EXPORT_MODEL)).toEqual([
+      { e: { c: 1, r: 0 }, s: { c: 0, r: 0 } },
+      { e: { c: 0, r: 2 }, s: { c: 0, r: 1 } },
+      { e: { c: 3, r: 2 }, s: { c: 3, r: 1 } },
+    ]);
+
+    /** 使用真实 SheetJS 生成的 Excel Blob。 */
+    const excelBlob = createCopyTestExcelBlob(EXPORT_MODEL);
+    /** 解包 Excel 后用于检查 Drawing、富文本和图片的 CFB 容器。 */
+    const archive = await readBlobArchive(excelBlob);
+    /** 回读 Excel Blob 后得到的 SheetJS 工作簿。 */
+    const workbook = XLSX.read(await excelBlob.arrayBuffer(), { type: 'array' });
+    /** 回读工作簿中的唯一 CopyTest 工作表。 */
+    const worksheet = workbook.Sheets.CopyTest;
+    expect(excelBlob.type).toContain('spreadsheetml');
+    expect(worksheet.A2.v).toBe('Flow');
+    expect(worksheet.E3.v).toBe('LAST-CELL');
+    expect(worksheet.C2.v).toBe('Passed:\n• Screen01');
+    expect(worksheet.C3.v).toBe('Failed:\n• Copy mismatch');
+    expect(worksheet['!merges']).toEqual([
+      { e: { c: 1, r: 0 }, s: { c: 0, r: 0 } },
+      { e: { c: 0, r: 2 }, s: { c: 0, r: 1 } },
+      { e: { c: 3, r: 2 }, s: { c: 3, r: 1 } },
+    ]);
+    /** Excel 工作表中包含状态富文本和 Drawing 引用的 XML。 */
+    const worksheetXml = readArchiveXml(archive, 'xl/worksheets/sheet1.xml');
+    expect(worksheetXml.match(/rgb="FF00875A"/g)).toHaveLength(1);
+    expect(worksheetXml.match(/rgb="FFFF0000"/g)).toHaveLength(1);
+    expect(worksheetXml).toContain('<drawing');
+    expect(worksheetXml).toMatch(/r="D2"[^>]*s="1"/);
+    /** 普通 Notes 单元格中的 Passed: 不得继承 Result 状态色。 */
+    const ordinaryPassedCell = /<c[^>]*r="E2"[^>]*>[\s\S]*?<\/c>/.exec(
+      worksheetXml
+    )?.[0];
+    expect(ordinaryPassedCell).toContain('Passed:');
+    expect(ordinaryPassedCell).not.toContain('rgb=');
+    expect(readArchiveXml(archive, 'xl/styles.xml')).toContain(
+      'vertical="top" wrapText="1"'
+    );
+    /** Excel Drawing 中两张图片都锚定在 Evidence 的 D2 单元格。 */
+    const drawingXml = readArchiveXml(archive, 'xl/drawings/drawing1.xml');
+    expect(drawingXml.match(/<xdr:oneCellAnchor>/g)).toHaveLength(2);
+    expect(drawingXml.match(/<xdr:col>3<\/xdr:col>/g)).toHaveLength(2);
+    expect(drawingXml.match(/<xdr:row>1<\/xdr:row>/g)).toHaveLength(2);
+    expect(readArchiveXml(
+      archive,
+      'xl/drawings/_rels/drawing1.xml.rels'
+    )).toContain('../media/image2.png');
+    expect(readArchiveFile(archive, 'xl/media/image1.png')).toEqual(
+      decodeTestImage(ONE_PIXEL_PNG)
+    );
+    expect(readArchiveFile(archive, 'xl/media/image2.png')).toEqual(
+      decodeTestImage(RED_ONE_PIXEL_PNG)
+    );
+  });
+
+  it('shows an unavailable marker when Excel cannot embed an image directly', () => {
+    /** 仅把第一张 Evidence 图片替换为 Excel 不支持格式的完整模型。 */
+    const unsupportedImageModel: CopyTestExportTableModel = {
+      ...EXPORT_MODEL,
+      rows: EXPORT_MODEL.rows.map(row => ({
+        ...row,
+        cells: row.cells.map(cell => {
+          if (cell.kind !== 'evidence' || cell.header) {
+            return cell;
+          }
+          return {
+            ...cell,
+            images: [{
+              dataUrl: 'data:image/webp;base64,V0VCUA==',
+              fileName: 'screen.webp',
+              height: 40,
+              label: 'Screen01',
+              width: 60,
+            }],
+          };
+        }),
+      })),
+    };
+
+    expect(buildCopyTestExcelRows(unsupportedImageModel)[1][3]).toContain(
+      'Screen01: Image unavailable (screen.webp)'
+    );
+  });
+
+  it('exports the complete table, colored Result labels and Evidence images to Word and PDF', async () => {
+    /** 使用真实 docx Packer 生成的 Word Blob。 */
+    const wordBlob = await createCopyTestWordBlob(EXPORT_MODEL);
+    /** 监控真实 PDF 文档中每次 Evidence 图片绘制。 */
+    const addImage = vi.spyOn(jsPDF.API, 'addImage');
+    /** 使用真实 jsPDF 与 AutoTable 生成的 PDF Blob。 */
+    const pdfBlob = createCopyTestPdfBlob(EXPORT_MODEL);
+    /** Word OOXML 压缩包中的全部文档资源。 */
+    const wordArchive = await readBlobArchive(wordBlob);
+    /** Word 主文档 XML。 */
+    const wordDocumentXml = readArchiveXml(wordArchive, 'word/document.xml');
+    /** PDF 格式映射后的完整 AutoTable 表头和正文。 */
+    const pdfRows = buildCopyTestPdfTableRows(EXPORT_MODEL);
+    /** Word 压缩包中排除目录条目后的真实媒体文件路径。 */
+    const wordMediaPaths = wordArchive.FullPaths
+      .map((path: string) => path.replace(/^Root Entry\//, '').replace(/^\//, ''))
+      .filter((path: string) => {
+        return path.startsWith('word/media/') && !path.endsWith('/');
+      });
+    /** Word 文档到真实媒体文件的关系定义。 */
+    const wordRelationshipsXml = readArchiveXml(
+      wordArchive,
+      'word/_rels/document.xml.rels'
+    );
+
+    expect(wordBlob.type).toContain('wordprocessingml');
+    expect(wordBlob.size).toBeGreaterThan(100);
+    expect(wordDocumentXml).toContain('LAST-CELL');
+    expect(wordDocumentXml.match(/w:val="00875A"/g)).toHaveLength(1);
+    expect(wordDocumentXml.match(/w:val="FF0000"/g)).toHaveLength(1);
+    expect(wordDocumentXml).toContain('<w:vMerge');
+    expect(wordDocumentXml).toContain('<w:gridSpan w:val="2"');
+    expect(wordDocumentXml.match(/<a:blip\b/g)).toHaveLength(2);
+    expect(wordMediaPaths).toHaveLength(2);
+    expect(wordMediaPaths.map(path => readArchiveFile(wordArchive, path))).toContainEqual(
+      decodeTestImage(ONE_PIXEL_PNG)
+    );
+    expect(wordMediaPaths.map(path => readArchiveFile(wordArchive, path))).toContainEqual(
+      decodeTestImage(RED_ONE_PIXEL_PNG)
+    );
+    wordMediaPaths.forEach(path => {
+      expect(wordRelationshipsXml).toContain(path.split('/').pop());
+    });
+    expect(pdfBlob.type).toBe('application/pdf');
+    expect(pdfBlob.size).toBeGreaterThan(100);
+    expect(await getTestPdfPageCount(pdfBlob)).toBe(1);
+    expect(JSON.stringify(pdfRows)).toContain('LAST-CELL');
+    expect(JSON.stringify(pdfRows)).toContain('[0,135,90]');
+    expect(JSON.stringify(pdfRows)).toContain('[255,0,0]');
+    /** PDF 表头的第一个单元格保留横向合并。 */
+    const pdfHeaderCells = pdfRows.head[0] as Array<{ colSpan?: number }>;
+    expect(pdfHeaderCells[0].colSpan).toBe(2);
+    /** 普通 Notes 单元格即使包含 Passed: 也没有状态颜色。 */
+    const pdfFirstBodyCells = pdfRows.body[0] as Array<{
+      /** 仅 Result 单元格可具有的状态颜色。 */
+      statusColor?: [number, number, number];
+    }>;
+    expect(pdfFirstBodyCells[4].statusColor).toBeUndefined();
+    /** 两张 Evidence 图片按输入顺序绘制且纵向位置递增。 */
+    const evidenceImageCalls = addImage.mock.calls.filter(call => {
+      return call[0] === ONE_PIXEL_PNG || call[0] === RED_ONE_PIXEL_PNG;
+    });
+    expect(evidenceImageCalls).toHaveLength(2);
+    expect(evidenceImageCalls.map(call => call[0])).toEqual([
+      ONE_PIXEL_PNG,
+      RED_ONE_PIXEL_PNG,
+    ]);
+    expect(Number(evidenceImageCalls[1][3])).toBeGreaterThan(
+      Number(evidenceImageCalls[0][3])
+    );
+    expect(new TextDecoder('latin1').decode(await pdfBlob.arrayBuffer())).toContain('/Subtype /Image');
+  });
+
+  it('keeps a wide multi-row table and its final cell on one oversized PDF page', async () => {
+    /** 同时要求页面横向和纵向扩展的完整表格。 */
+    const model = buildWideMultiRowPdfModel();
+    /** 使用真实 jsPDF 与 AutoTable 生成的宽高表格 PDF。 */
+    const pdfBlob = createCopyTestPdfBlob(model);
+    /** 真实 PDF 第一页声明的自适应页面尺寸。 */
+    const mediaBox = await getTestPdfMediaBox(pdfBlob);
+    /** PDF 格式映射后的全部正文行。 */
+    const pdfRows = buildCopyTestPdfTableRows(model);
+    /** AutoTable 最后物理行中的最后逻辑单元格。 */
+    const lastPdfCell = (pdfRows.body.at(-1) as unknown[] | undefined)?.at(-1);
+
+    expect(await getTestPdfPageCount(pdfBlob)).toBe(1);
+    expect(mediaBox.width).toBeGreaterThan(841.89);
+    expect(mediaBox.height).toBeGreaterThan(595.28);
+    expect(pdfRows.body).toHaveLength(model.rowCount - 1);
+    expect(lastPdfCell).toEqual(expect.objectContaining({
+      content: 'LAST-ROW-LAST-COLUMN',
+    }));
+  });
+
+  it('keeps a header rowspan in the same PDF layout section without shifting columns', async () => {
+    /** 跨正文边界的表头不能被拆入独立 AutoTable head。 */
+    const pdfRows = buildCopyTestPdfTableRows(HEADER_ROWSPAN_PDF_MODEL);
+    /** 使用真实布局生成的表头跨行 PDF。 */
+    const pdfBlob = createCopyTestPdfBlob(HEADER_ROWSPAN_PDF_MODEL);
+    /** 第二物理行中第一个真实单元格的原始模型。 */
+    const secondRowFirstCell = pdfRows.body[1][0] as {
+      /** AutoTable 单元格附带的原始 CopyTest 单元格。 */
+      copyTestCell: { columnIndex: number };
+    };
+
+    expect(pdfRows.head).toEqual([]);
+    expect(pdfRows.body).toHaveLength(HEADER_ROWSPAN_PDF_MODEL.rowCount);
+    expect(secondRowFirstCell.copyTestCell.columnIndex).toBe(1);
+    expect(await getTestPdfPageCount(pdfBlob)).toBe(1);
+  });
+
+  it('keeps a tall PDF Evidence stack on one self-sized page', async () => {
+    /** 六张纵向排列后会超过一页原始高度的 Evidence 图片。 */
+    const images = Array.from({ length: 6 }, (_, index) => ({
+      dataUrl: index % 2 === 0 ? ONE_PIXEL_PNG : RED_ONE_PIXEL_PNG,
+      fileName: `screen-${index + 1}.png`,
+      height: 200,
+      label: `Screen${String(index + 1).padStart(2, '0')}`,
+      width: 100,
+    }));
+    /** 具有多行长表头且正文不含 rowspan 的高 Evidence 表格。 */
+    const tallEvidenceModel = buildSingleEvidencePdfModel(
+      images.map(image => image.label).join('\n'),
+      images,
+      'Long Test Evidence Header '.repeat(30)
+    );
+    /** 捕获缩放后全部 Evidence 图片的实际 PDF 坐标。 */
+    const addImage = vi.spyOn(jsPDF.API, 'addImage');
+    /** 使用自适应页面生成的真实高表格 PDF。 */
+    const pdfBlob = createCopyTestPdfBlob(tallEvidenceModel);
+    /** 排除其他潜在栅格文字后剩余的 Evidence 绘制调用。 */
+    const evidenceImageCalls = addImage.mock.calls.filter(call => {
+      return call[0] === ONE_PIXEL_PNG || call[0] === RED_ONE_PIXEL_PNG;
+    });
+    /** 真实 PDF 第一页声明的自适应页面尺寸。 */
+    const mediaBox = await getTestPdfMediaBox(pdfBlob);
+    /** 完整高表格自适应页面的右侧安全边界。 */
+    const pageRight = mediaBox.width - 24;
+    /** 完整高表格自适应页面的底部安全边界。 */
+    const pageBottom = mediaBox.height - 24;
+    /** 最后一张图片的实际 PDF 底边。 */
+    const lastImageCall = evidenceImageCalls[evidenceImageCalls.length - 1];
+    const lastImageBottom = Number(lastImageCall[3]) + Number(lastImageCall[5]);
+
+    expect(evidenceImageCalls).toHaveLength(images.length);
+    expect(Number(evidenceImageCalls[0][5])).toBe(120);
+    expect(lastImageBottom).toBeLessThanOrEqual(pageBottom);
+    expect(await getTestPdfPageCount(pdfBlob)).toBe(1);
+    evidenceImageCalls.forEach((call, index) => {
+      /** 当前图片在真实 PDF 页面中的横坐标。 */
+      const x = Number(call[2]);
+      /** 当前图片在真实 PDF 页面中的纵坐标。 */
+      const y = Number(call[3]);
+      /** 当前图片在真实 PDF 页面中的点数宽度。 */
+      const width = Number(call[4]);
+      /** 当前图片在真实 PDF 页面中的点数高度。 */
+      const height = Number(call[5]);
+      expect(x).toBeGreaterThanOrEqual(24);
+      expect(y).toBeGreaterThanOrEqual(24);
+      expect(x + width).toBeLessThanOrEqual(pageRight);
+      expect(y + height).toBeLessThanOrEqual(pageBottom);
+      if (index > 0) {
+        /** 前一张图片在真实 PDF 页面中的绘制参数。 */
+        const previousCall = evidenceImageCalls[index - 1];
+        /** 前一张图片不得与当前图片发生纵向重叠的底边。 */
+        const previousBottom = Number(previousCall[3]) + Number(previousCall[5]);
+        expect(y).toBeGreaterThanOrEqual(previousBottom);
+      }
+    });
+  });
+
+  it('expands one PDF page for long Evidence text and rejects only the PDF size limit', async () => {
+    /** 超长文字单元格中仍必须保留的一张真实图片。 */
+    const image: CopyTestExportCellImage = {
+      dataUrl: ONE_PIXEL_PNG,
+      fileName: 'screen.png',
+      height: 200,
+      label: 'Screen01',
+      width: 100,
+    };
+    /** 8pt 下可以放入页面、但按 jsPDF 默认 16pt 会被误判过高的单行文字。 */
+    const fittingText = 'Long evidence text '.repeat(90);
+    /** 明显高于 A4 但仍可以放进单页 PDF 规范范围的文字。 */
+    const tallText = 'Long evidence text '.repeat(220);
+    /** 超过 jsPDF 单页安全边长的显式多行文字。 */
+    const oversizedText = 'Evidence line\n'.repeat(1_600);
+
+    /** 两种可用高度都必须输出为单个页面。 */
+    const fittingPdf = createCopyTestPdfBlob(
+      buildSingleEvidencePdfModel(fittingText, [image])
+    );
+    const tallPdf = createCopyTestPdfBlob(
+      buildSingleEvidencePdfModel(tallText, [image])
+    );
+    expect(await getTestPdfPageCount(fittingPdf)).toBe(1);
+    expect(await getTestPdfPageCount(tallPdf)).toBe(1);
+    expect(buildCopyTestPdfPageLayout(
+      buildSingleEvidencePdfModel(tallText, [image])
+    ).height).toBeGreaterThan(buildCopyTestPdfPageLayout(
+      buildSingleEvidencePdfModel(fittingText, [image])
+    ).height);
+    expect(() => buildCopyTestPdfPageLayout(
+      buildSingleEvidencePdfModel(oversizedText, [image])
+    )).toThrow('too large for single-page PDF export');
+  });
+});

@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import CopyTest, {
   COPY_TEST_TRIGGER_CLASS_NAME,
@@ -9,6 +9,10 @@ import CopyTest, {
 const CONFLUENCE_URL_TITLE = 'Confluence URL';
 
 const hoisted = vi.hoisted(() => ({
+  /** CopyTest 本地文件导出门面的测试替身。 */
+  exportCopyTestTable: vi.fn(),
+  /** 当前 workingHtml 实际引用的最小 Evidence 图片。 */
+  previewImage: { base64: 'data:image/png;base64,QUJD', fileName: 'screen.png' },
   controller: {
     canExportToConfluence: false,
     canUpload: false,
@@ -38,11 +42,17 @@ const hoisted = vi.hoisted(() => ({
     importLoading: true,
     previewImage: null,
     tableState: {
-      getCurrentPreviewImages: vi.fn(() => []),
+      getCurrentPreviewImages: vi.fn(() => [
+        { base64: 'data:image/png;base64,QUJD', fileName: 'screen.png' },
+      ]),
       getCurrentValidationImages: vi.fn(() => []),
       selectedColumnIndex: 1,
       selectedRowIndexes: [0],
-      selectedTable: { headers: [], index: 0 } as { headers: never[]; index: number } | undefined,
+      selectedTable: {
+        headers: [],
+        index: 0,
+        workingHtml: '<table><tr><td>copy</td></tr></table>',
+      } as { headers: never[]; index: number; workingHtml: string } | undefined,
       selectedTableIndex: 0,
       setSelectedRowIndexes: vi.fn(),
       tables: [{ headers: [], index: 0 }],
@@ -51,6 +61,10 @@ const hoisted = vi.hoisted(() => ({
     uploadState: { preparingUpload: false, uploadImages: [], uploadTotalSize: 0 },
     validationLoading: false,
   },
+}));
+
+vi.mock('../export', () => ({
+  exportCopyTestTable: hoisted.exportCopyTestTable,
 }));
 
 vi.mock('../hooks/useCopyTestController', () => ({
@@ -64,6 +78,10 @@ vi.mock('../hooks/useCopyTestController', () => ({
 }));
 
 vi.mock('antd', () => ({
+  message: {
+    error: vi.fn(),
+    warning: vi.fn(),
+  },
   Modal: ({ children, onCancel, onOk, open, title }: { children?: React.ReactNode; onCancel?: () => void; onOk?: () => void; open?: boolean; title?: string }) => open ? (
     <section><h2>{title}</h2><button onClick={onCancel}>cancel-{title}</button><button onClick={onOk}>ok-{title}</button>{children}</section>
   ) : null,
@@ -72,13 +90,27 @@ vi.mock('antd', () => ({
 vi.mock('../components', () => ({
   CopyTestImportBar: () => <div>import-bar</div>,
   CopyTestLoadingBlock: () => <div>loading-block</div>,
-  CopyTestSelectors: () => <div>selectors</div>,
+  CopyTestSelectors: ({ onExportFile }: {
+    /** 按格式触发本地文件导出的组件测试回调。 */
+    onExportFile: (format: 'pdf' | 'word' | 'excel') => void;
+  }) => (
+    <div>
+      selectors
+      <button onClick={() => onExportFile('pdf')}>export-pdf</button>
+      <button onClick={() => onExportFile('word')}>export-word</button>
+      <button onClick={() => onExportFile('excel')}>export-excel</button>
+    </div>
+  ),
   EvidenceImagePreview: () => <div>preview</div>,
   TablePreview: () => <div>table-preview</div>,
   UploadScreenshotModal: () => <div>upload-modal</div>,
 }));
 
 beforeEach(() => {
+  hoisted.exportCopyTestTable.mockReset();
+  hoisted.exportCopyTestTable.mockResolvedValue({
+    fileName: '20260722150405.pdf',
+  });
   hoisted.controller.hasActiveImportedSession = true;
   hoisted.controller.importError = undefined;
 });
@@ -114,6 +146,23 @@ describe('CopyTest', () => {
     expect(screen.queryByText('selectors')).toBeNull();
     expect(screen.queryByText('table-preview')).toBeNull();
   });
+
+  it.each(['pdf', 'word', 'excel'] as const)(
+    'exports the selected working table and current preview images as %s',
+    async format => {
+      render(<CopyTest open={true} />);
+      fireEvent.click(screen.getByText(`export-${format}`));
+
+      await waitFor(() => {
+        expect(hoisted.exportCopyTestTable).toHaveBeenCalledWith({
+          format,
+          images: [hoisted.previewImage],
+          tableHtml: '<table><tr><td>copy</td></tr></table>',
+        });
+      });
+      expect(hoisted.controller.handleExportToConfluence).not.toHaveBeenCalled();
+    }
+  );
 
   it('opens one uncontrolled modal from class triggers in any DOM position', () => {
     hoisted.controller.deleteImageTarget = null;

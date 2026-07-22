@@ -64,11 +64,14 @@ describe('CopyTestSelectors', () => {
     const onTableChange = vi.fn();
     render(
       <CopyTestSelectors
+        canExportFile={true}
         canExportToConfluence={false}
         canUpload={false}
         exporting={false}
+        fileExporting={false}
         onChooseImages={vi.fn()}
         onComparisonColumnChange={vi.fn()}
+        onExportFile={vi.fn()}
         onExportToConfluence={vi.fn()}
         onTableChange={onTableChange}
         preparingUpload={false}
@@ -102,18 +105,21 @@ describe('CopyTestSelectors', () => {
     expect(onTableChange).toHaveBeenCalledWith(6);
   });
 
-  it('renders selectors and action buttons only after a column is selected', () => {
+  it('keeps table export available while showing upload only after a column is selected', () => {
     const onTableChange = vi.fn();
     const onColumnChange = vi.fn();
     const onChooseImages = vi.fn();
     const onExport = vi.fn();
     const { rerender, queryByText } = render(
       <CopyTestSelectors
+        canExportFile={true}
         canExportToConfluence={true}
         canUpload={true}
         exporting={false}
+        fileExporting={false}
         onChooseImages={onChooseImages}
         onComparisonColumnChange={onColumnChange}
+        onExportFile={vi.fn()}
         onExportToConfluence={onExport}
         onTableChange={onTableChange}
         preparingUpload={false}
@@ -125,13 +131,17 @@ describe('CopyTestSelectors', () => {
       />
     );
     expect(queryByText('Upload Screenshot')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Export' })).toHaveProperty('disabled', false);
     rerender(
       <CopyTestSelectors
+        canExportFile={false}
         canExportToConfluence={false}
         canUpload={false}
         exporting={true}
+        fileExporting={false}
         onChooseImages={onChooseImages}
         onComparisonColumnChange={onColumnChange}
+        onExportFile={vi.fn()}
         onExportToConfluence={onExport}
         onTableChange={onTableChange}
         preparingUpload={true}
@@ -151,16 +161,21 @@ describe('CopyTestSelectors', () => {
     expect(screen.queryByText('Export to Confluence')).toBeNull();
   });
 
-  it('shows export formats on hover and enables only Confluence', () => {
+  it('shows all export formats on hover and delegates each enabled action', () => {
     /** 记录用户从悬停菜单选择 Confluence 后触发的回写操作。 */
     const onExport = vi.fn();
+    /** 记录本地文件菜单提交的三个格式。 */
+    const onExportFile = vi.fn();
     render(
       <CopyTestSelectors
+        canExportFile={true}
         canExportToConfluence={true}
         canUpload={true}
         exporting={false}
+        fileExporting={false}
         onChooseImages={vi.fn()}
         onComparisonColumnChange={vi.fn()}
+        onExportFile={onExportFile}
         onExportToConfluence={onExport}
         onTableChange={vi.fn()}
         preparingUpload={false}
@@ -178,11 +193,19 @@ describe('CopyTestSelectors', () => {
     expect(screen.queryByRole('menu')).toBeNull();
     fireEvent.mouseEnter(dropdown);
 
-    /** Confluence 是唯一可点击格式，其余尚未支持的格式保持禁用。 */
+    /** Confluence 与三个本地文件格式均可点击。 */
     const confluenceItem = screen.getByRole('menuitem', { name: 'Confluence' });
     expect(confluenceItem).toHaveProperty('disabled', false);
-    ['PDF', 'Word', 'Excel'].forEach(label => {
-      expect(screen.getByRole('menuitem', { name: label })).toHaveProperty('disabled', true);
+    [
+      { format: 'pdf', label: 'PDF' },
+      { format: 'word', label: 'Word' },
+      { format: 'excel', label: 'Excel' },
+    ].forEach(({ format, label }) => {
+      /** 当前本地文件格式对应的菜单项。 */
+      const menuItem = screen.getByRole('menuitem', { name: label });
+      expect(menuItem).toHaveProperty('disabled', false);
+      fireEvent.click(menuItem);
+      expect(onExportFile).toHaveBeenLastCalledWith(format);
     });
     fireEvent.click(confluenceItem);
     expect(onExport).toHaveBeenCalledTimes(1);
@@ -207,11 +230,14 @@ describe('CopyTestSelectors', () => {
     };
     render(
       <CopyTestSelectors
+        canExportFile={true}
         canExportToConfluence={false}
         canUpload={false}
         exporting={false}
+        fileExporting={false}
         onChooseImages={vi.fn()}
         onComparisonColumnChange={onColumnChange}
+        onExportFile={vi.fn()}
         onExportToConfluence={vi.fn()}
         onTableChange={vi.fn()}
         preparingUpload={false}
@@ -256,11 +282,14 @@ describe('CopyTestSelectors', () => {
     const originalHeaders = structuredClone(tableWithDuplicateHeaders.headers);
     render(
       <CopyTestSelectors
+        canExportFile={true}
         canExportToConfluence={false}
         canUpload={false}
         exporting={false}
+        fileExporting={false}
         onChooseImages={vi.fn()}
         onComparisonColumnChange={onColumnChange}
+        onExportFile={vi.fn()}
         onExportToConfluence={vi.fn()}
         onTableChange={vi.fn()}
         preparingUpload={false}

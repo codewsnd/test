@@ -8,6 +8,7 @@ import {
   getSourceColumnDisplayLabel,
   isCopyTestGeneratedHeader,
 } from '../table/copyTestTableParser';
+import type { CopyTestFileExportFormat } from '../export';
 import type { CopyTestHeader, CopyTestTableEntry } from '../types';
 import { getCopyTestTableOptionLabel } from '../utils/tableOptionUtils';
 
@@ -16,18 +17,24 @@ const { Text } = Typography;
 
 /** 表格、对比列与后续操作区的入参。 */
 interface CopyTestSelectorsProps {
+  /** 是否允许下载当前选中的完整表格。 */
+  canExportFile: boolean;
   /** 是否允许将当前修改回写到 Confluence。 */
   canExportToConfluence: boolean;
   /** 是否允许为当前列选择截图。 */
   canUpload: boolean;
   /** 是否正在回写 Confluence。 */
   exporting: boolean;
+  /** 是否正在生成 PDF、Word 或 Excel 文件。 */
+  fileExporting: boolean;
   /** 打开截图选择流程的回调。 */
   onChooseImages: () => void;
   /** 更改或清空 Comparison Column 的回调。 */
   onComparisonColumnChange: (value?: number) => void;
   /** 开始回写 Confluence 的回调。 */
   onExportToConfluence: () => void;
+  /** 按用户选择的格式下载当前完整表格。 */
+  onExportFile: (format: CopyTestFileExportFormat) => void;
   /** 切换当前表格的回调。 */
   onTableChange: (value: number) => void;
   /** 是否正在读取用户选择的截图。 */
@@ -80,56 +87,86 @@ const buildComparisonOptions = (headers: CopyTestHeader[]) => {
 /** 渲染 CopyTestActionButtons 组件。 */
 const CopyTestActionButtons: React.FC<Pick<
   CopyTestSelectorsProps,
+  | 'canExportFile'
   | 'canExportToConfluence'
   | 'canUpload'
   | 'exporting'
+  | 'fileExporting'
   | 'onChooseImages'
+  | 'onExportFile'
   | 'onExportToConfluence'
   | 'preparingUpload'
   | 'selectedColumnIndex'
+  | 'selectedTable'
 >> = ({
+  canExportFile,
   canExportToConfluence,
   canUpload,
   exporting,
+  fileExporting,
   onChooseImages,
+  onExportFile,
   onExportToConfluence,
   preparingUpload,
   selectedColumnIndex,
+  selectedTable,
 }) => {
-  if (selectedColumnIndex === undefined) {
+  if (!selectedTable) {
     return null;
   }
 
+  /** 为指定本地文件格式创建无参数菜单点击回调。 */
+  const createFileExportHandler = (format: CopyTestFileExportFormat): (() => void) => {
+    return () => onExportFile(format);
+  };
+
   return (
     <>
-      <Button
-        icon={<UploadOutlined />}
-        disabled={!canUpload}
-        loading={preparingUpload}
-        onClick={onChooseImages}
-      >
-        Upload Screenshot
-      </Button>
+      {selectedColumnIndex !== undefined && (
+        <Button
+          icon={<UploadOutlined />}
+          disabled={!canUpload}
+          loading={preparingUpload}
+          onClick={onChooseImages}
+        >
+          Upload Screenshot
+        </Button>
+      )}
       <Dropdown
         menu={{
           items: [
             {
               key: 'confluence',
               label: 'Confluence',
-              disabled: !canExportToConfluence,
+              disabled: !canExportToConfluence || fileExporting,
               onClick: onExportToConfluence,
             },
-            { key: 'pdf', label: 'PDF', disabled: true },
-            { key: 'word', label: 'Word', disabled: true },
-            { key: 'excel', label: 'Excel', disabled: true },
+            {
+              key: 'pdf',
+              label: 'PDF',
+              disabled: !canExportFile,
+              onClick: createFileExportHandler('pdf'),
+            },
+            {
+              key: 'word',
+              label: 'Word',
+              disabled: !canExportFile,
+              onClick: createFileExportHandler('word'),
+            },
+            {
+              key: 'excel',
+              label: 'Excel',
+              disabled: !canExportFile,
+              onClick: createFileExportHandler('excel'),
+            },
           ],
         }}
         trigger={['hover']}
       >
         <Button
           icon={<CloudUploadOutlined />}
-          disabled={!canExportToConfluence}
-          loading={exporting}
+          disabled={exporting || fileExporting || (!canExportToConfluence && !canExportFile)}
+          loading={exporting || fileExporting}
         >
           Export
         </Button>
@@ -140,11 +177,14 @@ const CopyTestActionButtons: React.FC<Pick<
 
 /** 渲染 CopyTestSelectors 组件。 */
 export const CopyTestSelectors: React.FC<CopyTestSelectorsProps> = ({
+  canExportFile,
   canExportToConfluence,
   canUpload,
   exporting,
+  fileExporting,
   onChooseImages,
   onComparisonColumnChange,
+  onExportFile,
   onExportToConfluence,
   onTableChange,
   preparingUpload,
@@ -180,13 +220,17 @@ export const CopyTestSelectors: React.FC<CopyTestSelectorsProps> = ({
             options={buildComparisonOptions(selectedTable?.headers || [])}
           />
           <CopyTestActionButtons
+            canExportFile={canExportFile}
             canExportToConfluence={canExportToConfluence}
             canUpload={canUpload}
             exporting={exporting}
+            fileExporting={fileExporting}
             onChooseImages={onChooseImages}
+            onExportFile={onExportFile}
             onExportToConfluence={onExportToConfluence}
             preparingUpload={preparingUpload}
             selectedColumnIndex={selectedColumnIndex}
+            selectedTable={selectedTable}
           />
         </div>
       </div>
