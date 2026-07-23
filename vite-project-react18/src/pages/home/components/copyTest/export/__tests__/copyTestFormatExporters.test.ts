@@ -531,6 +531,7 @@ describe('CopyTest format exporters', () => {
     expect(wordDocumentXml).toMatch(
       /<w:tblLayout\b[^>]*w:type="fixed"[^>]*\/?>/
     );
+    expect(wordDocumentXml).not.toContain('<w:tblHeader');
     expect(wordDocumentXml).toMatch(
       /<w:pgSz\b(?=[^>]*w:w="16838")(?=[^>]*w:h="11906")(?=[^>]*w:orient="landscape")[^>]*\/?>/
     );

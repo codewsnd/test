@@ -638,34 +638,16 @@ const buildWordRowCellsXml = (
   return cellsXml.join('');
 };
 
-/** 计算从第一行开始连续完整表头的物理行数。 */
-const getWordHeaderRowCount = (
-  matrix: CopyTestWordOwnerMatrix
-): number => {
-  /** 第一行开始连续满足全列为表头的行数。 */
-  let headerRowCount = 0;
-  while (
-    headerRowCount < matrix.length
-    && matrix[headerRowCount].every(owner => Boolean(owner?.header))
-  ) {
-    headerRowCount += 1;
-  }
-  return headerRowCount;
-};
-
 /** 构建一条包含合并关系和完整逻辑列的 Word 表格行。 */
 const buildWordTableRowXml = (
   matrix: CopyTestWordOwnerMatrix,
   rowIndex: number,
   columnWidths: number[],
-  headerRowCount: number,
   context: CopyTestWordBuildContext
 ): string => {
-  /** 连续前置表头行使用的 Word 重复表头标记。 */
-  const tableHeaderXml = rowIndex < headerRowCount ? '<w:tblHeader/>' : '';
   return [
     '<w:tr>',
-    `<w:trPr><w:cantSplit/>${tableHeaderXml}</w:trPr>`,
+    '<w:trPr><w:cantSplit/></w:trPr>',
     buildWordRowCellsXml(matrix, rowIndex, columnWidths, context),
     '</w:tr>',
   ].join('');
@@ -720,15 +702,12 @@ const buildWordTableXml = (
   const matrix = buildWordOwnerMatrix(model);
   /** 按业务列类型归一后的固定 Word 列宽。 */
   const columnWidths = buildWordColumnWidths(model);
-  /** 从第一行开始连续完整表头的物理行数。 */
-  const headerRowCount = getWordHeaderRowCount(matrix);
   /** 按物理行顺序生成的 Word 表格行。 */
   const rowsXml = matrix.map((_, rowIndex) => {
     return buildWordTableRowXml(
       matrix,
       rowIndex,
       columnWidths,
-      headerRowCount,
       context
     );
   }).join('');
