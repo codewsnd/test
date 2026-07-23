@@ -17,11 +17,21 @@ import type {
   CopyTestExportTableModel,
 } from '../copyTestExportTypes';
 
-/** 可被 jsPDF 和 docx 真实解析的一像素 PNG。 */
+/** 可被 jsPDF 和 Word OOXML 真实解析的一像素 PNG。 */
 const ONE_PIXEL_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
 /** 与第一张图片二进制不同的一像素红色 PNG。 */
 const RED_ONE_PIXEL_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+
+/** Word Open XML 文档对外暴露的标准 MIME 类型。 */
+const WORD_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+/** 用于验证 Word 文本节点转义和回读的全部 XML 特殊字符。 */
+const WORD_XML_SPECIAL_TEXT = `A&B <C> "D" 'E'`;
+
+/** Word 文本节点中特殊字符对应的完整 XML 转义结果。 */
+const WORD_XML_ESCAPED_SPECIAL_TEXT =
+  'A&amp;B &lt;C&gt; &quot;D&quot; &apos;E&apos;';
 
 /** 三种格式共用的完整五列合并表格模型。 */
 const EXPORT_MODEL: CopyTestExportTableModel = {
@@ -225,6 +235,104 @@ const readBlobArchive = async (
   return XLSX.CFB.read(new Uint8Array(await blob.arrayBuffer()), { type: 'array' });
 };
 
+/** 列出 OOXML 压缩包中的全部真实文件路径。 */
+const getArchiveFilePaths = (
+  archive: ReturnType<typeof XLSX.CFB.read>
+): string[] => {
+  return archive.FullPaths
+    .map((path: string) => {
+      /** 移除 CFB 为 ZIP 文件添加的虚拟根目录前缀。 */
+      const pathWithoutRoot = path.startsWith('Root Entry/')
+        ? path.slice('Root Entry/'.length)
+        : path;
+      return pathWithoutRoot.startsWith('/') ? pathWithoutRoot.slice(1) : pathWithoutRoot;
+    })
+    .filter((path: string) => {
+      return Boolean(path) && !path.endsWith('/');
+    });
+};
+
+/** 从 Word 主文档中查找包含指定文本的完整表格单元格 XML。 */
+const getWordTableCellXml = (
+  documentXml: string,
+  text: string
+): string => {
+  /** Word 主文档中全部完整单元格的 XML 片段。 */
+  const tableCells = documentXml.match(/<w:tc(?:\s[^>]*)?>[\s\S]*?<\/w:tc>/g) || [];
+  return tableCells.find(tableCell => tableCell.includes(text)) || '';
+};
+
+/** 从一个 OOXML 关系标签中读取指定属性。 */
+const getRelationshipAttribute = (
+  relationshipTag: string,
+  attributeName: string
+): string => {
+  return new RegExp(`${attributeName}="([^"]+)"`).exec(relationshipTag)?.[1] || '';
+};
+
+/** 构建仅包含一个普通 Word 单元格的文本转义模型。 */
+const buildSingleWordTextModel = (
+  text: string
+): CopyTestExportTableModel => {
+  return {
+    columnCount: 1,
+    missingImageFileNames: [],
+    rowCount: 1,
+    rows: [{
+      cells: [{
+        colSpan: 1,
+        columnIndex: 0,
+        header: false,
+        images: [],
+        kind: 'normal',
+        rowIndex: 0,
+        rowSpan: 1,
+        text,
+      }],
+      index: 0,
+    }],
+  };
+};
+
+/** 构建仅包含一个 Evidence 正文单元格的 Word 图片降级模型。 */
+const buildSingleWordEvidenceModel = (
+  images: CopyTestExportCellImage[]
+): CopyTestExportTableModel => {
+  return {
+    columnCount: 1,
+    missingImageFileNames: [],
+    rowCount: 2,
+    rows: [
+      {
+        cells: [{
+          colSpan: 1,
+          columnIndex: 0,
+          header: true,
+          images: [],
+          kind: 'evidence',
+          rowIndex: 0,
+          rowSpan: 1,
+          text: 'Test Evidence',
+        }],
+        index: 0,
+      },
+      {
+        cells: [{
+          colSpan: 1,
+          columnIndex: 0,
+          header: false,
+          images,
+          kind: 'evidence',
+          rowIndex: 1,
+          rowSpan: 1,
+          text: '',
+        }],
+        index: 1,
+      },
+    ],
+  };
+};
+
 /** 将测试 data URL 解码为用于媒体文件比对的二进制。 */
 const decodeTestImage = (dataUrl: string): Uint8Array => {
   return Uint8Array.from(globalThis.atob(dataUrl.split(',')[1]), character => {
@@ -354,38 +462,96 @@ describe('CopyTest format exporters', () => {
     );
   });
 
-  it('exports the complete table, colored Result labels and Evidence images to Word and PDF', async () => {
-    /** 使用真实 docx Packer 生成的 Word Blob。 */
+  it('exports a complete fixed-layout Word OOXML table with merges, colors and real images', async () => {
+    /** 使用真实 OOXML ZIP 打包流程生成的 Word Blob。 */
     const wordBlob = await createCopyTestWordBlob(EXPORT_MODEL);
-    /** 监控真实 PDF 文档中每次 Evidence 图片绘制。 */
-    const addImage = vi.spyOn(jsPDF.API, 'addImage');
-    /** 使用真实 jsPDF 与 AutoTable 生成的 PDF Blob。 */
-    const pdfBlob = createCopyTestPdfBlob(EXPORT_MODEL);
+    /** Word Blob 的完整 ZIP 二进制，用于验证文件签名。 */
+    const wordBytes = new Uint8Array(await wordBlob.arrayBuffer());
     /** Word OOXML 压缩包中的全部文档资源。 */
     const wordArchive = await readBlobArchive(wordBlob);
+    /** Word OOXML 压缩包中的全部真实文件路径。 */
+    const wordFilePaths = getArchiveFilePaths(wordArchive);
     /** Word 主文档 XML。 */
     const wordDocumentXml = readArchiveXml(wordArchive, 'word/document.xml');
-    /** PDF 格式映射后的完整 AutoTable 表头和正文。 */
-    const pdfRows = buildCopyTestPdfTableRows(EXPORT_MODEL);
+    /** Word OOXML 各文档资源的内容类型声明。 */
+    const wordContentTypesXml = readArchiveXml(
+      wordArchive,
+      '[Content_Types].xml'
+    );
+    /** Word 根目录指向主文档的关系定义。 */
+    const rootRelationshipsXml = readArchiveXml(wordArchive, '_rels/.rels');
     /** Word 压缩包中排除目录条目后的真实媒体文件路径。 */
-    const wordMediaPaths = wordArchive.FullPaths
-      .map((path: string) => path.replace(/^Root Entry\//, '').replace(/^\//, ''))
+    const wordMediaPaths = wordFilePaths
       .filter((path: string) => {
-        return path.startsWith('word/media/') && !path.endsWith('/');
+        return path.startsWith('word/media/');
       });
     /** Word 文档到真实媒体文件的关系定义。 */
     const wordRelationshipsXml = readArchiveXml(
       wordArchive,
       'word/_rels/document.xml.rels'
     );
+    /** Word 文档中的全部图片关系标签。 */
+    const wordImageRelationships = wordRelationshipsXml.match(
+      /<Relationship\b[^>]*Type="[^"]*\/image"[^>]*\/?>/g
+    ) || [];
+    /** Word 图片 Drawing 引用的全部关系编号。 */
+    const embeddedImageRelationshipIds = Array.from(
+      wordDocumentXml.matchAll(/<a:blip\b[^>]*r:embed="([^"]+)"/g),
+      match => match[1]
+    );
+    /** Word 图片关系对应的全部关系编号。 */
+    const imageRelationshipIds = wordImageRelationships.map(relationship => {
+      return getRelationshipAttribute(relationship, 'Id');
+    });
+    /** Word 图片关系对应的全部相对媒体路径。 */
+    const imageRelationshipTargets = wordImageRelationships.map(relationship => {
+      return getRelationshipAttribute(relationship, 'Target');
+    });
+    /** 包含普通 Passed 文本但不属于 Result 类型的单元格 XML。 */
+    const ordinaryPassedCell = getWordTableCellXml(wordDocumentXml, 'First note');
 
-    expect(wordBlob.type).toContain('wordprocessingml');
+    expect(wordBlob.type).toBe(WORD_MIME_TYPE);
     expect(wordBlob.size).toBeGreaterThan(100);
+    expect(Array.from(wordBytes.slice(0, 4))).toEqual([0x50, 0x4B, 0x03, 0x04]);
+    expect(wordFilePaths).toEqual(expect.arrayContaining([
+      '[Content_Types].xml',
+      '_rels/.rels',
+      'word/document.xml',
+      'word/_rels/document.xml.rels',
+    ]));
+    expect(rootRelationshipsXml).toMatch(
+      /<Relationship\b(?=[^>]*Type="[^"]*\/officeDocument")(?=[^>]*Target="word\/document\.xml")[^>]*\/?>/
+    );
+    expect(wordContentTypesXml).toMatch(
+      /<Override\b(?=[^>]*PartName="\/word\/document\.xml")(?=[^>]*ContentType="application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document\.main\+xml")[^>]*\/?>/
+    );
+    expect(wordContentTypesXml).toMatch(
+      /<Default\b(?=[^>]*Extension="png")(?=[^>]*ContentType="image\/png")[^>]*\/?>/
+    );
+    expect(wordDocumentXml).toMatch(
+      /<w:tblLayout\b[^>]*w:type="fixed"[^>]*\/?>/
+    );
+    expect(wordDocumentXml).toMatch(
+      /<w:pgSz\b(?=[^>]*w:w="16838")(?=[^>]*w:h="11906")(?=[^>]*w:orient="landscape")[^>]*\/?>/
+    );
     expect(wordDocumentXml).toContain('LAST-CELL');
-    expect(wordDocumentXml.match(/w:val="00875A"/g)).toHaveLength(1);
-    expect(wordDocumentXml.match(/w:val="FF0000"/g)).toHaveLength(1);
-    expect(wordDocumentXml).toContain('<w:vMerge');
-    expect(wordDocumentXml).toContain('<w:gridSpan w:val="2"');
+    expect(wordDocumentXml.match(
+      /<w:color\b[^>]*w:val="00875A"[^>]*\/?>/g
+    )).toHaveLength(1);
+    expect(wordDocumentXml.match(
+      /<w:color\b[^>]*w:val="FF0000"[^>]*\/?>/g
+    )).toHaveLength(1);
+    expect(ordinaryPassedCell).toContain('Passed:');
+    expect(ordinaryPassedCell).not.toContain('<w:color');
+    expect(wordDocumentXml.match(
+      /<w:vMerge\b[^>]*w:val="restart"[^>]*\/?>/g
+    )).toHaveLength(2);
+    expect(wordDocumentXml.match(
+      /<w:vMerge\b[^>]*w:val="continue"[^>]*\/?>/g
+    )).toHaveLength(2);
+    expect(wordDocumentXml.match(
+      /<w:gridSpan\b[^>]*w:val="2"[^>]*\/?>/g
+    )).toHaveLength(1);
     expect(wordDocumentXml.match(/<a:blip\b/g)).toHaveLength(2);
     expect(wordMediaPaths).toHaveLength(2);
     expect(wordMediaPaths.map(path => readArchiveFile(wordArchive, path))).toContainEqual(
@@ -394,9 +560,87 @@ describe('CopyTest format exporters', () => {
     expect(wordMediaPaths.map(path => readArchiveFile(wordArchive, path))).toContainEqual(
       decodeTestImage(RED_ONE_PIXEL_PNG)
     );
-    wordMediaPaths.forEach(path => {
-      expect(wordRelationshipsXml).toContain(path.split('/').pop());
+    expect(wordImageRelationships).toHaveLength(2);
+    expect(embeddedImageRelationshipIds).toEqual(imageRelationshipIds);
+    expect(imageRelationshipTargets.map(target => target.split('/').pop())).toEqual(
+      wordMediaPaths.map(path => path.split('/').pop())
+    );
+  });
+
+  it('escapes special characters into valid Word document XML', async () => {
+    /** 包含全部文本节点特殊字符的真实 Word Blob。 */
+    const wordBlob = await createCopyTestWordBlob(
+      buildSingleWordTextModel(WORD_XML_SPECIAL_TEXT)
+    );
+    /** 特殊字符模型生成的 Word 主文档 XML。 */
+    const wordDocumentXml = readArchiveXml(
+      await readBlobArchive(wordBlob),
+      'word/document.xml'
+    );
+    /** 通过 XML 解析器回读的 Word 主文档。 */
+    const parsedDocument = new DOMParser().parseFromString(
+      wordDocumentXml,
+      'application/xml'
+    );
+
+    expect(wordDocumentXml).toContain(WORD_XML_ESCAPED_SPECIAL_TEXT);
+    expect(parsedDocument.querySelector('parsererror')).toBeNull();
+  });
+
+  it('falls back for unsupported or invalid Word images without creating media parts', async () => {
+    /** Word 不支持的 WebP Evidence 图片。 */
+    const unsupportedImage: CopyTestExportCellImage = {
+      dataUrl: 'data:image/webp;base64,V0VCUA==',
+      fileName: 'screen.webp',
+      height: 40,
+      label: 'Screen01',
+      width: 60,
+    };
+    /** MIME 可识别但 base64 内容无效的 PNG Evidence 图片。 */
+    const invalidImage: CopyTestExportCellImage = {
+      dataUrl: 'data:image/png;base64,%%%',
+      fileName: 'broken.png',
+      height: 40,
+      label: 'Screen02',
+      width: 60,
+    };
+    /** 只包含不可嵌入图片的真实 Word Blob。 */
+    const wordBlob = await createCopyTestWordBlob(
+      buildSingleWordEvidenceModel([unsupportedImage, invalidImage])
+    );
+    /** 图片降级模型的 Word OOXML 压缩包。 */
+    const wordArchive = await readBlobArchive(wordBlob);
+    /** 图片降级模型的 Word 主文档 XML。 */
+    const wordDocumentXml = readArchiveXml(wordArchive, 'word/document.xml');
+    /** 图片降级模型的 Word 文档关系 XML。 */
+    const wordRelationshipsXml = readArchiveXml(
+      wordArchive,
+      'word/_rels/document.xml.rels'
+    );
+    /** 图片降级模型中意外生成的全部媒体文件。 */
+    const wordMediaPaths = getArchiveFilePaths(wordArchive).filter(path => {
+      return path.startsWith('word/media/');
     });
+
+    expect(wordDocumentXml).toContain(
+      'Image unavailable in Word: screen.webp'
+    );
+    expect(wordDocumentXml).toContain(
+      'Image unavailable in Word: broken.png'
+    );
+    expect(wordDocumentXml).not.toContain('<a:blip');
+    expect(wordRelationshipsXml).not.toContain('/image');
+    expect(wordMediaPaths).toEqual([]);
+  });
+
+  it('exports the complete table, colored Result labels and Evidence images to PDF', async () => {
+    /** 监控真实 PDF 文档中每次 Evidence 图片绘制。 */
+    const addImage = vi.spyOn(jsPDF.API, 'addImage');
+    /** 使用真实 jsPDF 与 AutoTable 生成的 PDF Blob。 */
+    const pdfBlob = createCopyTestPdfBlob(EXPORT_MODEL);
+    /** PDF 格式映射后的完整 AutoTable 表头和正文。 */
+    const pdfRows = buildCopyTestPdfTableRows(EXPORT_MODEL);
+
     expect(pdfBlob.type).toBe('application/pdf');
     expect(pdfBlob.size).toBeGreaterThan(100);
     expect(await getTestPdfPageCount(pdfBlob)).toBe(1);
