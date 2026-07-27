@@ -58,8 +58,49 @@ const COPY_TEST_PDF_CANVAS_SCALE = 2;
 /** 将 CSS 像素换算为 PDF 点的比例。 */
 const COPY_TEST_PDF_PIXEL_TO_POINT = 0.75;
 
-/** 非拉丁文字和 Emoji 使用 Canvas 栅格化，避免 jsPDF 内置字体显示方框。 */
-const COPY_TEST_PDF_RASTER_TEXT_PATTERN = /(?:(?!\p{Script=Latin})\p{Letter})|\p{Extended_Pictographic}/u;
+/** PDF 正文使用的统一行高倍率，为复杂字形留出上下空间。 */
+const COPY_TEST_PDF_LINE_HEIGHT_FACTOR = 1.3;
+
+/** Result 状态行与 Screen 或失败原因之间的点数间距。 */
+const COPY_TEST_PDF_STATUS_DETAIL_GAP = 4;
+
+/** jsPDF 内置 Helvetica 可以稳定绘制且无需 Canvas 字体回退的字符。 */
+const COPY_TEST_PDF_VECTOR_TEXT_PATTERN = /^[\t\n\r\u0020-\u007E\u2022]*$/u;
+
+/** 需要使用从右到左方向绘制的主要文字脚本。 */
+const COPY_TEST_PDF_RTL_TEXT_PATTERN = /[\p{Script=Arabic}\p{Script=Hebrew}]/u;
+
+/** Canvas 多语言文字使用的跨平台字体回退顺序。 */
+const COPY_TEST_PDF_RASTER_FONT_FAMILY = [
+  'system-ui',
+  '-apple-system',
+  'BlinkMacSystemFont',
+  '"Segoe UI"',
+  '"Noto Sans"',
+  '"Noto Sans CJK SC"',
+  '"Noto Sans Arabic"',
+  '"Noto Sans Devanagari"',
+  '"Noto Sans Thai"',
+  '"PingFang SC"',
+  '"Microsoft YaHei"',
+  '"Apple Color Emoji"',
+  '"Segoe UI Emoji"',
+  'sans-serif',
+].join(', ');
+
+/** 浏览器分词器的最小结构，兼容当前 ES2020 类型库。 */
+interface CopyTestPdfSegmenter {
+  /** 将字符串按指定粒度分割为可安全拼接的片段。 */
+  segment: (value: string) => Iterable<{ segment: string }>;
+}
+
+/** 浏览器分词器构造器的最小结构。 */
+interface CopyTestPdfSegmenterConstructor {
+  new (
+    locales?: string | string[],
+    options?: { granularity: 'grapheme' | 'word' }
+  ): CopyTestPdfSegmenter;
+}
 
 /** AutoTable 原始 CellDef 中附带的中立单元格。 */
 interface CopyTestPdfCellDef extends CellDef {
@@ -179,9 +220,164 @@ const getPdfImageContentHeight = (
   }, 0);
 };
 
-/** 计算 AutoTable 已换行文本在单元格中占用的 PDF 点数高度。 */
-const getPdfTextHeight = (lines: string[]): number => {
-  return lines.length * COPY_TEST_PDF_FONT_SIZE * 1.2;
+/** 判断文本是否需要浏览器字体回退，避免 jsPDF 内置字体缺字。 */
+const shouldRasterPdfText = (value: string): boolean => {
+  return !COPY_TEST_PDF_VECTOR_TEXT_PATTERN.test(value);
+};
+
+/** 读取当前 PDF 文档使用的准确文字行高。 */
+const getPdfTextLineHeight = (doc: jsPDF): number => {
+  return COPY_TEST_PDF_FONT_SIZE * doc.getLineHeightFactor();
+};
+
+/** 读取 Result 状态行与后续详情之间需要预留的间距。 */
+const getPdfStatusDetailGap = (
+  cell: CopyTestExportCell,
+  lines: string[]
+): number => {
+  return getPdfTextColor(cell) && lines.length > 1
+    ? COPY_TEST_PDF_STATUS_DETAIL_GAP
+    : 0;
+};
+
+/** 计算已换行文本和 Result 段落间距占用的 PDF 点数高度。 */
+const getPdfTextHeight = (
+  doc: jsPDF,
+  cell: CopyTestExportCell,
+  lines: string[]
+): number => {
+  return lines.length * getPdfTextLineHeight(doc)
+    + getPdfStatusDetailGap(cell, lines);
+};
+
+/** 创建用于多语言测量和绘制的 Canvas 字体声明。 */
+const getPdfRasterFont = (bold: boolean): string => {
+  /** PDF 字号换算为浏览器 Canvas 使用的 CSS 像素字号。 */
+  const fontSize = COPY_TEST_PDF_FONT_SIZE / COPY_TEST_PDF_PIXEL_TO_POINT;
+  return `${bold ? 700 : 400} ${fontSize}px ${COPY_TEST_PDF_RASTER_FONT_FAMILY}`;
+};
+
+/** 创建一个仅用于多语言文字测量的 Canvas 上下文。 */
+const createPdfTextMeasurementContext = (): CanvasRenderingContext2D | null => {
+  return document.createElement('canvas').getContext('2d');
+};
+
+/** 使用 Intl.Segmenter 或安全回退方式分割单词、复杂字形和 Emoji。 */
+const getPdfTextSegments = (
+  value: string,
+  granularity: 'grapheme' | 'word'
+): string[] => {
+  /** 当前浏览器可能提供的 Unicode 分词器构造器。 */
+  const Segmenter = (
+    Intl as typeof Intl & { Segmenter?: CopyTestPdfSegmenterConstructor }
+  ).Segmenter;
+  if (Segmenter) {
+    return Array.from(
+      new Segmenter(undefined, { granularity }).segment(value),
+      item => item.segment
+    );
+  }
+  if (granularity === 'word') {
+    return value.match(/\s+|\S+/gu) || [];
+  }
+  return Array.from(value);
+};
+
+/** 使用当前 Canvas 字体测量一段文字的 CSS 像素宽度。 */
+const getPdfCanvasTextWidth = (
+  context: CanvasRenderingContext2D,
+  value: string
+): number => {
+  return context.measureText(value).width;
+};
+
+/** 把超过单行宽度的长词按 grapheme 拆成不会截断的多个片段。 */
+const splitOversizedPdfTextSegment = (
+  context: CanvasRenderingContext2D,
+  segment: string,
+  maximumWidth: number
+): string[] => {
+  /** 当前长词按 grapheme 累积后的多行结果。 */
+  const lines: string[] = [];
+  /** 当前正在累积且尚未提交的文字行。 */
+  let currentLine = '';
+  getPdfTextSegments(segment, 'grapheme').forEach(grapheme => {
+    /** 追加当前 grapheme 后的候选文字行。 */
+    const candidateLine = `${currentLine}${grapheme}`;
+    if (currentLine && getPdfCanvasTextWidth(context, candidateLine) > maximumWidth) {
+      lines.push(currentLine);
+      currentLine = grapheme;
+      return;
+    }
+    currentLine = candidateLine;
+  });
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+  return lines;
+};
+
+/** 使用浏览器实际字体把一个显式文本行换行到目标宽度内。 */
+const wrapPdfRasterParagraph = (
+  context: CanvasRenderingContext2D,
+  paragraph: string,
+  maximumWidth: number
+): string[] => {
+  if (!paragraph) {
+    return [''];
+  }
+  /** 当前段落按单词或文字边界累积后的多行结果。 */
+  const lines: string[] = [];
+  /** 当前正在累积且尚未提交的文字行。 */
+  let currentLine = '';
+  getPdfTextSegments(paragraph, 'word').forEach(segment => {
+    /** 追加当前片段后的候选文字行。 */
+    const candidateLine = `${currentLine}${segment}`;
+    if (getPdfCanvasTextWidth(context, candidateLine) <= maximumWidth) {
+      currentLine = candidateLine;
+      return;
+    }
+    if (currentLine.trim()) {
+      lines.push(currentLine.trimEnd());
+    }
+    /** 移除换行后不应出现在新行开头的空白。 */
+    const nextSegment = segment.trimStart();
+    /** 当前片段自身过宽时按 grapheme 拆分出的安全行。 */
+    const segmentLines = splitOversizedPdfTextSegment(
+      context,
+      nextSegment,
+      maximumWidth
+    );
+    currentLine = segmentLines.pop() || '';
+    lines.push(...segmentLines);
+  });
+  if (currentLine.trim()) {
+    lines.push(currentLine.trimEnd());
+  }
+  return lines.length > 0 ? lines : [''];
+};
+
+/** 使用 Canvas 实际字体为非拉丁文字构建稳定换行。 */
+const getPdfRasterTextLines = (
+  cell: CopyTestExportCell,
+  text: string,
+  availableWidth: number
+): string[] | null => {
+  /** 用于测量浏览器实际回退字体的 Canvas 上下文。 */
+  const context = createPdfTextMeasurementContext();
+  if (!context) {
+    return null;
+  }
+  /** PDF 点数宽度换算成 Canvas CSS 像素后的可用宽度。 */
+  const maximumWidth = availableWidth / COPY_TEST_PDF_PIXEL_TO_POINT;
+  return text.split('\n').flatMap((paragraph, paragraphIndex) => {
+    /** 表头和 Result 第一行使用粗体完成同字体测量。 */
+    const bold = cell.header || (
+      paragraphIndex === 0 && Boolean(getPdfTextColor(cell))
+    );
+    context.font = getPdfRasterFont(bold);
+    return wrapPdfRasterParagraph(context, paragraph, maximumWidth);
+  });
 };
 
 /** 读取单元格文本按目标列宽换行后的 PDF 行。 */
@@ -199,6 +395,13 @@ const getPdfWrappedTextLines = (
   const text = getPdfCellText(cell);
   if (!text) {
     return [];
+  }
+  if (shouldRasterPdfText(text)) {
+    /** 使用 Canvas 实际字体获得的多语言安全换行结果。 */
+    const rasterLines = getPdfRasterTextLines(cell, text, availableWidth);
+    if (rasterLines) {
+      return rasterLines;
+    }
   }
   /** 测量前保存的 jsPDF 当前字号。 */
   const originalFontSize = doc.getFontSize();
@@ -233,9 +436,13 @@ const createPdfCellDef = (
 ): CopyTestPdfCellDef => {
   /** 当前 Result 内容的 Passed 或 Failed 状态色。 */
   const statusColor = getPdfTextColor(cell);
+  /** 使用目标列宽预先生成的稳定换行文本。 */
+  const wrappedText = doc && columnWidths
+    ? getPdfWrappedTextLines(doc, cell, getPdfCellWidth(columnWidths, cell))
+    : undefined;
   return {
     colSpan: cell.colSpan,
-    content: getPdfCellText(cell),
+    content: wrappedText?.join('\n') ?? getPdfCellText(cell),
     copyTestCell: cell,
     rowSpan: cell.rowSpan,
     statusColor,
@@ -286,6 +493,8 @@ const getPdfCellKey = (cell: CopyTestExportCell): string => {
 
 /** 为非拉丁文字和 Emoji 创建透明背景的 Canvas 图片。 */
 const createRasterTextDataUrl = (
+  doc: jsPDF,
+  cell: CopyTestExportCell,
   lines: string[],
   statusColor: string | undefined,
   widthInPoints: number
@@ -293,13 +502,22 @@ const createRasterTextDataUrl = (
   /** PDF 点数换算到浏览器 CSS 像素后的宽度。 */
   const widthInCssPixels = Math.max(1, Math.ceil(widthInPoints / COPY_TEST_PDF_PIXEL_TO_POINT));
   /** 当前文字行高换算后的 CSS 像素值。 */
-  const lineHeightInCssPixels = Math.ceil(
-    COPY_TEST_PDF_FONT_SIZE * 1.2 / COPY_TEST_PDF_PIXEL_TO_POINT
+  const lineHeightInCssPixels = getPdfTextLineHeight(doc) / COPY_TEST_PDF_PIXEL_TO_POINT;
+  /** Result 状态与详情间距换算后的 CSS 像素值。 */
+  const statusDetailGapInCssPixels = (
+    getPdfStatusDetailGap(cell, lines) / COPY_TEST_PDF_PIXEL_TO_POINT
+  );
+  /** 当前完整文字块换算后的 CSS 像素高度。 */
+  const textHeightInCssPixels = (
+    getPdfTextHeight(doc, cell, lines) / COPY_TEST_PDF_PIXEL_TO_POINT
   );
   /** 仅用于栅格化非拉丁文字和 Emoji 的临时画布。 */
   const canvas = document.createElement('canvas');
   canvas.width = widthInCssPixels * COPY_TEST_PDF_CANVAS_SCALE;
-  canvas.height = Math.max(1, lines.length * lineHeightInCssPixels * COPY_TEST_PDF_CANVAS_SCALE);
+  canvas.height = Math.max(
+    1,
+    Math.ceil(textHeightInCssPixels * COPY_TEST_PDF_CANVAS_SCALE)
+  );
   /** 临时画布的二维绘图上下文。 */
   const context = canvas.getContext('2d');
   if (!context) {
@@ -310,11 +528,41 @@ const createRasterTextDataUrl = (
   lines.forEach((line, lineIndex) => {
     /** 仅 Result 第一行使用 Passed 或 Failed 状态色。 */
     const isStatusLine = lineIndex === 0 && Boolean(statusColor);
+    /** 当前文字行是否需要从右向左绘制。 */
+    const rightToLeft = COPY_TEST_PDF_RTL_TEXT_PATTERN.test(line);
+    /** 状态行之后需要追加的额外段落间距。 */
+    const detailGap = lineIndex > 0 ? statusDetailGapInCssPixels : 0;
     context.fillStyle = isStatusLine && statusColor ? statusColor : '#141414';
-    context.font = `${isStatusLine ? 'bold ' : ''}${Math.ceil(COPY_TEST_PDF_FONT_SIZE / COPY_TEST_PDF_PIXEL_TO_POINT)}px Arial, sans-serif`;
-    context.fillText(line, 0, lineIndex * lineHeightInCssPixels);
+    context.font = getPdfRasterFont(cell.header || isStatusLine);
+    context.direction = rightToLeft ? 'rtl' : 'ltr';
+    context.textAlign = rightToLeft ? 'right' : 'left';
+    context.fillText(
+      line,
+      rightToLeft ? widthInCssPixels : 0,
+      lineIndex * lineHeightInCssPixels + detailGap
+    );
   });
   return canvas.toDataURL('image/png');
+};
+
+/** 读取自定义文字块在当前单元格中的顶部坐标。 */
+const getPdfTextBlockTop = (
+  data: CellHookData,
+  textHeight: number
+): number => {
+  /** 当前单元格扣除上下 padding 后的内容高度。 */
+  const availableHeight = data.cell.height - data.cell.padding('vertical');
+  if (data.cell.styles.valign === 'bottom') {
+    return data.cell.y + data.cell.height
+      - data.cell.padding('bottom')
+      - textHeight;
+  }
+  if (data.cell.styles.valign === 'middle') {
+    return data.cell.y
+      + data.cell.padding('top')
+      + Math.max(0, (availableHeight - textHeight) / 2);
+  }
+  return data.cell.y + data.cell.padding('top');
 };
 
 /** 在 AutoTable 单元格中绘制已栅格化的非拉丁文字和 Emoji。 */
@@ -330,8 +578,12 @@ const drawRasterText = (
   const statusColor = statusRgb
     ? `#${statusRgb.map(value => value.toString(16).padStart(2, '0')).join('')}`
     : undefined;
+  /** 当前栅格文字块在 PDF 中使用的准确点数高度。 */
+  const textHeight = getPdfTextHeight(doc, cell, lines);
   /** 当前单元格文本区域栅格化后的 PNG data URL。 */
   const textDataUrl = createRasterTextDataUrl(
+    doc,
+    cell,
     lines,
     statusColor,
     Math.max(1, data.cell.width - COPY_TEST_PDF_CELL_PADDING * 2)
@@ -343,39 +595,50 @@ const drawRasterText = (
     textDataUrl,
     'PNG',
     data.cell.x + COPY_TEST_PDF_CELL_PADDING,
-    data.cell.y + COPY_TEST_PDF_CELL_PADDING,
+    getPdfTextBlockTop(data, textHeight),
     Math.max(1, data.cell.width - COPY_TEST_PDF_CELL_PADDING * 2),
-    getPdfTextHeight(lines),
+    textHeight,
     undefined,
     'FAST'
   );
 };
 
-/** 在普通拉丁文字 Result 单元格中只覆盖绘制 Passed 或 Failed 标签。 */
-const drawPdfResultStatus = (
+/** 绘制 Result 中由状态、Screen 和失败原因组成的完整文字块。 */
+const drawPdfResultText = (
   doc: jsPDF,
   data: CellHookData,
-  cell: CopyTestExportCell
+  cell: CopyTestExportCell,
+  lines: string[]
 ): void => {
   /** 当前 Result 单元格可选的状态 RGB 颜色。 */
   const statusColor = getPdfTextColor(cell);
-  if (!statusColor) {
+  if (!statusColor || lines.length === 0) {
     return;
   }
-  /** 当前 Result 状态标签的文字起点。 */
-  const textPosition = data.cell.getTextPos();
+  /** 当前完整 Result 文字块的点数高度。 */
+  const textHeight = getPdfTextHeight(doc, cell, lines);
+  /** 当前 Result 文字块的顶部绘制坐标。 */
+  const textTop = getPdfTextBlockTop(data, textHeight);
+  /** 当前 Result 每一行使用的准确点数行高。 */
+  const lineHeight = getPdfTextLineHeight(doc);
+  /** 状态行和 Screen 或失败原因之间的段落间距。 */
+  const statusDetailGap = getPdfStatusDetailGap(cell, lines);
+  /** 当前 Result 文字块的左侧绘制坐标。 */
+  const textX = data.cell.x + data.cell.padding('left');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(data.cell.styles.fontSize);
   doc.setTextColor(...statusColor);
-  doc.text(
-    cell.text.startsWith(COPY_TEST_EXPORT_PASSED_LABEL)
-      ? COPY_TEST_EXPORT_PASSED_LABEL
-      : COPY_TEST_EXPORT_FAILED_LABEL,
-    textPosition.x,
-    textPosition.y
-  );
+  doc.text(lines[0], textX, textTop, { baseline: 'top' });
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(20, 20, 20);
+  lines.slice(1).forEach((line, detailIndex) => {
+    /** 当前 Screen 或失败原因行相对状态行的纵向坐标。 */
+    const lineY = textTop
+      + lineHeight
+      + statusDetailGap
+      + detailIndex * lineHeight;
+    doc.text(line, textX, lineY, { baseline: 'top' });
+  });
 };
 
 /** 在 AutoTable 单元格文字下方按顺序绘制 Evidence 图片。 */
@@ -393,7 +656,7 @@ const drawPdfCellImages = (
   /** 第一张图片在当前单元格中的垂直起点。 */
   let imageY = data.cell.y
     + COPY_TEST_PDF_CELL_PADDING
-    + getPdfTextHeight(textLines)
+    + getPdfTextHeight(doc, cell, textLines)
     + (textLines.length > 0 ? COPY_TEST_PDF_CELL_PADDING : 0);
   /** 当前 PDF 页面扣除底部边距后的安全底边。 */
   const pageBottom = doc.internal.pageSize.getHeight() - COPY_TEST_PDF_PAGE_MARGIN;
@@ -493,7 +756,7 @@ const getPdfNaturalCellHeight = (
   return Math.max(
     18,
     COPY_TEST_PDF_CELL_PADDING * 2
-      + getPdfTextHeight(textLines)
+      + getPdfTextHeight(doc, cell, textLines)
       + textImageGap
       + imageHeight
   );
@@ -582,6 +845,7 @@ const getPdfMeasuredTableHeight = (
     orientation: 'landscape',
     unit: 'pt',
   });
+  measurementDocument.setLineHeightFactor(COPY_TEST_PDF_LINE_HEIGHT_FACTOR);
   /** AutoTable 在不绘制时计算出的完整真实表格。 */
   const measuredTable = __createTable(
     measurementDocument,
@@ -627,8 +891,9 @@ export const createCopyTestPdfBlob = (model: CopyTestExportTableModel): Blob => 
     orientation: pageLayout.orientation,
     unit: 'pt',
   });
-  /** 被栅格化的非拉丁文字单元格在绘制前保存的换行文本。 */
-  const rasterTextLines = new Map<string, string[]>();
+  doc.setLineHeightFactor(COPY_TEST_PDF_LINE_HEIGHT_FACTOR);
+  /** 需要自定义绘制的 Result 或多语言单元格换行文本。 */
+  const customTextLines = new Map<string, string[]>();
   /** 已经绘制过 Evidence 图片的中立单元格键，避免分页片段重复图片。 */
   const drawnEvidenceCellKeys = new Set<string>();
   autoTable(doc, {
@@ -640,14 +905,17 @@ export const createCopyTestPdfBlob = (model: CopyTestExportTableModel): Blob => 
         return;
       }
       /** 当前单元格在 willDrawCell 阶段保存或 AutoTable 保留的文本行。 */
-      const textLines = rasterTextLines.get(getPdfCellKey(cell)) || data.cell.text;
-      if (rasterTextLines.has(getPdfCellKey(cell))) {
-        drawRasterText(doc, data, cell, textLines);
-      } else {
-        drawPdfResultStatus(doc, data, cell);
+      const cellKey = getPdfCellKey(cell);
+      /** 当前单元格在绘制前保存或 AutoTable 保留的完整换行文本。 */
+      const textLines = customTextLines.get(cellKey) || data.cell.text;
+      if (customTextLines.has(cellKey)) {
+        if (shouldRasterPdfText(textLines.join('\n'))) {
+          drawRasterText(doc, data, cell, textLines);
+        } else {
+          drawPdfResultText(doc, data, cell, textLines);
+        }
       }
       /** 当前分页片段对应的稳定中立单元格键。 */
-      const cellKey = getPdfCellKey(cell);
       if (!drawnEvidenceCellKeys.has(cellKey)) {
         drawPdfCellImages(doc, data, cell, textLines);
         if (cell.images.some(isDrawablePdfImage)) {
@@ -658,16 +926,19 @@ export const createCopyTestPdfBlob = (model: CopyTestExportTableModel): Blob => 
     willDrawCell: data => {
       /** 当前 AutoTable 单元格绑定的中立单元格。 */
       const cell = getRawCopyTestCell(data);
-      if (!cell || !COPY_TEST_PDF_RASTER_TEXT_PATTERN.test(data.cell.text.join('\n'))) {
-        if (cell && getPdfTextColor(cell) && data.cell.text.length > 0) {
-          data.cell.text = ['', ...data.cell.text.slice(1)];
-        }
+      if (!cell) {
         return;
       }
-      /** 当前单元格首次绘制时保存的完整换行文本。 */
+      /** Result 或多语言单元格是否需要避开 AutoTable 默认字体绘制。 */
+      const customDraw = Boolean(getPdfTextColor(cell))
+        || shouldRasterPdfText(data.cell.text.join('\n'));
+      if (!customDraw) {
+        return;
+      }
+      /** 当前单元格首次绘制时保存的完整稳定换行文本。 */
       const cellKey = getPdfCellKey(cell);
-      if (!rasterTextLines.has(cellKey)) {
-        rasterTextLines.set(cellKey, [...data.cell.text]);
+      if (!customTextLines.has(cellKey)) {
+        customTextLines.set(cellKey, [...data.cell.text]);
       }
       data.cell.text = [];
     },
