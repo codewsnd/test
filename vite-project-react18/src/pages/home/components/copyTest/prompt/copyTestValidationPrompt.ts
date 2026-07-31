@@ -44,9 +44,14 @@ A row passes if and only if at least one screenshot satisfies:
 
 normalize(literalTranscription(full visible copy unit)) === normalize(expectedText)
 
+# Rule priority
+
+Apply rules in this order: screenshot evidence, full copy-unit boundary, literal transcription, allowed normalization, decision aggregation, and output contract. expectedText may locate a candidate and supply the comparison target, but it is never visual evidence. The slash and period mappings under Allowed normalization only are the only exceptions to literal punctuation equality. Decision examples illustrate these rules and never create additional equivalences.
+
 # Inputs and evidence mapping
 
 - selectedRows supplies the exact expectedText and rowIndex for each validation target.
+- targetColumnName is metadata only and cannot change any validation rule.
 - uploadedScreenshots[i].fileName identifies uploaded image i; the two arrays correspond one-to-one in the same order.
 - Cite an image with that same-index fileName. A fileName is only an identifier and is never evidence of image content.
 - One screenshot may support multiple rows, and one row may be supported by multiple screenshots.
@@ -60,51 +65,31 @@ normalize(literalTranscription(full visible copy unit)) === normalize(expectedTe
 
 # Evidence-first literal transcription
 
-Before normalization, create a glyph-faithful literalTranscription from the screenshot pixels at the highest available visual detail.
+Before normalization, create a glyph-faithful literalTranscription from the screenshot pixels at the highest available visual detail. Complete this internal pipeline for every candidate copy unit and do not return intermediate transcription or audit data:
 
-- Use expectedText only to locate the candidate copy unit. Never use expectedText, surrounding language, grammar, or likely wording to choose, correct, or localize a punctuation glyph.
-- Preserve every visible punctuation glyph, its character boundary, and its count.
-- Where visually distinguishable, preserve these literal forms:
-  - "." is a small solid dot at the baseline.
-  - "．" is a solid full-width period with wider character-cell spacing.
-  - "。" is a hollow ideographic full stop with a visible center.
-  - "｡" is a narrow half-width ideographic full stop.
-  - "," is a compact ASCII comma occupying a narrow Latin character cell.
-  - "，" is a full-width comma occupying a wider ideographic character cell.
-  - "、" is a distinct slanted ideographic enumeration comma.
-- Use glyph shape, fill, baseline position, relative size, and character-cell spacing as evidence. Do not classify punctuation from the language of surrounding text.
-- Never rewrite "." as "。" merely because surrounding text is Chinese, and never rewrite "。" as "." merely because surrounding text is Latin.
-- Never rewrite "," as "，" merely because surrounding text is Chinese, and never rewrite "，" as "," merely because surrounding text is Latin.
-- The comma forms ",", "，", and "、" are distinct literal characters and are never mutually interchangeable for decision comparison.
-- Font side bearings, kerning, antialiasing, alignment, and the unused area inside a full-width punctuation cell are not whitespace.
-- Transcribe U+0020 only when a distinct blank interval is visibly present. Never insert spaces around punctuation merely to format the transcription.
-- If image quality makes the exact member of the period family indeterminate but its family membership, presence, character boundary, and count are reliable, represent it internally as PERIOD_FAMILY_UNRESOLVED. Do not mark the copy unreadable or fail solely for that ambiguity.
-- If the exact comma form cannot be distinguished reliably, the punctuation is unreadable. Do not invent a comma form and do not create a comma-family equivalence.
-- If the presence, character boundary, or count of the punctuation cannot be verified, the copy is unreadable and fails.
-- When a failure issue quotes visible copy, quote the literal transcription rather than normalized text. If only the exact period-family member is ambiguous, describe it as an ambiguous period-family glyph instead of inventing a character.
+1. **Blind visual pass:** Use expectedText only to locate the candidate copy unit, then treat its punctuation and adjacent spaces as potentially wrong. Read the screenshot without copying, completing, translating, or correcting from expectedText.
+2. **Full transcription:** Transcribe the entire copy unit and preserve every visible punctuation glyph, character boundary, and occurrence count.
+3. **Punctuation evidence:** For each occurrence, silently note its immediate visible neighbors, solid or hollow construction, baseline position, stroke direction, relative size, character-cell spacing, and surrounding blank pixels.
+4. **Geometry-first classification:** Select a literal code point only from pixel evidence. Use glyph shape, fill, baseline position, relative size, and character-cell spacing as evidence. Do not classify punctuation from the language of surrounding text. Whole-word recognition, script, grammar, common typography, and expectedText are not punctuation evidence.
+5. **Alternative check:** Compare the mark with the relevant confusable candidates below and identify a visible feature that rules out the nearest alternatives. If pixels cannot do so, the punctuation is unreadable unless the period-family exception applies.
+6. **Anti-anchoring check:** Imagine expectedText used another candidate. literalTranscription must remain unchanged because only screenshot pixels determine it. Reinspect any punctuation first transcribed merely to match expectedText.
+7. **Comparison:** Fix literalTranscription before consulting expected punctuation or applying normalization.
 
-# Mandatory punctuation audit
+Confusable candidates are not equivalence classes:
 
-Perform this internal audit for every candidate copy unit before normalization or pass/fail judgment. Do not return the audit.
+- Periods: "." U+002E is a small solid dot at the baseline; "．" U+FF0E is a solid full-width period; "。" U+3002 is a hollow ideographic full stop; "｡" U+FF61 is its narrow half-width form. "۔" U+06D4 and "।" U+0964 remain distinct.
+- Commas: "," is a compact ASCII comma occupying a narrow Latin character cell (U+002C); "，" is a full-width comma occupying a wider ideographic character cell (U+FF0C); "、" is a slanted ideographic enumeration comma (U+3001); "،" U+060C remains distinct.
+- Questions: "?" U+003F, "？" U+FF1F, and "؟" U+061F remain distinct.
+- Colons and semicolons: ":" versus "：", and ";" versus "；" or "؛", remain distinct.
+- Other forms: ASCII, full-width, curly, and CJK brackets or quotes remain distinct. "-", "–", "—", "...", and "…" remain distinct by stroke length, vertical position, dot count, and character boundaries.
 
-1. **Blind visual pass:** Use expectedText only to locate the copy unit, then treat every punctuation character and every adjacent space in expectedText as potentially wrong. Read punctuation from the screenshot without copying, completing, translating, or correcting it from expectedText.
-2. **Occurrence ledger:** Silently inventory every visible punctuation occurrence in displayed reading order. For each occurrence, record its immediate visible neighbors, character boundary, count, solid or hollow construction, vertical position, stroke direction, relative width and height, and surrounding blank pixels. Repeated marks are separate occurrences.
-3. **Geometry-first classification:** Select a literal code point only from that visual evidence. Whole-word recognition, script, language, grammar, common typography, and expectedText are not evidence for a punctuation code point.
-4. **Nearest-alternative challenge:** Compare the observed mark with every member of its relevant confusable set below. Before selecting one, identify a visible geometric feature that rules out the nearest alternatives. If the pixels do not rule them out, mark the punctuation unreadable unless the explicit period-family ambiguity rule applies.
-5. **Counterfactual check:** Imagine that expectedText contains a different member of the same confusable set. The literalTranscription must remain unchanged because it is determined only by screenshot pixels. Reinspect any occurrence whose first transcription merely matches expectedText.
-6. **Comparison pass:** Only after the visual ledger is fixed may you compare literalTranscription with expectedText and apply the allowed normalization rules.
+Never rewrite "." as "。" merely because surrounding text is Chinese, and never rewrite "。" as "." merely because surrounding text is Latin. Never rewrite "," as "，" merely because surrounding text is Chinese, and never rewrite "，" as "," merely because surrounding text is Latin. The comma forms ",", "，", and "、" are distinct literal characters and are never mutually interchangeable for decision comparison.
 
-Confusable sets are classification candidates, not equivalence classes. Preserve the exact selected member unless an explicit rule under Allowed normalization only says otherwise:
+Font side bearings, kerning, antialiasing, alignment, and the unused area inside a full-width punctuation cell are not whitespace. Transcribe U+0020 only when a distinct blank interval is visibly present. Never insert spaces around punctuation merely to format the transcription. For right-to-left text, use visible neighbors only as spatial anchors; never mirror or substitute punctuation because of text direction.
 
-- comma: "," U+002C, "，" U+FF0C, "、" U+3001, and "،" U+060C;
-- stop or dot: "." U+002E, "．" U+FF0E, "。" U+3002, "｡" U+FF61, "۔" U+06D4, and "।" U+0964;
-- question mark: "?" U+003F, "？" U+FF1F, and "؟" U+061F;
-- colon or semicolon: ":" U+003A versus "：" U+FF1A, and ";" U+003B versus "；" U+FF1B or "؛" U+061B;
-- exclamation mark: "!" U+0021 versus "！" U+FF01;
-- brackets and quotes: ASCII, full-width, curly, and CJK forms remain distinct;
-- dash or ellipsis: "-", "–", "—", "...", and "…" remain distinct by stroke length, vertical position, dot count, and character boundaries.
+If image quality makes the exact period-family member indeterminate but its family membership, presence, character boundary, and count are reliable, use PERIOD_FAMILY_UNRESOLVED internally. Do not mark the copy unreadable or fail solely for that ambiguity. Otherwise, if punctuation presence, boundary, count, or exact non-period form cannot be verified, it is unreadable and fails. For commas, do not invent a comma form and do not create a comma-family equivalence.
 
-For right-to-left text, use the visible left and right neighbors only as spatial anchors. Never mirror, translate, or substitute punctuation because of text direction. A copy unit cannot pass until every visible punctuation occurrence has completed this audit.
+When a failure issue quotes visible copy, quote literalTranscription rather than normalized text. If only the exact period-family member is ambiguous, describe an ambiguous period-family glyph instead of inventing a character.
 
 # Allowed normalization only
 
@@ -121,6 +106,7 @@ After applying exactly the transformations above, any remaining insertion, delet
 # Decision and evidence rules
 
 - Inspect all uploaded screenshots before deciding a row. One exact supporting screenshot makes the row pass even when other screenshots do not match.
+- For each row-image pair, determine exactly one internal state: exact normalized full-unit match, relevant readable mismatch, relevant unreadable copy, or target not found.
 - A prefix or substring match fails. Missing, extra, substituted, truncated, or reordered content fails, including an added digit, punctuation mark, or parenthetical suffix.
 - No uploaded screenshot, no relevant copy, or copy whose characters or punctuation presence, boundary, or count cannot be reliably read results in failure; do not guess. Ambiguity only among allowed period-family members is not unreadable.
 - For a passed row, evidenceImageFileNames contains all and only screenshots with an exact normalized full-unit match, is non-empty, unique, and follows upload order. languageIssues is [].
@@ -137,72 +123,50 @@ After applying exactly the transformations above, any remaining insertion, delet
 
 Before output, confirm that:
 
-1. Every selectedRows item was checked against every image and appears exactly once.
-2. Results preserve selectedRows order and rowIndex without duplicates.
-3. Every passed row has exact supporting evidence and no language issue.
-4. Every failed row has a specific language issue and no overlooked exact match.
-5. Every visible punctuation occurrence completed the mandatory audit; no exact-looking string was accepted from language or expectedText alone.
-6. The response follows the exact JSON contract below and contains no reasoning or extra text.
+1. Every selectedRows item was checked against every image and appears exactly once in selectedRows order with its original rowIndex.
+2. Evidence contains no unrelated or duplicate fileName, and every pass or failure satisfies the decision invariants above.
+3. Every visible punctuation occurrence completed the evidence-first pipeline; no exact-looking string was accepted from language or expectedText alone.
+4. The response follows the exact JSON contract below and contains no reasoning or extra text.
 
 # Decision examples
 
-Each case is independent and normative, contains exactly one selected row, and uses the exact root response contract. visualEvidence describes screenshot content only; it is not the runtime user JSON schema.
+Each case is independent and normative, contains exactly one selected row, and uses the exact root response contract. These examples cover only high-risk edge cases; apply the rules above to all other inputs. visualEvidence describes screenshot content only; it is not the runtime user JSON schema.
 
-## D01 — Slash variant and layout-only line break
+## D01 — Slash equivalence without an invented space
 Input: {"rowIndex":0,"expectedText":"收款人国家/地区","visualEvidence":[{"fileName":"slash.png","fullCopyUnit":"收款人国家／\\n地区","layoutOnlyLineBreak":true}]}
 Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["slash.png"],"languageIssues":[]}]}
 
-## D02 — Added and missing Chinese content
-Input: {"rowIndex":0,"expectedText":"收款人国家/地区","visualEvidence":[{"fileName":"added.png","fullCopyUnit":"收款人所在国家/地区"},{"fileName":"missing.png","fullCopyUnit":"收款人国家"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["added.png","missing.png"],"languageIssues":["Expected 收款人国家/地区, but visible copy 收款人所在国家/地区 has unexpected text 所在.","Expected 收款人国家/地区, but visible copy 收款人国家 is missing /地区."]}]}
+## D02 — Full-unit suffix mismatch
+Input: {"rowIndex":0,"expectedText":"Alamat bat1","visualEvidence":[{"fileName":"digit.png","fullCopyUnit":"Alamat bat12"},{"fileName":"option.png","fullCopyUnit":"Alamat bat1 (option)"}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["digit.png","option.png"],"languageIssues":["Expected 'Alamat bat1', but visible copy 'Alamat bat12' has unexpected suffix '2'.","Expected 'Alamat bat1', but visible copy 'Alamat bat1 (option)' has unexpected parenthetical suffix '(option)'."]}]}
 
-## D03 — Exact full copy unit
-Input: {"rowIndex":0,"expectedText":"Alamat bat1","visualEvidence":[{"fileName":"exact.png","fullCopyUnit":"Alamat bat1"}]}
-Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["exact.png"],"languageIssues":[]}]}
+## D03 — Faithful period transcription with allowed equivalence
+Input: {"rowIndex":0,"expectedText":"付款成功。","visualEvidence":[{"fileName":"ascii-period.png","fullCopyUnit":"付款成功.","finalGlyphObservation":"small solid baseline dot; literal transcription is . not 。 despite Chinese surrounding text"}]}
+Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["ascii-period.png"],"languageIssues":[]}]}
 
-## D04 — Numeric and parenthetical suffixes
-Input: {"rowIndex":0,"expectedText":"Alamat bat1","visualEvidence":[{"fileName":"digit.png","fullCopyUnit":"Alamat bat12"},{"fileName":"option.png","fullCopyUnit":"Alamat bat1 (option)"},{"fileName":"mixed-option.png","fullCopyUnit":"Alamat bat1（option)"},{"fileName":"full-option.png","fullCopyUnit":"Alamat bat1（option）"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["digit.png","option.png","mixed-option.png","full-option.png"],"languageIssues":["Expected 'Alamat bat1', but visible copy 'Alamat bat12' has unexpected suffix '2'.","Expected 'Alamat bat1', but visible copy 'Alamat bat1 (option)' has unexpected parenthetical suffix '(option)'.","Expected 'Alamat bat1', but visible copy 'Alamat bat1（option)' has unexpected parenthetical suffix '（option)'.","Expected 'Alamat bat1', but visible copy 'Alamat bat1（option）' has unexpected parenthetical suffix '（option）'."]}]}
+## D04 — Period presence and count remain exact
+Input: {"rowIndex":0,"expectedText":"Payment complete.","visualEvidence":[{"fileName":"missing-period.png","fullCopyUnit":"Payment complete"},{"fileName":"extra-period.png","fullCopyUnit":"Payment complete.."}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["missing-period.png","extra-period.png"],"languageIssues":["Expected 'Payment complete.', but visible copy 'Payment complete' is missing one final period-family glyph.","Expected 'Payment complete.', but visible copy 'Payment complete..' has one unexpected extra final period-family glyph."]}]}
 
-## D05 — Faithful period transcription and allowed equivalence
-Input: {"rowIndex":0,"expectedText":"付款成功。","visualEvidence":[{"fileName":"english-dot.png","fullCopyUnit":"付款成功.","finalGlyphObservation":"small solid baseline dot; literal transcription is . not 。 despite Chinese surrounding text"},{"fileName":"ideographic-stop.png","fullCopyUnit":"付款成功。","finalGlyphObservation":"hollow ring with visible center; literal transcription is 。"}]}
-Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["english-dot.png","ideographic-stop.png"],"languageIssues":[]}]}
-
-## D06 — Extra period
-Input: {"rowIndex":0,"expectedText":"Payment complete","visualEvidence":[{"fileName":"extra-period.png","fullCopyUnit":"Payment complete。"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["extra-period.png"],"languageIssues":["Expected 'Payment complete', but visible copy 'Payment complete。' has unexpected final period-family glyph '。'."]}]}
-
-## D07 — Missing period
-Input: {"rowIndex":0,"expectedText":"Payment complete.","visualEvidence":[{"fileName":"missing-period.png","fullCopyUnit":"Payment complete"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["missing-period.png"],"languageIssues":["Expected 'Payment complete.', but visible copy 'Payment complete' is missing one final period-family glyph."]}]}
-
-## D08 — No uploaded screenshots
-Input: {"rowIndex":0,"expectedText":"收款人国家/地区","visualEvidence":[]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":[],"languageIssues":["No screenshot was uploaded."]}]}
-
-## D09 — Target copy not found
-Input: {"rowIndex":0,"expectedText":"收款人国家/地区","visualEvidence":[{"fileName":"other-copy.png","fullCopyUnit":"付款详情"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":[],"languageIssues":["Expected 收款人国家/地区 was not found in any uploaded screenshot."]}]}
-
-## D10 — Punctuation is unreadable
+## D05 — Punctuation is unreadable
 Input: {"rowIndex":0,"expectedText":"Payment complete.","visualEvidence":[{"fileName":"blurred.png","targetRegion":"text is present, but the terminal mark cannot be verified as a period-family glyph"}]}
 Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["blurred.png"],"languageIssues":["Expected 'Payment complete.', but the terminal punctuation in blurred.png is unreadable and cannot be verified as a period-family glyph."]}]}
 
-## D11 — ASCII comma remains ASCII in Chinese text
+## D06 — ASCII comma remains ASCII in Chinese text
 Input: {"rowIndex":0,"expectedText":"您好,欢迎回来","visualEvidence":[{"fileName":"ascii-comma.png","fullCopyUnit":"您好,欢迎回来","commaGlyphObservation":"compact ASCII comma in a narrow Latin character cell; surrounding Chinese text does not relabel it"}]}
 Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["ascii-comma.png"],"languageIssues":[]}]}
 
-## D12 — Full-width comma is not an ASCII comma
+## D07 — Full-width comma is not an ASCII comma
 Input: {"rowIndex":0,"expectedText":"您好,欢迎回来","visualEvidence":[{"fileName":"fullwidth-comma.png","fullCopyUnit":"您好，欢迎回来","commaGlyphObservation":"full-width comma occupying an ideographic character cell"}]}
 Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["fullwidth-comma.png"],"languageIssues":["Expected '您好,欢迎回来', but visible copy '您好，欢迎回来' uses the full-width comma '，' instead of the ASCII comma ','."]}]}
 
-## D13 — Slash side bearings are not spaces
-Input: {"rowIndex":0,"expectedText":"收款人国家/地区","visualEvidence":[{"fileName":"slash-adjacent.png","fullCopyUnit":"收款人国家/地区","slashBoundaryObservation":"the slash touches the adjacent character sequence; small side bearings are glyph spacing, not U+0020"}]}
-Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["slash-adjacent.png"],"languageIssues":[]}]}
-
-## D14 — Visible spaces around slash are mismatches
+## D08 — Visible spaces around slash are mismatches
 Input: {"rowIndex":0,"expectedText":"收款人国家/地区","visualEvidence":[{"fileName":"slash-spaces.png","fullCopyUnit":"收款人国家 / 地区","slashBoundaryObservation":"distinct visible U+0020 spacing appears on both sides of the slash"}]}
 Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["slash-spaces.png"],"languageIssues":["Expected '收款人国家/地区', but visible copy '收款人国家 / 地区' has unexpected spaces around '/'."]}]}
+
+## D09 — RTL direction does not substitute an Arabic comma
+Input: {"rowIndex":0,"expectedText":"تم الدفع، بنجاح","visualEvidence":[{"fileName":"arabic-comma.png","fullCopyUnit":"تم الدفع, بنجاح","commaGlyphObservation":"compact ASCII comma between visible Arabic neighbors; RTL direction does not relabel it"}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["arabic-comma.png"],"languageIssues":["Expected 'تم الدفع، بنجاح', but visible copy 'تم الدفع, بنجاح' uses the ASCII comma ',' instead of the Arabic comma '،'."]}]}
 
 # Output contract
 
