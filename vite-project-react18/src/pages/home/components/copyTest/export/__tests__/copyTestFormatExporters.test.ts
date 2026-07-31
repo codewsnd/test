@@ -154,6 +154,118 @@ const buildSingleEvidencePdfModel = (
   };
 };
 
+/** 构建用于验证 PDF Result 文字排版的最小完整模型。 */
+const buildSingleResultPdfModel = (
+  text: string
+): CopyTestExportTableModel => {
+  return {
+    columnCount: 1,
+    missingImageFileNames: [],
+    rowCount: 2,
+    rows: [
+      {
+        cells: [{
+          colSpan: 1,
+          columnIndex: 0,
+          header: true,
+          images: [],
+          kind: 'result',
+          rowIndex: 0,
+          rowSpan: 1,
+          text: 'Test Result - Module',
+        }],
+        index: 0,
+      },
+      {
+        cells: [{
+          colSpan: 1,
+          columnIndex: 0,
+          header: false,
+          images: [],
+          kind: 'result',
+          rowIndex: 1,
+          rowSpan: 1,
+          text,
+        }],
+        index: 1,
+      },
+    ],
+  };
+};
+
+/** Canvas 多语言绘制测试保存的单行调用信息。 */
+interface PdfCanvasTextDraw {
+  /** 绘制当前文字行时使用的方向。 */
+  direction: CanvasDirection;
+  /** 绘制当前文字行时使用的完整字体声明。 */
+  font: string;
+  /** 当前绘制的文字行。 */
+  text: string;
+}
+
+/** jsPDF text 方法的完整参数，供真实文档绘制调用捕获使用。 */
+type PdfTextArguments = Parameters<jsPDF['text']>;
+
+/** 在新建 jsPDF 实例初始化时捕获真实 text 调用。 */
+const installPdfTextCapture = (): {
+  calls: PdfTextArguments[];
+  remove: () => void;
+} => {
+  /** 当前测试期间所有真实 PDF 文字绘制调用。 */
+  const calls: PdfTextArguments[] = [];
+  /** jsPDF 初始化事件中安装到当前文档实例的方法包装器。 */
+  const initializedEvent = ['initialized', function (this: jsPDF): void {
+    /** 当前文档原始的文字绘制方法。 */
+    const originalText = this.text;
+    this.text = ((...args: PdfTextArguments): jsPDF => {
+      calls.push(args);
+      return originalText.apply(this, args);
+    }) as jsPDF['text'];
+  }];
+  jsPDF.API.events.push(initializedEvent);
+  return {
+    calls,
+    remove: () => {
+      /** 当前初始化事件在 jsPDF 全局事件列表中的位置。 */
+      const eventIndex = jsPDF.API.events.indexOf(initializedEvent);
+      if (eventIndex >= 0) {
+        jsPDF.API.events.splice(eventIndex, 1);
+      }
+    },
+  };
+};
+
+/** 安装 PDF Canvas 的最小可测实现并返回真实绘制记录。 */
+const installPdfCanvasStub = (): PdfCanvasTextDraw[] => {
+  /** Canvas fillText 每次调用时锁定的字体和方向。 */
+  const textDraws: PdfCanvasTextDraw[] = [];
+  /** PDF 多语言代码实际读取的最小 Canvas 上下文。 */
+  const context = {
+    direction: 'inherit' as CanvasDirection,
+    fillStyle: '#141414',
+    font: '',
+    measureText: vi.fn((value: string) => ({
+      width: Array.from(value).length * 6,
+    }) as TextMetrics),
+    scale: vi.fn(),
+    textAlign: 'start' as CanvasTextAlign,
+    textBaseline: 'alphabetic' as CanvasTextBaseline,
+    fillText: vi.fn(),
+  } satisfies Partial<CanvasRenderingContext2D>;
+  context.fillText.mockImplementation((text: string) => {
+    textDraws.push({
+      direction: context.direction,
+      font: context.font,
+      text,
+    });
+  });
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+    context as unknown as CanvasRenderingContext2D
+  );
+  vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(ONE_PIXEL_PNG);
+  return textDraws;
+};
+
 /** 读取宽高表格指定列对应的单元格类型。 */
 const getWidePdfCellKind = (columnIndex: number): 'evidence' | 'normal' | 'result' => {
   if (columnIndex === 9) {
@@ -670,6 +782,62 @@ describe('CopyTest format exporters', () => {
       Number(evidenceImageCalls[0][3])
     );
     expect(new TextDecoder('latin1').decode(await pdfBlob.arrayBuffer())).toContain('/Subtype /Image');
+  });
+
+  it('draws PDF Result status, Screen, and failure details on separate baselines', () => {
+    /** 真实 jsPDF 文本绘制调用，用于验证 Result 行不会再次重叠。 */
+    const textCapture = installPdfTextCapture();
+    try {
+      createCopyTestPdfBlob(buildSingleResultPdfModel([
+        'Failed:',
+        '• Screen01',
+        '• The expected copy is incomplete.',
+      ].join('\n')));
+    } finally {
+      textCapture.remove();
+    }
+    /** 红色 Failed 状态的唯一绘制调用。 */
+    const statusCall = textCapture.calls.find(call => call[0] === 'Failed:');
+    /** 黑色 Screen 引用的唯一绘制调用。 */
+    const screenCall = textCapture.calls.find(call => call[0] === '• Screen01');
+    /** 黑色失败原因的唯一绘制调用。 */
+    const failureCall = textCapture.calls.find(
+      call => call[0] === '• The expected copy is incomplete.'
+    );
+
+    expect(statusCall).toBeTruthy();
+    expect(screenCall).toBeTruthy();
+    expect(failureCall).toBeTruthy();
+    expect(textCapture.calls.filter(call => call[0] === 'Failed:')).toHaveLength(1);
+    expect(Number(screenCall?.[2])).toBeGreaterThan(Number(statusCall?.[2]) + 10);
+    expect(Number(failureCall?.[2])).toBeGreaterThan(Number(screenCall?.[2]) + 8);
+    expect(statusCall?.[3]).toEqual(expect.objectContaining({ baseline: 'top' }));
+  });
+
+  it('rasterizes multilingual PDF text with browser font fallback and RTL direction', () => {
+    /** 多语言 Canvas 实际绘制记录。 */
+    const textDraws = installPdfCanvasStub();
+    /** 包含多种脚本且必须全部经过浏览器字体回退的 Result 文本。 */
+    const multilingualText = [
+      'Failed:',
+      'Русский текст',
+      'العربية',
+      'हिन्दी',
+      'ไทย',
+      '日本語',
+      '한국어',
+      '🙂',
+    ].join('\n');
+    /** PDF 中实际嵌入的栅格文字图片。 */
+    const addImage = vi.spyOn(jsPDF.API, 'addImage');
+
+    createCopyTestPdfBlob(buildSingleResultPdfModel(multilingualText));
+
+    expect(textDraws.map(draw => draw.text)).toEqual(multilingualText.split('\n'));
+    expect(textDraws.every(draw => draw.font.includes('"Noto Sans"'))).toBe(true);
+    expect(textDraws.find(draw => draw.text === 'العربية')?.direction).toBe('rtl');
+    expect(textDraws.find(draw => draw.text === 'Русский текст')?.direction).toBe('ltr');
+    expect(addImage.mock.calls.some(call => call[0] === ONE_PIXEL_PNG)).toBe(true);
   });
 
   it('keeps a wide multi-row table and its final cell on one oversized PDF page', async () => {

@@ -98,7 +98,6 @@ describe('copyTestApi strict validation contract', () => {
       role: 'system',
     }));
     expect(JSON.parse(request.messages[1].content)).toEqual({
-      model: 'gpt-5.4',
       selectedRows: [{ expectedText: '你好', rowIndex: 0 }],
       targetColumnName: 'Target',
       uploadedScreenshots: [{ fileName: 'screen-a.png' }],

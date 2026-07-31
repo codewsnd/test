@@ -1,3 +1,8 @@
+<!--
+复制到 Confluence Cloud：请先打开此文件的 Markdown 渲染预览，再复制渲染后的正文。
+不要直接复制本文件源码；Confluence Cloud 新编辑器不会在粘贴时解析 Markdown 或 Wiki Markup。
+-->
+
 # CopyTest 用户手册
 
 [English User Guide](./README.en.md)

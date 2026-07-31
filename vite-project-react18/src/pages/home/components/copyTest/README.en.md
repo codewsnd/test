@@ -1,3 +1,8 @@
+<!--
+Copying to Confluence Cloud: open the rendered Markdown preview first, then copy the rendered content.
+Do not copy this source directly; the new Confluence Cloud editor does not parse Markdown or Wiki Markup when pasting.
+-->
+
 # CopyTest User Guide
 
 [中文用户手册](./README.md)
