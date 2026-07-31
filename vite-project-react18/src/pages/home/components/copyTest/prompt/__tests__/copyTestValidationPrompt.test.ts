@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildCopyTestValidationPrompt,
+  COPY_TEST_MAX_OUTPUT_TOKENS,
   COPY_TEST_VALIDATION_MODEL,
   COPY_TEST_VALIDATION_SYSTEM_PROMPT,
 } from '../copyTestValidationPrompt';
@@ -25,6 +26,7 @@ const readDecisionExampleOutput = (id: string) => {
 describe('copyTestValidationPrompt strict contract', () => {
   it('keeps model authority, complete inspection, and evidence mapping', () => {
     expect(COPY_TEST_VALIDATION_MODEL).toBe('gpt-5.4');
+    expect(COPY_TEST_MAX_OUTPUT_TOKENS).toBe(128_000);
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/sole business decision-maker/i);
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/every selectedRows item independently/i);
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/Inspect all uploaded screenshots/i);
@@ -109,12 +111,20 @@ describe('copyTestValidationPrompt strict contract', () => {
   });
 
   it('allows only the required visual normalization rules', () => {
-    expect(COMPACT_SYSTEM_PROMPT).toMatch(/Unicode compatibility representations/i);
     expect(COMPACT_SYSTEM_PROMPT).toMatch(
-      /except the slash and period families handled only by rules 2 and 3/i
+      /Unicode compatibility representations of letters and digits/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /Do not apply blanket compatibility normalization to punctuation or whitespace/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /Punctuation remains exact except for the explicit slash and period mappings/i
     );
     expect(COMPACT_SYSTEM_PROMPT).toMatch(
       /Map "\/", "／", "⁄", and "∕" to the same slash/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /never inserts, removes, or moves whitespace next to it/i
     );
     expect(COMPACT_SYSTEM_PROMPT).toContain('".", "．", "。", "｡"');
     expect(COMPACT_SYSTEM_PROMPT).toMatch(
@@ -123,13 +133,81 @@ describe('copyTestValidationPrompt strict contract', () => {
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/one-for-one substitution/i);
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/Remove zero-width characters/i);
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/non-breaking spaces to ordinary spaces/i);
-    expect(COMPACT_SYSTEM_PROMPT).toMatch(/Ignore layout-only line (?:wrap|break)/i);
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /Remove the break and reconstruct the visible pre-wrap adjacency without inserting whitespace/i
+    );
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/punctuation-count difference/i);
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/Do not infer any unlisted OCR equivalence/i);
     expect(readDecisionExampleOutput('D01').results[0].passed).toBe(true);
     expect(readDecisionExampleOutput('D05').results[0].passed).toBe(true);
     expect(readDecisionExampleOutput('D06').results[0].passed).toBe(false);
     expect(readDecisionExampleOutput('D07').results[0].passed).toBe(false);
+  });
+
+  it('keeps ASCII, full-width, and ideographic comma forms distinct', () => {
+    const asciiCommaResult = readDecisionExampleOutput('D11').results[0];
+    const fullwidthCommaResult = readDecisionExampleOutput('D12').results[0];
+
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /"," is a compact ASCII comma occupying a narrow Latin character cell/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /"，" is a full-width comma occupying a wider ideographic character cell/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /"," as "，" merely because surrounding text is Chinese/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /comma forms ",", "，", and "、" are distinct literal characters/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /Do not invent a comma form and do not create a comma-family equivalence/i
+    );
+    expect(asciiCommaResult).toMatchObject({
+      evidenceImageFileNames: ['ascii-comma.png'],
+      languageIssues: [],
+      passed: true,
+    });
+    expect(fullwidthCommaResult).toMatchObject({
+      evidenceImageFileNames: ['fullwidth-comma.png'],
+      passed: false,
+    });
+    expect(fullwidthCommaResult.languageIssues.join(' ')).toContain(
+      "full-width comma '，' instead of the ASCII comma ','"
+    );
+  });
+
+  it('does not invent spaces around a slash or from layout wrapping', () => {
+    const adjacentSlashResult = readDecisionExampleOutput('D13').results[0];
+    const spacedSlashResult = readDecisionExampleOutput('D14').results[0];
+
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /Font side bearings, kerning, antialiasing, alignment/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /Transcribe U\+0020 only when a distinct blank interval is visibly present/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /Never insert spaces around punctuation merely to format the transcription/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /layout-only line break is not a space/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /punctuation followed by a wrapped CJK character remains adjacent/i
+    );
+    expect(adjacentSlashResult).toMatchObject({
+      evidenceImageFileNames: ['slash-adjacent.png'],
+      languageIssues: [],
+      passed: true,
+    });
+    expect(spacedSlashResult).toMatchObject({
+      evidenceImageFileNames: ['slash-spaces.png'],
+      passed: false,
+    });
+    expect(spacedSlashResult.languageIssues.join(' ')).toContain(
+      "unexpected spaces around '/'"
+    );
   });
 
   it('keeps extra, missing, and unreadable period decisions strict', () => {
@@ -164,7 +242,7 @@ describe('copyTestValidationPrompt strict contract', () => {
       block => block.match(/^## (D\d{2}) —/)?.[1]
     );
 
-    expect(exampleBlocks).toHaveLength(10);
+    expect(exampleBlocks).toHaveLength(14);
     expect(exampleIds).toEqual([
       'D01',
       'D02',
@@ -176,6 +254,10 @@ describe('copyTestValidationPrompt strict contract', () => {
       'D08',
       'D09',
       'D10',
+      'D11',
+      'D12',
+      'D13',
+      'D14',
     ]);
     exampleBlocks.forEach(block => {
       const inputLine = block.split('\n').find(line => line.startsWith('Input: '));

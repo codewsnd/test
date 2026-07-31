@@ -5,7 +5,7 @@ import type { CopyTestRowInput } from '../api/copyTestApi';
 
 /** CopyTest 校验固定使用的模型名称。 */
 export const COPY_TEST_VALIDATION_MODEL = 'gpt-5.4';
-export const COPY_TEST_MAX_OUTPUT_TOKENS = 100000;
+export const COPY_TEST_MAX_OUTPUT_TOKENS = 128_000;
 
 /** CopyTest 校验请求中的单个截图标识。 */
 interface CopyTestValidationScreenshotInput {
@@ -69,21 +69,52 @@ Before normalization, create a glyph-faithful literalTranscription from the scre
   - "．" is a solid full-width period with wider character-cell spacing.
   - "。" is a hollow ideographic full stop with a visible center.
   - "｡" is a narrow half-width ideographic full stop.
+  - "," is a compact ASCII comma occupying a narrow Latin character cell.
+  - "，" is a full-width comma occupying a wider ideographic character cell.
+  - "、" is a distinct slanted ideographic enumeration comma.
 - Use glyph shape, fill, baseline position, relative size, and character-cell spacing as evidence. Do not classify punctuation from the language of surrounding text.
 - Never rewrite "." as "。" merely because surrounding text is Chinese, and never rewrite "。" as "." merely because surrounding text is Latin.
+- Never rewrite "," as "，" merely because surrounding text is Chinese, and never rewrite "，" as "," merely because surrounding text is Latin.
+- The comma forms ",", "，", and "、" are distinct literal characters and are never mutually interchangeable for decision comparison.
+- Font side bearings, kerning, antialiasing, alignment, and the unused area inside a full-width punctuation cell are not whitespace.
+- Transcribe U+0020 only when a distinct blank interval is visibly present. Never insert spaces around punctuation merely to format the transcription.
 - If image quality makes the exact member of the period family indeterminate but its family membership, presence, character boundary, and count are reliable, represent it internally as PERIOD_FAMILY_UNRESOLVED. Do not mark the copy unreadable or fail solely for that ambiguity.
+- If the exact comma form cannot be distinguished reliably, the punctuation is unreadable. Do not invent a comma form and do not create a comma-family equivalence.
 - If the presence, character boundary, or count of the punctuation cannot be verified, the copy is unreadable and fails.
 - When a failure issue quotes visible copy, quote the literal transcription rather than normalized text. If only the exact period-family member is ambiguous, describe it as an ambiguous period-family glyph instead of inventing a character.
+
+# Mandatory punctuation audit
+
+Perform this internal audit for every candidate copy unit before normalization or pass/fail judgment. Do not return the audit.
+
+1. **Blind visual pass:** Use expectedText only to locate the copy unit, then treat every punctuation character and every adjacent space in expectedText as potentially wrong. Read punctuation from the screenshot without copying, completing, translating, or correcting it from expectedText.
+2. **Occurrence ledger:** Silently inventory every visible punctuation occurrence in displayed reading order. For each occurrence, record its immediate visible neighbors, character boundary, count, solid or hollow construction, vertical position, stroke direction, relative width and height, and surrounding blank pixels. Repeated marks are separate occurrences.
+3. **Geometry-first classification:** Select a literal code point only from that visual evidence. Whole-word recognition, script, language, grammar, common typography, and expectedText are not evidence for a punctuation code point.
+4. **Nearest-alternative challenge:** Compare the observed mark with every member of its relevant confusable set below. Before selecting one, identify a visible geometric feature that rules out the nearest alternatives. If the pixels do not rule them out, mark the punctuation unreadable unless the explicit period-family ambiguity rule applies.
+5. **Counterfactual check:** Imagine that expectedText contains a different member of the same confusable set. The literalTranscription must remain unchanged because it is determined only by screenshot pixels. Reinspect any occurrence whose first transcription merely matches expectedText.
+6. **Comparison pass:** Only after the visual ledger is fixed may you compare literalTranscription with expectedText and apply the allowed normalization rules.
+
+Confusable sets are classification candidates, not equivalence classes. Preserve the exact selected member unless an explicit rule under Allowed normalization only says otherwise:
+
+- comma: "," U+002C, "，" U+FF0C, "、" U+3001, and "،" U+060C;
+- stop or dot: "." U+002E, "．" U+FF0E, "。" U+3002, "｡" U+FF61, "۔" U+06D4, and "।" U+0964;
+- question mark: "?" U+003F, "？" U+FF1F, and "؟" U+061F;
+- colon or semicolon: ":" U+003A versus "：" U+FF1A, and ";" U+003B versus "；" U+FF1B or "؛" U+061B;
+- exclamation mark: "!" U+0021 versus "！" U+FF01;
+- brackets and quotes: ASCII, full-width, curly, and CJK forms remain distinct;
+- dash or ellipsis: "-", "–", "—", "...", and "…" remain distinct by stroke length, vertical position, dot count, and character boundaries.
+
+For right-to-left text, use the visible left and right neighbors only as spatial anchors. Never mirror, translate, or substitute punctuation because of text direction. A copy unit cannot pass until every visible punctuation occurrence has completed this audit.
 
 # Allowed normalization only
 
 Apply these transformations to both literalTranscription and expectedText:
 
-1. Treat Unicode compatibility representations as equivalent, including full-width and half-width forms, except the slash and period families handled only by rules 2 and 3. This does not permit semantic character substitution.
-2. Map "/", "／", "⁄", and "∕" to the same slash.
+1. Treat Unicode compatibility representations of letters and digits as equivalent. Do not apply blanket compatibility normalization to punctuation or whitespace. Punctuation remains exact except for the explicit slash and period mappings in rules 2 and 3.
+2. Map "/", "／", "⁄", and "∕" to the same slash. This replaces only the slash glyph and never inserts, removes, or moves whitespace next to it.
 3. For decision comparison only, map each occurrence of ".", "．", "。", "｡", or PERIOD_FAMILY_UNRESOLVED to the same canonical period. PERIOD_FAMILY_UNRESOLVED is allowed only when period-family membership itself is reliable. This comparison rule does not alter or relabel literalTranscription. It is a one-for-one substitution and does not allow a missing, extra, moved, or duplicated period.
 4. Remove zero-width characters and convert non-breaking spaces to ordinary spaces.
-5. Ignore layout-only line breaks, preserve visible non-layout word-separating spaces, and collapse consecutive whitespace to one ordinary space. Do not use expectedText to invent or remove a meaningful space.
+5. A layout-only line break is not a space. Remove the break and reconstruct the visible pre-wrap adjacency without inserting whitespace. In particular, punctuation followed by a wrapped CJK character remains adjacent. Preserve visibly confirmed non-layout word-separating spaces and collapse consecutive whitespace to one ordinary space. Do not use expectedText to invent or remove a meaningful space.
 
 After applying exactly the transformations above, any remaining insertion, deletion, reordering, translation, semantic substitution, or punctuation-count difference is a mismatch. Do not infer any unlisted OCR equivalence.
 
@@ -110,7 +141,8 @@ Before output, confirm that:
 2. Results preserve selectedRows order and rowIndex without duplicates.
 3. Every passed row has exact supporting evidence and no language issue.
 4. Every failed row has a specific language issue and no overlooked exact match.
-5. The response follows the exact JSON contract below and contains no reasoning or extra text.
+5. Every visible punctuation occurrence completed the mandatory audit; no exact-looking string was accepted from language or expectedText alone.
+6. The response follows the exact JSON contract below and contains no reasoning or extra text.
 
 # Decision examples
 
@@ -155,6 +187,22 @@ Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":[],"la
 ## D10 — Punctuation is unreadable
 Input: {"rowIndex":0,"expectedText":"Payment complete.","visualEvidence":[{"fileName":"blurred.png","targetRegion":"text is present, but the terminal mark cannot be verified as a period-family glyph"}]}
 Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["blurred.png"],"languageIssues":["Expected 'Payment complete.', but the terminal punctuation in blurred.png is unreadable and cannot be verified as a period-family glyph."]}]}
+
+## D11 — ASCII comma remains ASCII in Chinese text
+Input: {"rowIndex":0,"expectedText":"您好,欢迎回来","visualEvidence":[{"fileName":"ascii-comma.png","fullCopyUnit":"您好,欢迎回来","commaGlyphObservation":"compact ASCII comma in a narrow Latin character cell; surrounding Chinese text does not relabel it"}]}
+Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["ascii-comma.png"],"languageIssues":[]}]}
+
+## D12 — Full-width comma is not an ASCII comma
+Input: {"rowIndex":0,"expectedText":"您好,欢迎回来","visualEvidence":[{"fileName":"fullwidth-comma.png","fullCopyUnit":"您好，欢迎回来","commaGlyphObservation":"full-width comma occupying an ideographic character cell"}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["fullwidth-comma.png"],"languageIssues":["Expected '您好,欢迎回来', but visible copy '您好，欢迎回来' uses the full-width comma '，' instead of the ASCII comma ','."]}]}
+
+## D13 — Slash side bearings are not spaces
+Input: {"rowIndex":0,"expectedText":"收款人国家/地区","visualEvidence":[{"fileName":"slash-adjacent.png","fullCopyUnit":"收款人国家/地区","slashBoundaryObservation":"the slash touches the adjacent character sequence; small side bearings are glyph spacing, not U+0020"}]}
+Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["slash-adjacent.png"],"languageIssues":[]}]}
+
+## D14 — Visible spaces around slash are mismatches
+Input: {"rowIndex":0,"expectedText":"收款人国家/地区","visualEvidence":[{"fileName":"slash-spaces.png","fullCopyUnit":"收款人国家 / 地区","slashBoundaryObservation":"distinct visible U+0020 spacing appears on both sides of the slash"}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["slash-spaces.png"],"languageIssues":["Expected '收款人国家/地区', but visible copy '收款人国家 / 地区' has unexpected spaces around '/'."]}]}
 
 # Output contract
 
