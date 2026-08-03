@@ -37,7 +37,7 @@ const IMAGE_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i;
 const MOCK_VALIDATION_DELAY_MS = 300;
 
 /** 临时启用随机 AI 校验结果；设为 false 后恢复真实 aiChat。 */
-export const COPY_TEST_AI_CHAT_MOCK_ENABLED = false;
+export const COPY_TEST_AI_CHAT_MOCK_ENABLED = true;
 
 /** Confluence storage 查询接口的返回结构。 */
 export interface CopyTestStorageResponse {

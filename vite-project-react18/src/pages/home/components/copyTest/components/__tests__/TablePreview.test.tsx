@@ -16,6 +16,11 @@ import {
   COPY_TEST_GENERATED_EVIDENCE_TYPE,
   COPY_TEST_GENERATED_RESULT_TYPE,
   COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE,
+  COPY_TEST_RESULT_FAILED_GROUP_VALUE,
+  COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE,
+  COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE,
+  COPY_TEST_RESULT_PASSED_GROUP_VALUE,
+  COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE,
 } from '../../table/tableConstants';
 
 vi.mock('antd', () => ({
@@ -24,12 +29,17 @@ vi.mock('antd', () => ({
 
 const BASE64_IMAGE = 'data:image/png;base64,QUJD';
 const PREVIEW_MESSAGE_TYPE = 'copy-test-preview-message';
+const PREVIEW_REVISION_ATTRIBUTE = 'data-copy-test-preview-revision';
+const PREVIEW_IMAGE_ID_ATTRIBUTE = 'data-copy-test-preview-image-id';
+const PREVIEW_IMAGE_INSTANCE_ATTRIBUTE = 'data-copy-test-preview-image-instance-id';
 const PREVIEW_COLUMN_ROLE_ATTRIBUTE = 'data-copy-test-preview-column-role';
 const PREVIEW_FIXED_WIDTH_TABLE_ATTRIBUTE = 'data-copy-test-preview-fixed-width-table';
 const PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE = 'data-copy-test-preview-equal-width-table';
 const PREVIEW_EQUAL_BUSINESS_COLUMN_WIDTH = 'calc((100% - 42px) / 3)';
 /** Evidence 删除按钮的可访问选择器。 */
 const EVIDENCE_DELETE_BUTTON_SELECTOR = 'button[aria-label="Delete evidence image"]';
+/** Result 状态切换链接选择器。 */
+const RESULT_STATUS_LINK_SELECTOR = 'a[data-copy-test-result-status-link]';
 const SELECTION_CHECKBOX_ATTRIBUTE = 'data-copy-test-selection-checkbox';
 const SELECTION_ROW_INDEXES_ATTRIBUTE = 'data-copy-test-selection-row-indexes';
 const SELECTION_SELECT_ALL_ATTRIBUTE = 'data-copy-test-selection-all';
@@ -59,8 +69,17 @@ const mergedTableHtml = [
   ` ${COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE}="4:Target" data-copy-test-owner-id="4:Target"`,
   ' data-copy-test-schema="2">Test Evidence - Target</th></tr>',
   '<tr><td>Reference 1</td><td colspan="4" rowspan="4">',
-  '<a href="javascript:unsafe()" onclick="unsafe()">Merged target</a><script>unsafeScript()</script></td>',
-  `<td rowspan="4"><div ${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"><strong>Passed:</strong></div></td>`,
+  '<a href="javascript:unsafe()" onclick="unsafe()" data-copy-test-preview-action="set-result-status"',
+  ' data-copy-test-result-status-button="true" data-copy-test-result-status-row-index="0"',
+  ' data-copy-test-result-status-passed="false" data-copy-test-result-status-source-column-key="4:Target">',
+  'Merged target</a><script>unsafeScript()</script></td>',
+  `<td rowspan="4"><div ${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}">`,
+  '<strong>Passed:</strong><ul>',
+  `<li ${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="img-shared"`,
+  ` ${COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE}="img-shared:0:0">Screen01</li>`,
+  `<li ${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="img-shared"`,
+  ` ${COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE}="img-shared:0:1">Screen02</li>`,
+  '</ul></div></td>',
   `<td rowspan="4"><div ${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_EVIDENCE_TYPE}">`,
   createEvidenceImage('img-shared:0:0'),
   createEvidenceImage('img-shared:0:1'),
@@ -84,11 +103,26 @@ const createHandlers = () => ({
   onDelete: vi.fn(),
   onPreview: vi.fn(),
   onRowsChange: vi.fn(),
+  onStatus: vi.fn(),
 });
 
 /** 解析 iframe 的静态 srcDoc。 */
 const parseFrameDocument = (iframe: HTMLIFrameElement): Document => {
   return new DOMParser().parseFromString(iframe.getAttribute('srcdoc') || '', 'text/html');
+};
+
+/** 替换 fixture 中唯一 managed Result 根节点的内容。 */
+const replaceManagedResultContent = (content: string): string => {
+  const doc = new DOMParser().parseFromString(mergedTableHtml, 'text/html');
+  const resultRoot = doc.querySelector(
+    `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+  );
+  const table = doc.querySelector('table');
+  if (!resultRoot || !table) {
+    throw new Error('Expected managed Result fixture');
+  }
+  resultRoot.innerHTML = content;
+  return table.outerHTML;
 };
 
 /** 读取顶层预览 colgroup 的角色与宽度表达式。 */
@@ -153,7 +187,9 @@ describe('TablePreview', () => {
       <TablePreview
         onEvidenceImageDelete={handlers.onDelete}
         onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
         onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
         selectedRowIndexes={[]}
       />
     );
@@ -165,7 +201,9 @@ describe('TablePreview', () => {
         images={sharedImages}
         onEvidenceImageDelete={handlers.onDelete}
         onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
         onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
         selectedRowIndexes={[]}
         table={mergedTable}
       />
@@ -179,6 +217,7 @@ describe('TablePreview', () => {
     expect(fullDocument.querySelector(`[${SELECTION_CHECKBOX_ATTRIBUTE}]`)).toBeNull();
     expect(fullDocument.querySelectorAll('img[src="blob:preview-1"]')).toHaveLength(2);
     expect(fullDocument.querySelector(EVIDENCE_DELETE_BUTTON_SELECTOR)).toBeNull();
+    expect(fullDocument.querySelector(RESULT_STATUS_LINK_SELECTOR)).toBeNull();
     expect(fullTable?.getAttribute(PREVIEW_FIXED_WIDTH_TABLE_ATTRIBUTE)).toBe('true');
     expect(fullTable?.getAttribute(PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE)).toBeNull();
     expect(fullTable?.style.width).toBe('1600px');
@@ -199,7 +238,9 @@ describe('TablePreview', () => {
         images={sharedImages}
         onEvidenceImageDelete={handlers.onDelete}
         onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
         onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
         selectedColumnIndex={4}
         selectedRowIndexes={[0]}
         table={mergedTable}
@@ -237,13 +278,68 @@ describe('TablePreview', () => {
     expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
     expect(selectedDocument.querySelectorAll('img[src="blob:preview-1"]')).toHaveLength(2);
     expect(selectedDocument.querySelectorAll(EVIDENCE_DELETE_BUTTON_SELECTOR)).toHaveLength(2);
+    /** 旧单状态 Result 的每个 Screen 序号右侧都生成携带严格图片身份的操作入口。 */
+    const screenItems = Array.from(selectedDocument.querySelectorAll<HTMLLIElement>(
+      `li[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`
+    ));
+    const statusLinks = Array.from(selectedDocument.querySelectorAll<HTMLAnchorElement>(
+      RESULT_STATUS_LINK_SELECTOR
+    ));
+    expect(screenItems).toHaveLength(2);
+    expect(statusLinks).toHaveLength(2);
+    const previewStyles = selectedDocument.querySelector('style')?.textContent || '';
+    expect(previewStyles).toMatch(
+      /\[data-copy-test-result-status-link\]\s*\{[^}]*color:\s*#0052cc;[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;[^}]*text-decoration:\s*underline;/s
+    );
+    expect(previewStyles).toMatch(
+      /li\[data-copy-test-result-image-id\]:hover\s*>\s*\[data-copy-test-result-status-link\],[\s\S]*:focus-within\s*>\s*\[data-copy-test-result-status-link\]\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto;/
+    );
+    expect(selectedDocument.querySelector('a')?.hasAttribute(
+      'data-copy-test-preview-action'
+    )).toBe(false);
+    expect(selectedDocument.querySelector('a')?.hasAttribute(
+      'data-copy-test-result-status-button'
+    )).toBe(false);
+    expect(selectedDocument.querySelector('[data-copy-test-result-status-button]')).toBeNull();
+    statusLinks.forEach((statusLink, index) => {
+      const screenLabel = `Screen0${index + 1}`;
+      const screenItem = screenItems[index];
+      const labelNode = Array.from(screenItem.childNodes).find(node => {
+        return node.nodeType === Node.TEXT_NODE && node.textContent?.trim();
+      });
+      expect(statusLink.textContent).toBe('Mark as Failed');
+      expect(statusLink.getAttribute('aria-label')).toBe(
+        `Mark as Failed for ${screenLabel}`
+      );
+      expect(statusLink.getAttribute('data-copy-test-preview-action')).toBe(
+        'set-result-status'
+      );
+      expect(statusLink.getAttribute(PREVIEW_IMAGE_ID_ATTRIBUTE)).toBe('img-shared');
+      expect(statusLink.getAttribute(PREVIEW_IMAGE_INSTANCE_ATTRIBUTE)).toBe(
+        `img-shared:0:${index}`
+      );
+      expect(statusLink.getAttribute('data-copy-test-result-status-row-index')).toBe('0');
+      expect(statusLink.getAttribute('data-copy-test-result-status-passed')).toBe('false');
+      expect(statusLink.getAttribute('data-copy-test-result-status-source-column-key')).toBe(
+        '4:Target'
+      );
+      expect(statusLink.getAttribute('href')).toBe('#');
+      expect(statusLink.tagName.toLowerCase()).toBe('a');
+      expect(labelNode?.textContent).toBe(screenLabel);
+      expect(statusLink.parentElement).toBe(screenItem);
+      expect(
+        Array.from(screenItem.childNodes).indexOf(statusLink)
+      ).toBeGreaterThan(Array.from(screenItem.childNodes).indexOf(labelNode!));
+    });
 
     rerender(
       <TablePreview
         images={sharedImages}
         onEvidenceImageDelete={handlers.onDelete}
         onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
         onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
         selectedRowIndexes={[]}
         table={mergedTable}
       />
@@ -251,15 +347,161 @@ describe('TablePreview', () => {
     const clearedDocument = parseFrameDocument(iframe);
     const clearedTable = clearedDocument.querySelector<HTMLTableElement>('table');
     expect(clearedDocument.querySelector(EVIDENCE_DELETE_BUTTON_SELECTOR)).toBeNull();
+    expect(clearedDocument.querySelector(RESULT_STATUS_LINK_SELECTOR)).toBeNull();
     expect(clearedTable?.getAttribute(PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE)).toBeNull();
     expect(clearedTable?.style.width).toBe('1600px');
     expect(clearedTable?.style.minWidth).toBe('1600px');
     expect(clearedTable?.style.maxWidth).toBe('1600px');
     expect(readPreviewColumnLayout(clearedDocument)).toEqual(readPreviewColumnLayout(fullDocument));
     expect(mergedTable.workingHtml).toBe(originalWorkingHtml);
+    expect(mergedTable.workingHtml).not.toContain('Mark as Failed');
+    expect(
+      new DOMParser()
+        .parseFromString(mergedTable.workingHtml, 'text/html')
+        .querySelector(RESULT_STATUS_LINK_SELECTOR)
+    ).toBeNull();
+    expect(mergedTable.workingHtml).toContain('data-copy-test-result-status-button');
 
     unmount();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview-1');
+  });
+
+  it('renders independent target actions for Passed and Failed Screens in one Result', () => {
+    const handlers = createHandlers();
+    const mixedTable = parseCopyTestStorageTables(replaceManagedResultContent([
+      `<div ${COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE}="${COPY_TEST_RESULT_PASSED_GROUP_VALUE}">`,
+      '<strong>Passed:</strong><ul>',
+      `<li ${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="img-passed"`,
+      ` ${COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE}="img-passed:0:0">Screen01</li>`,
+      '</ul></div>',
+      `<div ${COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE}="${COPY_TEST_RESULT_FAILED_GROUP_VALUE}">`,
+      '<strong>Failed:</strong><ul>',
+      `<li ${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="img-failed"`,
+      ` ${COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE}="img-failed:0:0">`,
+      'Screen02<ul><li>Issue B</li></ul></li>',
+      '</ul></div>',
+    ].join('')))[0];
+    render(
+      <TablePreview
+        onEvidenceImageDelete={handlers.onDelete}
+        onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
+        onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
+        selectedColumnIndex={4}
+        selectedRowIndexes={[0]}
+        table={mixedTable}
+      />
+    );
+
+    const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
+    const previewDocument = parseFrameDocument(iframe);
+    const passedGroup = previewDocument.querySelector(
+      `[${COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE}="${COPY_TEST_RESULT_PASSED_GROUP_VALUE}"]`
+    );
+    const failedGroup = previewDocument.querySelector(
+      `[${COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE}="${COPY_TEST_RESULT_FAILED_GROUP_VALUE}"]`
+    );
+    const passedLink = passedGroup?.querySelector<HTMLAnchorElement>(
+      RESULT_STATUS_LINK_SELECTOR
+    );
+    const failedLink = failedGroup?.querySelector<HTMLAnchorElement>(
+      RESULT_STATUS_LINK_SELECTOR
+    );
+
+    expect(previewDocument.querySelectorAll(RESULT_STATUS_LINK_SELECTOR)).toHaveLength(2);
+    expect(passedLink?.textContent).toBe('Mark as Failed');
+    expect(passedLink?.getAttribute('aria-label')).toBe('Mark as Failed for Screen01');
+    expect(passedLink?.getAttribute('data-copy-test-result-status-passed')).toBe('false');
+    expect(passedLink?.getAttribute(PREVIEW_IMAGE_ID_ATTRIBUTE)).toBe('img-passed');
+    expect(passedLink?.getAttribute(PREVIEW_IMAGE_INSTANCE_ATTRIBUTE)).toBe('img-passed:0:0');
+    expect(failedLink?.textContent).toBe('Mark as Passed');
+    expect(failedLink?.getAttribute('aria-label')).toBe('Mark as Passed for Screen02');
+    expect(failedLink?.getAttribute('data-copy-test-result-status-passed')).toBe('true');
+    expect(failedLink?.getAttribute(PREVIEW_IMAGE_ID_ATTRIBUTE)).toBe('img-failed');
+    expect(failedLink?.getAttribute(PREVIEW_IMAGE_INSTANCE_ATTRIBUTE)).toBe('img-failed:0:0');
+    expect(failedLink?.nextElementSibling?.textContent).toBe('Issue B');
+    expect(mixedTable.workingHtml).not.toContain('Mark as Failed');
+    expect(mixedTable.workingHtml).not.toContain('Mark as Passed');
+  });
+
+  it('keeps legacy single-status Failed Result compatible', () => {
+    const handlers = createHandlers();
+    const failedTable = parseCopyTestStorageTables(
+      mergedTableHtml
+        .replace('<strong>Passed:</strong>', '<strong>Failed:</strong>')
+        .replace('Screen01</li>', 'Screen01<ul><li>Issue A</li></ul></li>')
+        .replace('Screen02</li>', 'Screen02<ul><li>Issue B</li></ul></li>')
+    )[0];
+    render(
+      <TablePreview
+        onEvidenceImageDelete={handlers.onDelete}
+        onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
+        onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
+        selectedColumnIndex={4}
+        selectedRowIndexes={[0]}
+        table={failedTable}
+      />
+    );
+
+    const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
+    const previewDocument = parseFrameDocument(iframe);
+    const statusLinks = Array.from(previewDocument.querySelectorAll<HTMLAnchorElement>(
+      RESULT_STATUS_LINK_SELECTOR
+    ));
+    expect(statusLinks).toHaveLength(2);
+    statusLinks.forEach((statusLink, index) => {
+      const screenItem = statusLink.parentElement!;
+      const labelNode = Array.from(screenItem.childNodes).find(node => {
+        return node.nodeType === Node.TEXT_NODE && node.textContent?.trim();
+      });
+      expect(statusLink.textContent).toBe('Mark as Passed');
+      expect(statusLink.getAttribute('data-copy-test-result-status-passed')).toBe('true');
+      expect(labelNode?.textContent).toBe(`Screen0${index + 1}`);
+      expect(
+        Array.from(screenItem.childNodes).indexOf(statusLink)
+      ).toBeGreaterThan(Array.from(screenItem.childNodes).indexOf(labelNode!));
+      expect(statusLink.nextElementSibling?.tagName.toLowerCase()).toBe('ul');
+      expect(statusLink.nextElementSibling?.textContent).toBe(`Issue ${index ? 'B' : 'A'}`);
+    });
+    expect(failedTable.workingHtml).not.toContain('Mark as Passed');
+  });
+
+  it('omits Screen actions when an image identity is missing or blank', () => {
+    const handlers = createHandlers();
+    const invalidIdentityTable = parseCopyTestStorageTables(replaceManagedResultContent([
+      '<strong>Passed:</strong><ul>',
+      `<li ${COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE}="img-missing:0:0">Screen01</li>`,
+      `<li ${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="img-blank"`,
+      ` ${COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE}="   ">Screen02</li>`,
+      `<li ${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="img-valid"`,
+      ` ${COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE}="img-valid:0:0">Screen03</li>`,
+      '</ul>',
+    ].join('')))[0];
+    render(
+      <TablePreview
+        onEvidenceImageDelete={handlers.onDelete}
+        onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
+        onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
+        selectedColumnIndex={4}
+        selectedRowIndexes={[0]}
+        table={invalidIdentityTable}
+      />
+    );
+
+    const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
+    const previewDocument = parseFrameDocument(iframe);
+    const statusLinks = Array.from(previewDocument.querySelectorAll<HTMLAnchorElement>(
+      RESULT_STATUS_LINK_SELECTOR
+    ));
+    expect(statusLinks).toHaveLength(1);
+    expect(statusLinks[0].getAttribute(PREVIEW_IMAGE_ID_ATTRIBUTE)).toBe('img-valid');
+    expect(statusLinks[0].getAttribute(PREVIEW_IMAGE_INSTANCE_ATTRIBUTE)).toBe('img-valid:0:0');
+    expect(statusLinks[0].getAttribute('aria-label')).toBe('Mark as Failed for Screen03');
   });
 
   it('keeps srcDoc stable for selection and disabled changes while posting incremental state', () => {
@@ -268,7 +510,9 @@ describe('TablePreview', () => {
       <TablePreview
         onEvidenceImageDelete={handlers.onDelete}
         onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
         onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
         selectedColumnIndex={4}
         selectedRowIndexes={[0]}
         table={mergedTable}
@@ -277,6 +521,8 @@ describe('TablePreview', () => {
     const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
     const initialSrcDoc = iframe.getAttribute('srcdoc');
     const postMessage = vi.spyOn(iframe.contentWindow!, 'postMessage');
+    const { frameTable } = installFrameScrollContent(iframe);
+    fireEvent.load(iframe);
     expect(iframe.contentWindow?.location.origin).toBe('null');
 
     rerender(
@@ -284,7 +530,10 @@ describe('TablePreview', () => {
         disabled
         onEvidenceImageDelete={handlers.onDelete}
         onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
         onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={8}
+        resultStatusDisabled
         selectedColumnIndex={4}
         selectedRowIndexes={[]}
         table={mergedTable}
@@ -292,8 +541,14 @@ describe('TablePreview', () => {
     );
 
     expect(iframe.getAttribute('srcdoc')).toBe(initialSrcDoc);
+    expect(iframe.contentDocument?.querySelector('table')).toBe(frameTable);
+    expect(iframe.contentDocument?.documentElement.getAttribute(
+      PREVIEW_REVISION_ATTRIBUTE
+    )).toBe('8');
     expect(postMessage).toHaveBeenCalledWith({
       disabled: true,
+      previewRevision: 8,
+      resultStatusDisabled: true,
       selectedRowIndexes: [],
       type: 'copy-test-preview-state',
     }, window.location.origin);
@@ -303,13 +558,130 @@ describe('TablePreview', () => {
     expect(targetOrigins).not.toContain('*');
   });
 
+  it('patches Result status both ways without reloading the iframe or losing scroll position', () => {
+    const handlers = createHandlers();
+    const { rerender } = render(
+      <TablePreview
+        images={sharedImages}
+        onEvidenceImageDelete={handlers.onDelete}
+        onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
+        onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
+        selectedColumnIndex={4}
+        selectedRowIndexes={[0]}
+        table={mergedTable}
+      />
+    );
+    const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
+    const initialSrcDoc = iframe.getAttribute('srcdoc');
+    const initialFrameWindow = iframe.contentWindow;
+    const postMessage = vi.spyOn(iframe.contentWindow!, 'postMessage');
+    const { scrollRoot } = installFrameScrollContent(iframe);
+    scrollRoot.scrollLeft = 64;
+    scrollRoot.scrollTop = 180;
+    fireEvent.load(iframe);
+
+    /** 模拟父层完成单个 Screen 状态更新后传回的新 working table。 */
+    const failedTable = parseCopyTestStorageTables(
+      mergedTableHtml.replace('<strong>Passed:</strong>', '<strong>Failed:</strong>')
+    )[0];
+    rerender(
+      <TablePreview
+        images={sharedImages}
+        onEvidenceImageDelete={handlers.onDelete}
+        onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
+        onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={8}
+        selectedColumnIndex={4}
+        selectedRowIndexes={[0]}
+        table={failedTable}
+      />
+    );
+
+    const updatedScrollRoot = iframe.contentDocument?.querySelector<HTMLElement>(
+      '.copy-test-preview-scroll-root'
+    );
+    expect(iframe.getAttribute('srcdoc')).toBe(initialSrcDoc);
+    expect(iframe.contentWindow).toBe(initialFrameWindow);
+    expect(updatedScrollRoot).toBe(scrollRoot);
+    expect(updatedScrollRoot?.scrollLeft).toBe(64);
+    expect(updatedScrollRoot?.scrollTop).toBe(180);
+    expect(updatedScrollRoot?.textContent).toContain('Failed:');
+    expect(updatedScrollRoot?.textContent).toContain('Mark as Passed');
+    expect(updatedScrollRoot?.querySelector<HTMLInputElement>(
+      `[${SELECTION_CHECKBOX_ATTRIBUTE}]:not([${SELECTION_SELECT_ALL_ATTRIBUTE}])`
+    )?.checked).toBe(true);
+    expect(updatedScrollRoot?.querySelector(
+      RESULT_STATUS_LINK_SELECTOR
+    )?.getAttribute('aria-disabled')).toBe('false');
+    expect(iframe.contentDocument?.documentElement.getAttribute(
+      PREVIEW_REVISION_ATTRIBUTE
+    )).toBe('8');
+    expect(updatedScrollRoot?.querySelector('img')?.getAttribute('src')).toBe(
+      'blob:preview-1'
+    );
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(postMessage).toHaveBeenLastCalledWith({
+      disabled: false,
+      previewRevision: 8,
+      resultStatusDisabled: false,
+      selectedRowIndexes: [0],
+      type: 'copy-test-preview-state',
+    }, window.location.origin);
+
+    /** 回到与初始 srcDoc 相同的 Passed 内容时也必须按当前实际内容继续 patch。 */
+    rerender(
+      <TablePreview
+        images={sharedImages}
+        onEvidenceImageDelete={handlers.onDelete}
+        onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
+        onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={9}
+        selectedColumnIndex={4}
+        selectedRowIndexes={[0]}
+        table={mergedTable}
+      />
+    );
+
+    const restoredScrollRoot = iframe.contentDocument?.querySelector<HTMLElement>(
+      '.copy-test-preview-scroll-root'
+    );
+    expect(iframe.getAttribute('srcdoc')).toBe(initialSrcDoc);
+    expect(iframe.contentWindow).toBe(initialFrameWindow);
+    expect(restoredScrollRoot).toBe(scrollRoot);
+    expect(restoredScrollRoot?.scrollLeft).toBe(64);
+    expect(restoredScrollRoot?.scrollTop).toBe(180);
+    expect(restoredScrollRoot?.textContent).toContain('Passed:');
+    expect(restoredScrollRoot?.textContent).toContain('Mark as Failed');
+    expect(restoredScrollRoot?.textContent).not.toContain('Failed:');
+    expect(iframe.contentDocument?.documentElement.getAttribute(
+      PREVIEW_REVISION_ATTRIBUTE
+    )).toBe('9');
+    expect(restoredScrollRoot?.querySelector('img')?.getAttribute('src')).toBe(
+      'blob:preview-1'
+    );
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(postMessage).toHaveBeenLastCalledWith({
+      disabled: false,
+      previewRevision: 9,
+      resultStatusDisabled: false,
+      selectedRowIndexes: [0],
+      type: 'copy-test-preview-state',
+    }, window.location.origin);
+  });
+
   it('accepts valid iframe messages and ignores invalid data or the wrong source', () => {
     const handlers = createHandlers();
     render(
       <TablePreview
         onEvidenceImageDelete={handlers.onDelete}
         onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
         onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
         selectedColumnIndex={4}
         selectedRowIndexes={[0]}
         table={mergedTable}
@@ -340,6 +712,74 @@ describe('TablePreview', () => {
     expect(handlers.onPreview).not.toHaveBeenCalled();
     expect(handlers.onDelete).not.toHaveBeenCalled();
     expect(handlers.onRowsChange).not.toHaveBeenCalled();
+    expect(handlers.onStatus).not.toHaveBeenCalled();
+
+    const validStatusPayload = {
+      imageId: 'img-shared',
+      instanceId: 'img-shared:0:0',
+      passed: false,
+      previewRevision: 7,
+      rowIndex: 0,
+      sourceColumnKey: '4:Target',
+      tableIndex: 0,
+    };
+    [
+      {
+        ...validStatusPayload,
+        rowIndex: -1,
+      },
+      {
+        ...validStatusPayload,
+        rowIndex: 0.5,
+      },
+      {
+        ...validStatusPayload,
+        passed: 'false',
+      },
+      {
+        ...validStatusPayload,
+        sourceColumnKey: ' ',
+      },
+      {
+        ...validStatusPayload,
+        previewRevision: 6,
+      },
+      {
+        ...validStatusPayload,
+        tableIndex: 1,
+      },
+      {
+        instanceId: validStatusPayload.instanceId,
+        passed: false,
+        previewRevision: 7,
+        rowIndex: 0,
+        sourceColumnKey: '4:Target',
+        tableIndex: 0,
+      },
+      {
+        imageId: validStatusPayload.imageId,
+        passed: false,
+        previewRevision: 7,
+        rowIndex: 0,
+        sourceColumnKey: '4:Target',
+        tableIndex: 0,
+      },
+      {
+        ...validStatusPayload,
+        imageId: ' ',
+      },
+      {
+        ...validStatusPayload,
+        instanceId: ' ',
+      },
+    ].forEach(payload => {
+      fireEvent(window, new MessageEvent('message', {
+        data: { action: 'set-result-status', ...payload, type: PREVIEW_MESSAGE_TYPE },
+        origin: window.location.origin,
+        source: messageSource,
+      }));
+    });
+    expect(handlers.onStatus).not.toHaveBeenCalled();
 
     fireEvent(window, new MessageEvent('message', {
       data: previewMessage,
@@ -361,6 +801,15 @@ describe('TablePreview', () => {
       origin: window.location.origin,
       source: messageSource,
     }));
+    fireEvent(window, new MessageEvent('message', {
+      data: {
+        action: 'set-result-status',
+        ...validStatusPayload,
+        type: PREVIEW_MESSAGE_TYPE,
+      },
+      origin: window.location.origin,
+      source: messageSource,
+    }));
 
     expect(handlers.onPreview).toHaveBeenCalledWith({
       alt: 'screen',
@@ -372,6 +821,15 @@ describe('TablePreview', () => {
     expect(handlers.onDelete).toHaveBeenCalledWith({
       imageId: 'img-shared',
       instanceId: 'img-shared:0:1',
+    });
+    expect(handlers.onStatus).toHaveBeenCalledWith({
+      imageId: 'img-shared',
+      instanceId: 'img-shared:0:0',
+      passed: false,
+      previewRevision: 7,
+      rowIndex: 0,
+      sourceColumnKey: '4:Target',
+      tableIndex: 0,
     });
   });
 
@@ -405,7 +863,9 @@ describe('TablePreview', () => {
       <TablePreview
         onEvidenceImageDelete={handlers.onDelete}
         onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
         onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
         selectedColumnIndex={4}
         selectedRowIndexes={[0]}
         table={mergedTable}
@@ -472,7 +932,9 @@ describe('TablePreview', () => {
       <TablePreview
         onEvidenceImageDelete={handlers.onDelete}
         onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
         onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
         selectedColumnIndex={3}
         selectedRowIndexes={[0]}
         table={mergedTable}
@@ -500,7 +962,9 @@ describe('TablePreview', () => {
       <TablePreview
         onEvidenceImageDelete={handlers.onDelete}
         onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
         onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
         selectedColumnIndex={99}
         selectedRowIndexes={[]}
         table={mergedTable}

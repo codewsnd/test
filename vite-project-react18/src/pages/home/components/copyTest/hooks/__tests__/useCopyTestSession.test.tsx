@@ -5,6 +5,15 @@ import {
   getSourceColumnKey,
   parseCopyTestStorageTables,
 } from '../../table/copyTestTableParser';
+import {
+  COPY_TEST_GENERATED_CONTENT_ATTRIBUTE,
+  COPY_TEST_GENERATED_RESULT_TYPE,
+  COPY_TEST_RESULT_FAILED_GROUP_VALUE,
+  COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE,
+  COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE,
+  COPY_TEST_RESULT_PASSED_GROUP_VALUE,
+  COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE,
+} from '../../table/tableConstants';
 import { useCopyTestSession } from '../useCopyTestSession';
 
 const image = { base64: 'data:image/png;base64,QUJD', fileName: 'screen-a.png' };
@@ -52,6 +61,26 @@ const importedStorageHtml = [
   '<td><ac:image><ri:attachment ri:filename="business.png" /></ac:image></td>',
   '</tr></table>',
 ].join('');
+
+/** 读取指定状态分组内保持业务顺序的 Screen 图片 ID。 */
+const getStatusGroupImageIds = (document: Document, status: string): string[] => {
+  const group = document.querySelector(
+    `[${COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE}="${status}"]`
+  );
+  return Array.from(group?.querySelectorAll(
+    `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`
+  ) || []).map(item => item.getAttribute(COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE) || '');
+};
+
+/** 读取指定 Screen 当前 Result DOM 中的实例 ID。 */
+const getResultImageInstanceId = (document: Document, imageId: string): string => {
+  const item = Array.from(document.querySelectorAll(
+    `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`
+  )).find(candidate => {
+    return candidate.getAttribute(COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE) === imageId;
+  });
+  return item?.getAttribute(COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE) || '';
+};
 
 describe('useCopyTestSession', () => {
   it('selects a blank header by original index without changing its ownership label', () => {
@@ -134,6 +163,178 @@ describe('useCopyTestSession', () => {
       result.current.handleComparisonColumnChange(undefined);
     });
     expect(result.current.selectedColumnIndex).toBeUndefined();
+  });
+
+  it('moves only the targeted Screen, rejects invalid identities, and restores its failure details', () => {
+    const { result } = renderHook(() => useCopyTestSession());
+    act(() => {
+      result.current.applyLoadedStorage(storageHtml);
+    });
+    act(() => {
+      result.current.handleComparisonColumnChange(1);
+    });
+    act(() => {
+      result.current.applyValidationResults([{
+        evidenceImageFileNames: [image.fileName, secondImage.fileName],
+        evidenceImages: [image, secondImage],
+        languageIssues: ['Visible copy differs.'],
+        passed: false,
+        rowIndex: 0,
+      }], [image, secondImage], 1, 'Target', 0);
+    });
+    act(() => {
+      result.current.commitExportedStorage(
+        result.current.selectedTable?.workingHtml || storageHtml
+      );
+    });
+    expect(result.current.selectedColumnHasExportableContent).toBe(false);
+
+    /** 从初始 Result 读取预览消息必须携带的稳定图片和当前 DOM 实例身份。 */
+    const initialDocument = new DOMParser().parseFromString(
+      result.current.selectedTable?.workingHtml || '',
+      'text/html'
+    );
+    const imageInstanceId = getResultImageInstanceId(initialDocument, image.fileName);
+    const secondImageInstanceId = getResultImageInstanceId(
+      initialDocument,
+      secondImage.fileName
+    );
+    expect(imageInstanceId).not.toBe('');
+    expect(secondImageInstanceId).not.toBe('');
+
+    /** 只把 Screen01 移入新建的 Passed 分组，并立即形成当前 Pair 的待回写变更。 */
+    let changed = false;
+    const failedPreviewRevision = result.current.revision;
+    act(() => {
+      changed = result.current.setResultStatus({
+        imageId: image.fileName,
+        instanceId: imageInstanceId,
+        passed: true,
+        previewRevision: failedPreviewRevision,
+        rowIndex: 0,
+        sourceColumnKey: '1:Target',
+        tableIndex: 0,
+      });
+    });
+    const passedDocument = new DOMParser().parseFromString(
+      result.current.selectedTable?.workingHtml || '',
+      'text/html'
+    );
+    const passedResult = passedDocument.querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    );
+    const passedImageItem = passedDocument.querySelector(
+      `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="${image.fileName}"]`
+    );
+    const failedImageItem = passedDocument.querySelector(
+      `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="${secondImage.fileName}"]`
+    );
+    expect(changed).toBe(true);
+    expect(result.current.selectedColumnHasExportableContent).toBe(true);
+    expect(getStatusGroupImageIds(
+      passedDocument,
+      COPY_TEST_RESULT_PASSED_GROUP_VALUE
+    )).toEqual([image.fileName]);
+    expect(getStatusGroupImageIds(
+      passedDocument,
+      COPY_TEST_RESULT_FAILED_GROUP_VALUE
+    )).toEqual([secondImage.fileName]);
+    expect(passedImageItem?.textContent).not.toContain('Visible copy differs.');
+    expect(failedImageItem?.textContent).toContain('Visible copy differs.');
+    expect(passedResult?.textContent).toContain('Visible copy differs.');
+    expect(result.current.getCurrentValidationImages()).toEqual([image, secondImage]);
+
+    /** 重复目标、无效图片/实例组合和旧来源列消息都不应产生额外状态变化。 */
+    const passedPreviewRevision = result.current.revision;
+    const mixedHtml = result.current.selectedTable?.workingHtml;
+    act(() => {
+      expect(result.current.setResultStatus({
+        imageId: image.fileName,
+        instanceId: imageInstanceId,
+        passed: true,
+        previewRevision: passedPreviewRevision,
+        rowIndex: 0,
+        sourceColumnKey: '1:Target',
+        tableIndex: 0,
+      })).toBe(false);
+      expect(result.current.setResultStatus({
+        imageId: image.fileName,
+        instanceId: secondImageInstanceId,
+        passed: false,
+        previewRevision: passedPreviewRevision,
+        rowIndex: 0,
+        sourceColumnKey: '1:Target',
+        tableIndex: 0,
+      })).toBe(false);
+      expect(result.current.setResultStatus({
+        imageId: 'missing.png',
+        instanceId: imageInstanceId,
+        passed: false,
+        previewRevision: passedPreviewRevision,
+        rowIndex: 0,
+        sourceColumnKey: '1:Target',
+        tableIndex: 0,
+      })).toBe(false);
+      expect(result.current.setResultStatus({
+        imageId: image.fileName,
+        instanceId: imageInstanceId,
+        passed: false,
+        previewRevision: passedPreviewRevision,
+        rowIndex: 0,
+        sourceColumnKey: 'stale-column',
+        tableIndex: 0,
+      })).toBe(false);
+      expect(result.current.setResultStatus({
+        imageId: image.fileName,
+        instanceId: imageInstanceId,
+        passed: false,
+        previewRevision: failedPreviewRevision,
+        rowIndex: 0,
+        sourceColumnKey: '1:Target',
+        tableIndex: 0,
+      })).toBe(false);
+      expect(result.current.setResultStatus({
+        imageId: image.fileName,
+        instanceId: imageInstanceId,
+        passed: false,
+        previewRevision: passedPreviewRevision,
+        rowIndex: 0,
+        sourceColumnKey: '1:Target',
+        tableIndex: 1,
+      })).toBe(false);
+    });
+    expect(result.current.selectedTable?.workingHtml).toBe(mixedHtml);
+
+    /** Screen01 切回已有 Failed 分组后，Screen02 不变且 Screen01 原错误信息恢复可见。 */
+    act(() => {
+      changed = result.current.setResultStatus({
+        imageId: image.fileName,
+        instanceId: imageInstanceId,
+        passed: false,
+        previewRevision: passedPreviewRevision,
+        rowIndex: 0,
+        sourceColumnKey: '1:Target',
+        tableIndex: 0,
+      });
+    });
+    const failedDocument = new DOMParser().parseFromString(
+      result.current.selectedTable?.workingHtml || '',
+      'text/html'
+    );
+    const restoredImageItem = failedDocument.querySelector(
+      `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="${image.fileName}"]`
+    );
+    expect(changed).toBe(true);
+    expect(getStatusGroupImageIds(
+      failedDocument,
+      COPY_TEST_RESULT_PASSED_GROUP_VALUE
+    )).toEqual([]);
+    expect(getStatusGroupImageIds(
+      failedDocument,
+      COPY_TEST_RESULT_FAILED_GROUP_VALUE
+    )).toEqual([image.fileName, secondImage.fileName]);
+    expect(restoredImageItem?.textContent).toContain('Visible copy differs.');
+    expect(result.current.selectedColumnHasExportableContent).toBe(true);
   });
 
   it('keeps an all-empty validation result pending until the Pair is exported', () => {

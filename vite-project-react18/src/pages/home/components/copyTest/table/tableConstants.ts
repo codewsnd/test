@@ -52,6 +52,22 @@ export const COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE = 'data-copy-test-result-image-
 /** 记录 Result 图片引用实例 ID 的属性名。 */
 export const COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE = 'data-copy-test-result-image-instance-id';
 
+/** 保存 Result Screen 在 Evidence 序列中的稳定显示顺序。 */
+export const COPY_TEST_RESULT_SCREEN_ORDER_ATTRIBUTE = 'data-copy-test-result-screen-order';
+
+/** 标记 Result 根节点内 Passed/Failed 分组的属性名。 */
+export const COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE = 'data-copy-test-result-status-group';
+
+/** Result Passed 分组使用的属性值。 */
+export const COPY_TEST_RESULT_PASSED_GROUP_VALUE = 'passed';
+
+/** Result Failed 分组使用的属性值。 */
+export const COPY_TEST_RESULT_FAILED_GROUP_VALUE = 'failed';
+
+/** 在 Screen 切换到 Passed 后保留原 Failed 错误信息的属性名。 */
+export const COPY_TEST_RESULT_RETAINED_LANGUAGE_ISSUES_ATTRIBUTE =
+  'data-copy-test-result-retained-language-issues';
+
 /** Test Result 通过状态使用的文字颜色。 */
 export const COPY_TEST_PASSED_COLOR = '#00875a';
 

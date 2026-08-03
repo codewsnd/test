@@ -20,6 +20,7 @@ import { createCopyTestExportScope } from '../table/copyTestExportScope';
 import type {
   CopyTestEvidenceDeleteTarget,
   CopyTestEvidencePreviewInfo,
+  CopyTestResultStatusUpdate,
 } from '../types';
 import {
   getConfluenceTableError,
@@ -96,6 +97,8 @@ interface CopyTestControllerHandlers {
   handleEvidenceImageDelete: (target: CopyTestEvidenceDeleteTarget) => void;
   /** 打开 Evidence 大图预览。 */
   handleEvidenceImagePreview: (previewInfo: CopyTestEvidencePreviewInfo) => void;
+  /** 将单个 Result Screen 移入明确的 Passed 或 Failed 分组。 */
+  handleResultStatusChange: (update: CopyTestResultStatusUpdate) => void;
   /** 打开导出确认弹窗。 */
   handleExportToConfluence: () => void;
   /** 将用户选择的文件转换为待校验图片。 */
@@ -234,11 +237,18 @@ export const useCopyTestController = ({
   /** AI 校验执行状态及其更新函数。 */
   const [validationLoading, setValidationLoading] = useState(false);
 
+  /** Confluence 双读准备阶段是否已进入导出临界区。 */
+  const [exportPreparing, setExportPreparing] = useState(false);
+
   /** 当前 Evidence 大图预览及其更新函数。 */
   const [previewImage, setPreviewImage] = useState<CopyTestEvidencePreviewInfo | null>(null);
 
   /** 当前 CopyTest 表格会话状态。 */
   const tableState = useCopyTestSession();
+
+  /** 供静态确认弹窗在真正确认时读取最新表格会话。 */
+  const tableStateRef = useRef(tableState);
+  tableStateRef.current = tableState;
 
   /** 只允许最后一次导入请求提交状态。 */
   const importRequestIdRef = useRef(0);
@@ -252,6 +262,9 @@ export const useCopyTestController = ({
   /** 同步标记当前是否存在可操作的已导入会话。 */
   const sessionReadyRef = useRef(false);
 
+  /** 从双读准备到提交完成全程同步阻止 Result 状态并发写入。 */
+  const exportInProgressRef = useRef(false);
+
   /** 当前截图上传列表状态。 */
   const uploadState = useCopyTestUpload();
 
@@ -264,6 +277,9 @@ export const useCopyTestController = ({
   const exportRequest = useRequest(copyTestUploadApi, {
     manual: true,
   });
+
+  /** 覆盖 storage 双读准备和最终上传的完整导出状态。 */
+  const exportLoading = exportPreparing || exportRequest.loading;
 
   /** 手动触发的已有附件预览请求状态。 */
   const attachmentsRequest = useRequest(copyTestAttachmentsApi, {
@@ -289,7 +305,7 @@ export const useCopyTestController = ({
     uploadBusy,
   } = buildCopyTestActionState({
     attachmentsLoading: attachmentsRequest.loading,
-    exportLoading: exportRequest.loading,
+    exportLoading,
     hasExportableContent: tableState.selectedColumnHasExportableContent,
     hasActiveImportedSession,
     selectedColumnIndex: tableState.selectedColumnIndex,
@@ -454,7 +470,12 @@ export const useCopyTestController = ({
 
   /** 基于双读最新 storage 导出当前 owned Pair。 */
   const exportStorageToConfluence = async (): Promise<void> => {
-    if (!tableState.originalStorageHtml) {
+    if (exportInProgressRef.current) {
+      return;
+    }
+    /** 用户点击 Confirm 时的最新表格会话，避免使用打开弹窗时的旧闭包。 */
+    const exportTableState = tableStateRef.current;
+    if (!exportTableState.originalStorageHtml) {
       message.warning('No Confluence storage to export');
       return;
     }
@@ -466,11 +487,13 @@ export const useCopyTestController = ({
       return;
     }
 
+    exportInProgressRef.current = true;
+    setExportPreparing(true);
     try {
       await waitForNextPaint();
 
       /** 在最新 storage 上生成或 rebase 后的导出内容。 */
-      const preparedStorage = await prepareLatestExportStorage(trimmedUrl, tableState);
+      const preparedStorage = await prepareLatestExportStorage(trimmedUrl, exportTableState);
       if (!preparedStorage) {
         message.warning('Confluence table changed. Please import the page again.');
         return;
@@ -478,12 +501,12 @@ export const useCopyTestController = ({
 
       /** 当前 Pair 校验快照与临时上传列表的去重合集。 */
       const exportImages = mergeCopyTestExportImages(
-        tableState.getCurrentValidationImages(),
+        exportTableState.getCurrentValidationImages(),
         uploadState.uploadImages
       );
 
       /** 当前 Comparison Column 的严格 ownership 键。 */
-      const sourceColumnKey = tableState.selectedColumnContext?.sourceColumnKey;
+      const sourceColumnKey = exportTableState.selectedColumnContext?.sourceColumnKey;
       if (!sourceColumnKey) {
         message.warning('Please select a table and column first');
         return;
@@ -499,12 +522,15 @@ export const useCopyTestController = ({
         confluenceUrl: trimmedUrl,
         ...payload,
       });
-      tableState.commitExportedStorage(payload.storageHtml);
+      exportTableState.commitExportedStorage(payload.storageHtml);
       message.success('Export to Confluence successful');
     } catch (error) {
       console.error('Export to Confluence failed:', error);
       message.error('Export to Confluence failed');
       throw error;
+    } finally {
+      exportInProgressRef.current = false;
+      setExportPreparing(false);
     }
   };
 
@@ -609,6 +635,15 @@ export const useCopyTestController = ({
     setPreviewImage(previewInfo);
   };
 
+  /** 在当前有效会话内人工移动一个 Result Screen 状态。 */
+  const handleResultStatusChange = (update: CopyTestResultStatusUpdate): void => {
+    if (!sessionReadyRef.current || validationLoading || exportInProgressRef.current) {
+      return;
+    }
+
+    tableState.setResultStatus(update);
+  };
+
   /** 校验上传与选择上下文并执行一次 AI 校验。 */
   const handleValidateClick = async (): Promise<void> => {
     if (!sessionReadyRef.current) {
@@ -673,7 +708,7 @@ export const useCopyTestController = ({
     canValidate: hasActiveImportedSession && canValidate,
     confluenceUrl,
     deleteImageTarget,
-    exportLoading: exportRequest.loading,
+    exportLoading,
     hasActiveImportedSession,
     handleCancelEvidenceImageDelete,
     handleChooseImages,
@@ -684,6 +719,7 @@ export const useCopyTestController = ({
     handleConfluenceUrlChange,
     handleEvidenceImageDelete,
     handleEvidenceImagePreview,
+    handleResultStatusChange,
     handleExportToConfluence,
     handleFilesSelected,
     handleLoadTables,

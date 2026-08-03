@@ -1,7 +1,14 @@
 /**
  * 文件作用：使用 iframe 渲染 CopyTest 表格预览，并承载行选择和 Evidence 图片事件。
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Empty } from 'antd';
 import type { CopyTestImage } from '../api/copyTestApi';
 import {
@@ -15,6 +22,7 @@ export {
   COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH,
 } from '../constants';
 import {
+  buildCopyTestRowGroups,
   findGeneratedColumnIndexes,
   getSourceColumnKey,
 } from '../table/copyTestTableParser';
@@ -28,13 +36,23 @@ import {
   COPY_TEST_GENERATED_CONTENT_ATTRIBUTE,
   COPY_TEST_GENERATED_EVIDENCE_TYPE,
   COPY_TEST_GENERATED_RESULT_TYPE,
+  COPY_TEST_RESULT_FAILED_GROUP_VALUE,
+  COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE,
+  COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE,
+  COPY_TEST_RESULT_PASSED_GROUP_VALUE,
+  COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE,
 } from '../table/tableConstants';
-import type { CopyTestEvidenceDeleteTarget, CopyTestEvidencePreviewInfo, CopyTestTableEntry } from '../types';
+import type {
+  CopyTestEvidenceDeleteTarget,
+  CopyTestEvidencePreviewInfo,
+  CopyTestResultStatusUpdate,
+  CopyTestTableEntry,
+} from '../types';
 import { getCopyTestImageId } from '../table/copyTestImageUtils';
 
 /** iframe 表格预览的数据、交互状态与回调。 */
 interface CopyTestTablePreviewProps {
-  /** 是否禁止行选择和 Evidence 删除操作。 */
+  /** 是否禁止行选择、Evidence 删除和 Result 状态操作。 */
   disabled?: boolean;
   /** 用于将 storage 图片映射为本地预览 URL 的内存图片。 */
   images?: CopyTestImage[];
@@ -42,8 +60,14 @@ interface CopyTestTablePreviewProps {
   onEvidenceImageDelete: (target: CopyTestEvidenceDeleteTarget) => void;
   /** 用户打开 Evidence 大图预览时的回调。 */
   onEvidenceImagePreview: (previewInfo: CopyTestEvidencePreviewInfo) => void;
+  /** 用户人工移动单个 Result Screen 状态时的回调。 */
+  onResultStatusChange: (update: CopyTestResultStatusUpdate) => void;
   /** 已选逻辑行下标变更时的回调。 */
   onSelectedRowIndexesChange: (value: number[]) => void;
+  /** 当前 working table 内容版本，用于拒绝旧 iframe 的延迟状态消息。 */
+  previewRevision: number;
+  /** 是否仅禁止 Result 状态链接，不影响选择和 Evidence 操作。 */
+  resultStatusDisabled?: boolean;
   /** 当前 Comparison Column 的逻辑列下标。 */
   selectedColumnIndex?: number;
   /** 当前已选中的数据行下标。 */
@@ -54,6 +78,34 @@ interface CopyTestTablePreviewProps {
 
 /** Evidence 删除按钮的 DOM 标记属性。 */
 const DELETE_BUTTON_ATTRIBUTE = 'data-copy-test-evidence-delete-button';
+
+/** 旧版 Result 状态按钮属性，仅用于清理导入 storage 中的历史运行时标记。 */
+const LEGACY_RESULT_STATUS_BUTTON_ATTRIBUTE = 'data-copy-test-result-status-button';
+
+/** Result 状态切换链接的 DOM 标记属性。 */
+const RESULT_STATUS_LINK_ATTRIBUTE = 'data-copy-test-result-status-link';
+
+/** Result 状态链接对应的业务数据行下标属性。 */
+const RESULT_STATUS_ROW_INDEX_ATTRIBUTE = 'data-copy-test-result-status-row-index';
+
+/** Result 状态链接对应的明确目标状态属性。 */
+const RESULT_STATUS_PASSED_ATTRIBUTE = 'data-copy-test-result-status-passed';
+
+/** Result 状态链接所属来源列键属性。 */
+const RESULT_STATUS_SOURCE_COLUMN_KEY_ATTRIBUTE =
+  'data-copy-test-result-status-source-column-key';
+
+/** Result 当前状态使用的固定可见文本。 */
+const PASSED_RESULT_LABEL = 'Passed:';
+
+/** Result 当前失败状态使用的固定可见文本。 */
+const FAILED_RESULT_LABEL = 'Failed:';
+
+/** Passed Result 对应的人工切换链接文本。 */
+const MARK_AS_FAILED_LINK_LABEL = 'Mark as Failed';
+
+/** Failed Result 对应的人工切换链接文本。 */
+const MARK_AS_PASSED_LINK_LABEL = 'Mark as Passed';
 
 /** iframe 预览动作属性。 */
 const PREVIEW_ACTION_ATTRIBUTE = 'data-copy-test-preview-action';
@@ -94,11 +146,35 @@ const PREVIEW_MESSAGE_TYPE = 'copy-test-preview-message';
 /** 父页面增量同步到 iframe 的状态消息类型。 */
 const PREVIEW_STATE_MESSAGE_TYPE = 'copy-test-preview-state';
 
+/** iframe 文档当前 working table 版本属性。 */
+const PREVIEW_REVISION_ATTRIBUTE = 'data-copy-test-preview-revision';
+
 /** DOM 布尔属性写入时使用的统一字符串值。 */
 const DOM_TRUE_ATTRIBUTE_VALUE = 'true';
 
 /** DOM disabled 属性名称，供 checkbox 和删除按钮共用。 */
 const DISABLED_ATTRIBUTE = 'disabled';
+
+/** 导入 storage 不得预置、只能由当前 iframe 构建流程生成的内部交互属性。 */
+const PREVIEW_RESERVED_RUNTIME_ATTRIBUTES: ReadonlySet<string> = new Set([
+  DELETE_BUTTON_ATTRIBUTE,
+  PREVIEW_ACTION_ATTRIBUTE,
+  PREVIEW_IMAGE_ALT_ATTRIBUTE,
+  PREVIEW_IMAGE_ID_ATTRIBUTE,
+  PREVIEW_IMAGE_INSTANCE_ATTRIBUTE,
+  PREVIEW_IMAGE_SRC_ATTRIBUTE,
+  PREVIEW_STORAGE_IMAGE_ATTRIBUTE,
+  LEGACY_RESULT_STATUS_BUTTON_ATTRIBUTE,
+  RESULT_STATUS_LINK_ATTRIBUTE,
+  RESULT_STATUS_PASSED_ATTRIBUTE,
+  RESULT_STATUS_ROW_INDEX_ATTRIBUTE,
+  RESULT_STATUS_SOURCE_COLUMN_KEY_ATTRIBUTE,
+  SELECTION_CHECKBOX_ATTRIBUTE,
+  SELECTION_COLUMN_ATTRIBUTE,
+  SELECTION_ROW_INDEXES_ATTRIBUTE,
+  SELECTION_SELECTABLE_ATTRIBUTE,
+  SELECTION_SELECT_ALL_ATTRIBUTE,
+]);
 
 /** iframe 预览里目标 table 的选择器。 */
 const PREVIEW_TABLE_SELECTOR = 'table';
@@ -304,6 +380,37 @@ const PREVIEW_DOCUMENT_STYLE = `
     opacity: 0.45;
   }
 
+  [${RESULT_STATUS_LINK_ATTRIBUTE}] {
+    margin-left: 8px;
+    color: #0052cc;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0;
+    pointer-events: none;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    transition: opacity 120ms ease;
+    white-space: nowrap;
+  }
+
+  li[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]:hover > [${RESULT_STATUS_LINK_ATTRIBUTE}],
+  li[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]:focus-within > [${RESULT_STATUS_LINK_ATTRIBUTE}] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  [${RESULT_STATUS_LINK_ATTRIBUTE}]:hover:not([aria-disabled="true"]),
+  [${RESULT_STATUS_LINK_ATTRIBUTE}]:focus-visible:not([aria-disabled="true"]) {
+    color: #0747a6;
+  }
+
+  [${RESULT_STATUS_LINK_ATTRIBUTE}][aria-disabled="true"] {
+    color: #6b778c;
+    cursor: not-allowed;
+    text-decoration: none;
+  }
+
   ac\\:image,
   ac-image {
     display: none !important;
@@ -365,14 +472,25 @@ type PreviewFrameMessage =
     checked: boolean;
     rowIndexes: number[];
     type: typeof PREVIEW_MESSAGE_TYPE;
+  }
+  | {
+    action: 'set-result-status';
+    imageId: string;
+    instanceId: string;
+    passed: boolean;
+    previewRevision: number;
+    rowIndex: number;
+    sourceColumnKey: string;
+    tableIndex: number;
+    type: typeof PREVIEW_MESSAGE_TYPE;
   };
 
 /** iframe 图片预览 URL 缓存。 */
 interface PreviewImageUrlBundle {
   /** 组件卸载或缓存更新时需要释放的 Blob URL。 */
   urls: string[];
-  /** 按严格图片实例 ID 索引的预览 URL。 */
-  urlsByKey: Record<string, string>;
+  /** 按稳定图片 ID 索引的预览 URL。 */
+  urlsByImageId: Record<string, string>;
 }
 
 /** 未提供内存图片时复用稳定空数组，避免无关重渲染重建 URL。 */
@@ -422,6 +540,23 @@ const isImageDeleteFrameMessage = (message: Record<string, unknown>): boolean =>
     && typeof message.instanceId === 'string';
 };
 
+/** 判断 iframe message 是否是 Result 状态设置请求。 */
+const isResultStatusFrameMessage = (message: Record<string, unknown>): boolean => {
+  return Number.isInteger(message.rowIndex)
+    && Number(message.rowIndex) >= 0
+    && Number.isInteger(message.tableIndex)
+    && Number(message.tableIndex) >= 0
+    && Number.isInteger(message.previewRevision)
+    && Number(message.previewRevision) >= 0
+    && typeof message.imageId === 'string'
+    && message.imageId.trim() !== ''
+    && typeof message.instanceId === 'string'
+    && message.instanceId.trim() !== ''
+    && typeof message.passed === 'boolean'
+    && typeof message.sourceColumnKey === 'string'
+    && message.sourceColumnKey.trim() !== '';
+};
+
 /** 判断 iframe message 是否来自 CopyTest 预览。 */
 const isPreviewFrameMessage = (data: unknown): data is PreviewFrameMessage => {
   if (typeof data !== 'object' || data === null) {
@@ -439,7 +574,10 @@ const isPreviewFrameMessage = (data: unknown): data is PreviewFrameMessage => {
   if (message.action === 'preview') {
     return isImagePreviewFrameMessage(message);
   }
-  return message.action === 'delete' && isImageDeleteFrameMessage(message);
+  if (message.action === 'delete') {
+    return isImageDeleteFrameMessage(message);
+  }
+  return message.action === 'set-result-status' && isResultStatusFrameMessage(message);
 };
 
 /** 计算 iframe 预览中应该显示的列。 */
@@ -648,32 +786,59 @@ const getPreviewImageKey = (element: Element): string => {
   return element.getAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE) || '';
 };
 
-/** 为 iframe 预览生成轻量图片 URL，避免 base64 进入 srcdoc。 */
-const createPreviewImageUrlBundle = (
-  tableHtml: string,
-  images: CopyTestImage[]
-): PreviewImageUrlBundle => {
-  /** 仅用于扫描 storage 图片标记的脱离 DOM 文档。 */
-  const doc = document.implementation.createHTMLDocument('copy-test-preview-images');
+/** 判断两批预览图片的文件身份与内容是否完全一致。 */
+const arePreviewImagesEqual = (
+  left: CopyTestImage[],
+  right: CopyTestImage[]
+): boolean => {
+  return left.length === right.length && left.every((image, index) => {
+    const otherImage = right[index];
+    return image.fileName === otherImage.fileName
+      && image.base64 === otherImage.base64;
+  });
+};
+
+/** 跨 working table 状态更新复用内容未变化的图片数组。 */
+const useStablePreviewImages = (images: CopyTestImage[]): CopyTestImage[] => {
+  /** 最近一批内容不同的预览图片。 */
+  const stableImagesRef = useRef(images);
+  if (!arePreviewImagesEqual(stableImagesRef.current, images)) {
+    stableImagesRef.current = images;
+  }
+  return stableImagesRef.current;
+};
+
+/** 为内存图片生成轻量 Blob URL，避免 base64 进入 srcdoc。 */
+const createPreviewImageUrlBundle = (images: CopyTestImage[]): PreviewImageUrlBundle => {
   /** 生命周期结束时需要释放的 Blob URL。 */
   const urls: string[] = [];
-  /** 按图片实例标识索引的 Blob URL。 */
-  const urlsByKey: Record<string, string> = {};
-  /** 同一内存图片只创建一次 Blob URL 的去重缓存。 */
-  const urlByImage = new Map<string, string>();
+  /** 同一内存图片只创建一次 Blob URL 的 ID 索引。 */
+  const urlsByImageId = Object.create(null) as Record<string, string>;
   images.forEach(image => {
     /** 当前内存图片的稳定 ID。 */
     const imageId = getCopyTestImageId(image);
-    if (urlByImage.has(imageId)) {
+    if (urlsByImageId[imageId]) {
       return;
     }
     /** 供 iframe 加载的轻量 Blob URL。 */
     const objectUrl = createObjectUrlFromDataUrl(image.base64);
     if (objectUrl) {
       urls.push(objectUrl);
-      urlByImage.set(imageId, objectUrl);
+      urlsByImageId[imageId] = objectUrl;
     }
   });
+  return { urls, urlsByImageId };
+};
+
+/** 将当前 storage 中的图片实例映射到已稳定复用的 Blob URL。 */
+const mapPreviewImageUrlsByKey = (
+  tableHtml: string,
+  urlsByImageId: Record<string, string>
+): Record<string, string> => {
+  /** 仅用于扫描 storage 图片标记的脱离 DOM 文档。 */
+  const doc = document.implementation.createHTMLDocument('copy-test-preview-images');
+  /** 按图片实例标识索引的 Blob URL。 */
+  const urlsByKey = Object.create(null) as Record<string, string>;
   doc.body.innerHTML = tableHtml;
   doc.querySelectorAll(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`).forEach(element => {
     /** storage 图片节点关联的内存图片 ID。 */
@@ -681,13 +846,13 @@ const createPreviewImageUrlBundle = (
     /** 当前 storage 图片节点的唯一实例 ID。 */
     const instanceId = getPreviewImageKey(element);
     /** 当前 storage 图片可用的 Blob URL。 */
-    const objectUrl = urlByImage.get(imageId);
+    const objectUrl = urlsByImageId[imageId];
     if (!instanceId || !objectUrl) {
       return;
     }
     urlsByKey[instanceId] = objectUrl;
   });
-  return { urls, urlsByKey };
+  return urlsByKey;
 };
 
 /** 读取当前列单元格是否有可校验内容。 */
@@ -871,6 +1036,10 @@ const stripUnsafePreviewRuntime = (doc: Document): void => {
     Array.from(element.attributes).forEach(attribute => {
       /** 用于不区分大小写安全校验的属性名。 */
       const attributeName = attribute.name.toLowerCase();
+      if (PREVIEW_RESERVED_RUNTIME_ATTRIBUTES.has(attributeName)) {
+        element.removeAttribute(attribute.name);
+        return;
+      }
       if (attributeName.startsWith('on')) {
         element.removeAttribute(attribute.name);
       }
@@ -987,6 +1156,207 @@ const appendEvidenceDeleteButtons = (doc: Document, disabled: boolean): void => 
   });
 };
 
+/** 从旧 managed Result 根节点读取单分组状态。 */
+const readPreviewLegacyResultPassedState = (resultRoot: Element): boolean | undefined => {
+  /** 旧结构中由 Result 根节点直接拥有的状态强调文本。 */
+  const status = Array.from(resultRoot.children).find(child => {
+    return child.tagName.toLowerCase() === 'strong';
+  });
+  const statusLabel = status?.textContent?.trim();
+  if (statusLabel === PASSED_RESULT_LABEL) {
+    return true;
+  }
+  return statusLabel === FAILED_RESULT_LABEL ? false : undefined;
+};
+
+/** 读取一个 Screen 所属的新状态分组或旧根状态。 */
+const readPreviewScreenPassedState = (
+  screenItem: Element,
+  resultRoot: Element
+): boolean | undefined => {
+  /** Screen 列表的直接所有者。 */
+  const owner = screenItem.parentElement?.parentElement;
+  if (owner === resultRoot) {
+    return readPreviewLegacyResultPassedState(resultRoot);
+  }
+  if (owner?.parentElement !== resultRoot) {
+    return undefined;
+  }
+
+  /** 新结构状态分组的持久属性值。 */
+  const value = owner.getAttribute(COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE);
+  if (value === COPY_TEST_RESULT_PASSED_GROUP_VALUE) {
+    return true;
+  }
+  return value === COPY_TEST_RESULT_FAILED_GROUP_VALUE ? false : undefined;
+};
+
+/** 创建一个只向父页面发送明确 Screen 目标状态的蓝色链接。 */
+const createResultStatusLink = (
+  doc: Document,
+  imageId: string,
+  instanceId: string,
+  rowIndex: number,
+  sourceColumnKey: string,
+  currentPassed: boolean,
+  screenLabel: string
+): HTMLAnchorElement => {
+  /** 当前状态取反后得到的明确目标状态。 */
+  const targetPassed = !currentPassed;
+  /** 仅存在于 iframe 副本中的状态操作链接。 */
+  const link = doc.createElement('a');
+  link.setAttribute(RESULT_STATUS_LINK_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
+  link.setAttribute(PREVIEW_ACTION_ATTRIBUTE, 'set-result-status');
+  link.setAttribute(RESULT_STATUS_ROW_INDEX_ATTRIBUTE, String(rowIndex));
+  link.setAttribute(RESULT_STATUS_PASSED_ATTRIBUTE, String(targetPassed));
+  link.setAttribute(RESULT_STATUS_SOURCE_COLUMN_KEY_ATTRIBUTE, sourceColumnKey);
+  link.setAttribute(PREVIEW_IMAGE_ID_ATTRIBUTE, imageId);
+  link.setAttribute(PREVIEW_IMAGE_INSTANCE_ATTRIBUTE, instanceId);
+  link.setAttribute('aria-disabled', DOM_TRUE_ATTRIBUTE_VALUE);
+  link.setAttribute('href', '#');
+  link.setAttribute('tabindex', '-1');
+  /** 保持可见文本简洁，同时向读屏器说明链接只移动当前 Screen。 */
+  const linkLabel = targetPassed
+    ? MARK_AS_PASSED_LINK_LABEL
+    : MARK_AS_FAILED_LINK_LABEL;
+  link.setAttribute(
+    'aria-label',
+    `${linkLabel} for ${screenLabel}`
+  );
+  link.textContent = linkLabel;
+  return link;
+};
+
+/** 读取 managed Result 新旧状态列表中的有效 Screen 条目。 */
+const getPreviewResultScreenItems = (resultRoot: Element): HTMLLIElement[] => {
+  return Array.from(
+    resultRoot.querySelectorAll<HTMLLIElement>(
+      `li[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`
+    )
+  ).filter(item => {
+    /** Screen 列表所有者必须是旧根节点或新状态分组。 */
+    const owner = item.parentElement?.parentElement;
+    return owner === resultRoot || owner?.parentElement === resultRoot;
+  });
+};
+
+/** 读取 Screen 条目中位于错误信息列表之前的可见序号。 */
+const readPreviewScreenLabel = (screenItem: Element): string => {
+  /** Screen 条目的首个非空直属文本节点。 */
+  const labelNode = Array.from(screenItem.childNodes).find(node => {
+    return node.nodeType === Node.TEXT_NODE && node.textContent?.trim();
+  });
+  return labelNode?.textContent?.trim() || '';
+};
+
+/** 在 Screen 序号右侧、错误信息列表之前插入状态链接。 */
+const appendResultStatusLinkToScreen = (
+  doc: Document,
+  screenItem: HTMLLIElement,
+  rowIndex: number,
+  sourceColumnKey: string,
+  currentPassed: boolean
+): void => {
+  /** 当前 Screen 是否已拥有直属状态链接。 */
+  const alreadyHasLink = Array.from(screenItem.children)
+    .some(child => child.hasAttribute(RESULT_STATUS_LINK_ATTRIBUTE));
+  if (alreadyHasLink) {
+    return;
+  }
+
+  /** 当前 Screen 的可见序号，用于唯一化按钮的可访问名称。 */
+  const screenLabel = readPreviewScreenLabel(screenItem);
+  /** 当前 Screen 的稳定图片身份。 */
+  const imageId = screenItem.getAttribute(COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE)?.trim() || '';
+  const instanceId = screenItem.getAttribute(
+    COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE
+  )?.trim() || '';
+  if (!screenLabel || !imageId || !instanceId) {
+    return;
+  }
+
+  /** Failed 状态下紧跟 Screen 序号的错误信息列表。 */
+  const issueList = Array.from(screenItem.children)
+    .find(child => child.tagName.toLowerCase() === 'ul');
+  screenItem.insertBefore(
+    createResultStatusLink(
+      doc,
+      imageId,
+      instanceId,
+      rowIndex,
+      sourceColumnKey,
+      currentPassed,
+      screenLabel
+    ),
+    issueList || null
+  );
+};
+
+/** 为当前 Comparison Column 的每个有效 Result 在各 Screen 序号右侧追加状态链接。 */
+const appendResultStatusLinks = (
+  doc: Document,
+  table: CopyTestTableEntry,
+  selectedColumnIndex?: number
+): void => {
+  if (selectedColumnIndex === undefined) {
+    return;
+  }
+
+  /** 当前 Comparison Column 的稳定表头信息。 */
+  const selectedHeader = table.headers.find(header => header.index === selectedColumnIndex);
+  /** iframe 中尚未增加选择列的原始逻辑表格。 */
+  const tableElement = doc.querySelector<HTMLTableElement>(PREVIEW_TABLE_SELECTOR);
+  if (!selectedHeader || !tableElement) {
+    return;
+  }
+
+  /** 当前来源列及其生成双列共用的严格 ownership 键。 */
+  const sourceColumnKey = getSourceColumnKey(selectedColumnIndex, selectedHeader.label);
+  /** 当前来源 Pair 对应的 Result 逻辑列下标。 */
+  const resultColumnIndex = findGeneratedColumnIndexes(
+    table.headers,
+    sourceColumnKey
+  ).result;
+  if (resultColumnIndex === undefined) {
+    return;
+  }
+
+  /** 按 rowspan 和 colspan 展开后的原始预览表格模型。 */
+  const model = parseTableModel(tableElement);
+  buildCopyTestRowGroups(table, selectedColumnIndex).forEach(group => {
+    /** 当前来源原子组锚点对应的业务数据行下标。 */
+    const rowIndex = group.dataRowIndexes[0];
+    /** 当前 Result 列在来源锚点行直接拥有的单元格。 */
+    const resultSlot = model.rows[group.anchorRowIndex]?.slots[resultColumnIndex];
+    if (rowIndex === undefined || !resultSlot?.owned) {
+      return;
+    }
+
+    /** Result 单元格内唯一可由 CopyTest 管理的内容根节点。 */
+    const resultRoot = resultSlot.cell.element.querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    );
+    if (!resultRoot) {
+      return;
+    }
+
+    getPreviewResultScreenItems(resultRoot).forEach(screenItem => {
+      /** 按当前 Screen 自己所属分组读取状态。 */
+      const currentPassed = readPreviewScreenPassedState(screenItem, resultRoot);
+      if (currentPassed === undefined) {
+        return;
+      }
+      appendResultStatusLinkToScreen(
+        doc,
+        screenItem,
+        rowIndex,
+        sourceColumnKey,
+        currentPassed
+      );
+    });
+  });
+};
+
 /** 计算行选择变更后的下标。 */
 const updateSelectedRowIndexes = (
   currentRowIndexes: number[],
@@ -1006,11 +1376,13 @@ const updateSelectedRowIndexes = (
 };
 
 /** 构建 iframe runtime 脚本。 */
-const buildPreviewRuntimeScript = (): string => {
+const buildPreviewRuntimeScript = (tableIndex: number): string => {
   return `
     (() => {
       const messageType = ${JSON.stringify(PREVIEW_MESSAGE_TYPE)};
       const stateMessageType = ${JSON.stringify(PREVIEW_STATE_MESSAGE_TYPE)};
+      const previewTableIndex = ${JSON.stringify(tableIndex)};
+      const previewRevisionAttribute = ${JSON.stringify(PREVIEW_REVISION_ATTRIBUTE)};
       const actionAttribute = ${JSON.stringify(PREVIEW_ACTION_ATTRIBUTE)};
       const imageIdAttribute = ${JSON.stringify(PREVIEW_IMAGE_ID_ATTRIBUTE)};
       const imageInstanceAttribute = ${JSON.stringify(PREVIEW_IMAGE_INSTANCE_ATTRIBUTE)};
@@ -1021,8 +1393,15 @@ const buildPreviewRuntimeScript = (): string => {
       const selectionSelectAllAttribute = ${JSON.stringify(SELECTION_SELECT_ALL_ATTRIBUTE)};
       const selectionSelectableAttribute = ${JSON.stringify(SELECTION_SELECTABLE_ATTRIBUTE)};
       const deleteButtonAttribute = ${JSON.stringify(DELETE_BUTTON_ATTRIBUTE)};
+      const resultStatusLinkAttribute = ${JSON.stringify(RESULT_STATUS_LINK_ATTRIBUTE)};
+      const resultStatusRowIndexAttribute = ${JSON.stringify(RESULT_STATUS_ROW_INDEX_ATTRIBUTE)};
+      const resultStatusPassedAttribute = ${JSON.stringify(RESULT_STATUS_PASSED_ATTRIBUTE)};
+      const resultStatusSourceColumnKeyAttribute = ${JSON.stringify(
+        RESULT_STATUS_SOURCE_COLUMN_KEY_ATTRIBUTE
+      )};
       const parentOrigin = window.parent.location.origin;
       let disabled = false;
+      let resultStatusDisabled = false;
       const post = payload => window.parent.postMessage(
         { type: messageType, ...payload },
         parentOrigin
@@ -1067,6 +1446,11 @@ const buildPreviewRuntimeScript = (): string => {
         document.querySelectorAll('[' + deleteButtonAttribute + ']').forEach(button => {
           button.disabled = disabled;
         });
+        document.querySelectorAll('[' + resultStatusLinkAttribute + ']').forEach(link => {
+          const linkDisabled = disabled || resultStatusDisabled;
+          link.setAttribute('aria-disabled', String(linkDisabled));
+          link.setAttribute('tabindex', linkDisabled ? '-1' : '0');
+        });
       };
       window.addEventListener('message', event => {
         const payload = event.data;
@@ -1078,7 +1462,26 @@ const buildPreviewRuntimeScript = (): string => {
         ) {
           return;
         }
+        if (!Number.isInteger(payload.previewRevision) || payload.previewRevision < 0) {
+          return;
+        }
+        const currentRevisionValue = document.documentElement.getAttribute(
+          previewRevisionAttribute
+        ) || '';
+        const currentRevision = Number(currentRevisionValue);
+        if (
+          currentRevisionValue
+          && Number.isInteger(currentRevision)
+          && payload.previewRevision < currentRevision
+        ) {
+          return;
+        }
+        document.documentElement.setAttribute(
+          previewRevisionAttribute,
+          String(payload.previewRevision)
+        );
         disabled = payload.disabled === true;
+        resultStatusDisabled = payload.resultStatusDisabled === true;
         syncSelection(new Set(Array.isArray(payload.selectedRowIndexes) ? payload.selectedRowIndexes : []));
         syncDisabledActions();
       });
@@ -1089,11 +1492,58 @@ const buildPreviewRuntimeScript = (): string => {
           return;
         }
         event.preventDefault();
+        const action = actionElement.getAttribute(actionAttribute);
+        if (
+          action === 'set-result-status'
+          && actionElement.matches('a[' + resultStatusLinkAttribute + ']')
+        ) {
+          if (actionElement.getAttribute('aria-disabled') === 'true') {
+            return;
+          }
+          const rowIndexValue = actionElement.getAttribute(resultStatusRowIndexAttribute) || '';
+          const passedValue = actionElement.getAttribute(resultStatusPassedAttribute);
+          const previewRevisionValue = document.documentElement.getAttribute(
+            previewRevisionAttribute
+          ) || '';
+          const sourceColumnKey = actionElement.getAttribute(resultStatusSourceColumnKeyAttribute) || '';
+          const rowIndex = Number(rowIndexValue);
+          const previewRevision = Number(previewRevisionValue);
+          const screenPayload = readImagePayload(actionElement);
+          const passed = passedValue === 'true'
+            ? true
+            : passedValue === 'false'
+              ? false
+              : null;
+          if (
+            rowIndexValue
+            && Number.isInteger(rowIndex)
+            && rowIndex >= 0
+            && previewRevisionValue
+            && Number.isInteger(previewRevision)
+            && previewRevision >= 0
+            && passed !== null
+            && sourceColumnKey
+            && screenPayload.imageId
+            && screenPayload.instanceId
+          ) {
+            post({
+              action: 'set-result-status',
+              imageId: screenPayload.imageId,
+              instanceId: screenPayload.instanceId,
+              passed,
+              previewRevision,
+              rowIndex,
+              sourceColumnKey,
+              tableIndex: previewTableIndex,
+            });
+          }
+          return;
+        }
         const payload = readImagePayload(actionElement);
-        if (actionElement.getAttribute(actionAttribute) === 'delete' && payload.imageId && payload.instanceId) {
+        if (action === 'delete' && !disabled && payload.imageId && payload.instanceId) {
           post({ action: 'delete', imageId: payload.imageId, instanceId: payload.instanceId });
         }
-        if (actionElement.getAttribute(actionAttribute) === 'preview' && payload.imageId && payload.src) {
+        if (action === 'preview' && payload.imageId && payload.src) {
           post({ action: 'preview', imageId: payload.imageId, src: payload.src, alt: payload.alt });
         }
       });
@@ -1122,19 +1572,22 @@ const buildPreviewRuntimeScript = (): string => {
 const buildPreviewDocumentHtml = (
   table: CopyTestTableEntry,
   previewImageUrls: Record<string, string>,
-  selectedColumnIndex?: number
+  selectedColumnIndex: number | undefined
 ): string => {
   /** 用于安全改写预览表格的脱离 DOM 文档。 */
   const doc = document.implementation.createHTMLDocument('copy-test-preview');
   doc.body.innerHTML = table.workingHtml;
   stripUnsafePreviewRuntime(doc);
+  /** 当前 Comparison Column 是否存在于当前表格。 */
+  const hasSelectedComparisonColumn = selectedColumnIndex !== undefined
+    && table.headers.some(header => header.index === selectedColumnIndex);
+  if (hasSelectedComparisonColumn) {
+    appendResultStatusLinks(doc, table, selectedColumnIndex);
+  }
   applyPreviewColumnVisibility(doc, table, selectedColumnIndex);
   applyPreviewRowSelection(doc, table, selectedColumnIndex);
   applyPreviewColumnWidths(doc, table, selectedColumnIndex);
   applyPreviewEvidenceImages(doc, previewImageUrls);
-  /** 当前 Comparison Column 是否存在于当前表格。 */
-  const hasSelectedComparisonColumn = selectedColumnIndex !== undefined
-    && table.headers.some(header => header.index === selectedColumnIndex);
   if (hasSelectedComparisonColumn) {
     appendEvidenceDeleteButtons(doc, false);
   }
@@ -1146,7 +1599,7 @@ const buildPreviewDocumentHtml = (
     `<style>${PREVIEW_DOCUMENT_STYLE}</style>`,
     '</head>',
     `<body><div class="copy-test-preview-scroll-root">${doc.body.innerHTML}</div></body>`,
-    `<script>${buildPreviewRuntimeScript()}</script>`,
+    `<script>${buildPreviewRuntimeScript(table.index)}</script>`,
     '</html>',
   ].join('');
 };
@@ -1154,6 +1607,122 @@ const buildPreviewDocumentHtml = (
 /** 读取 iframe 内部表格滚动容器。 */
 const getFrameScrollRoot = (iframe: HTMLIFrameElement | null): HTMLElement | null => {
   return iframe?.contentDocument?.querySelector<HTMLElement>('.copy-test-preview-scroll-root') || null;
+};
+
+/** 在不重载 iframe 文档的前提下替换表格内容，并保留当前滚动位置。 */
+const replaceFramePreviewContent = (
+  iframe: HTMLIFrameElement | null,
+  previewHtml: string
+): boolean => {
+  /** 当前 iframe 中需要持续复用的滚动根节点。 */
+  const currentScrollRoot = getFrameScrollRoot(iframe);
+  if (!currentScrollRoot) {
+    return false;
+  }
+
+  /** 从最新安全预览文档中提取待替换的表格内容。 */
+  const nextDocument = new DOMParser().parseFromString(previewHtml, 'text/html');
+  const nextScrollRoot = nextDocument.querySelector<HTMLElement>(
+    '.copy-test-preview-scroll-root'
+  );
+  if (!nextScrollRoot) {
+    return false;
+  }
+
+  /** 内容更新前锁定横向与纵向偏移，避免回到首行。 */
+  const scrollLeft = currentScrollRoot.scrollLeft;
+  const scrollTop = currentScrollRoot.scrollTop;
+  currentScrollRoot.innerHTML = nextScrollRoot.innerHTML;
+  currentScrollRoot.scrollLeft = scrollLeft;
+  currentScrollRoot.scrollTop = scrollTop;
+  return true;
+};
+
+/** 父页面需要同步写入 iframe 交互节点的轻量状态。 */
+interface FramePreviewState {
+  /** 是否禁用所有预览交互。 */
+  disabled: boolean;
+  /** 当前 working table 版本。 */
+  previewRevision: number;
+  /** 是否仅禁用 Result 状态链接。 */
+  resultStatusDisabled: boolean;
+  /** 当前选中的逻辑行下标。 */
+  selectedRowIndexes: number[];
+}
+
+/** 从 iframe checkbox 读取其对应的逻辑行下标。 */
+const readFrameSelectionRows = (checkbox: HTMLInputElement): number[] => {
+  try {
+    /** checkbox 属性中保存的逻辑行下标数组。 */
+    const value = JSON.parse(
+      checkbox.getAttribute(SELECTION_ROW_INDEXES_ATTRIBUTE) || '[]'
+    );
+    return Array.isArray(value)
+      ? value.filter(item => typeof item === 'number' && Number.isFinite(item))
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+/** 同步 iframe 内所有行选择 checkbox 的受控状态。 */
+const syncFrameSelectionState = (
+  doc: Document,
+  selectedRowIndexes: number[],
+  disabled: boolean
+): void => {
+  /** 当前受控选择集合。 */
+  const selectedRows = new Set(selectedRowIndexes);
+  doc.querySelectorAll<HTMLInputElement>(
+    `[${SELECTION_CHECKBOX_ATTRIBUTE}]`
+  ).forEach(checkbox => {
+    /** 当前 checkbox 代表的一个或多个逻辑行。 */
+    const rowIndexes = readFrameSelectionRows(checkbox);
+    const selectedCount = rowIndexes.filter(rowIndex => selectedRows.has(rowIndex)).length;
+    checkbox.checked = rowIndexes.length > 0 && selectedCount === rowIndexes.length;
+    checkbox.indeterminate = selectedCount > 0 && selectedCount < rowIndexes.length;
+    checkbox.disabled = disabled
+      || checkbox.getAttribute(SELECTION_SELECTABLE_ATTRIBUTE) !== DOM_TRUE_ATTRIBUTE_VALUE;
+  });
+};
+
+/** 同步 iframe 内 Evidence 删除和 Result 状态入口的禁用状态。 */
+const syncFrameActionState = (
+  doc: Document,
+  disabled: boolean,
+  resultStatusDisabled: boolean
+): void => {
+  doc.querySelectorAll<HTMLButtonElement>(
+    `[${DELETE_BUTTON_ATTRIBUTE}]`
+  ).forEach(button => {
+    button.disabled = disabled;
+  });
+  doc.querySelectorAll<HTMLAnchorElement>(
+    `[${RESULT_STATUS_LINK_ATTRIBUTE}]`
+  ).forEach(link => {
+    /** Result 链接同时受全局状态和导出状态约束。 */
+    const linkDisabled = disabled || resultStatusDisabled;
+    link.setAttribute('aria-disabled', String(linkDisabled));
+    link.setAttribute('tabindex', linkDisabled ? '-1' : '0');
+  });
+};
+
+/** 在浏览器绘制前直接恢复 iframe 新内容的受控交互状态。 */
+const syncFramePreviewState = (
+  iframe: HTMLIFrameElement | null,
+  state: FramePreviewState
+): void => {
+  /** 当前可同步的 iframe 文档。 */
+  const doc = iframe?.contentDocument;
+  if (!doc) {
+    return;
+  }
+  doc.documentElement.setAttribute(
+    PREVIEW_REVISION_ATTRIBUTE,
+    String(state.previewRevision)
+  );
+  syncFrameSelectionState(doc, state.selectedRowIndexes, state.disabled);
+  syncFrameActionState(doc, state.disabled, state.resultStatusDisabled);
 };
 
 /** 读取 iframe 内部表格实际宽度。 */
@@ -1190,7 +1759,10 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
   images = EMPTY_PREVIEW_IMAGES,
   onEvidenceImageDelete,
   onEvidenceImagePreview,
+  onResultStatusChange,
   onSelectedRowIndexesChange,
+  previewRevision,
+  resultStatusDisabled = false,
   selectedColumnIndex,
   selectedRowIndexes,
   table,
@@ -1222,6 +1794,12 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
   const selectedRowIndexesRef = useRef(selectedRowIndexes);
   /** 供 iframe 状态同步读取的最新禁用状态。 */
   const disabledRef = useRef(disabled);
+  /** 供 iframe 状态同步读取的最新 Result 状态禁用标记。 */
+  const resultStatusDisabledRef = useRef(resultStatusDisabled);
+  /** 供 iframe 状态同步读取的最新 working table 版本。 */
+  const previewRevisionRef = useRef(previewRevision);
+  /** 供 iframe message 校验读取的最新表格下标。 */
+  const tableIndexRef = useRef(table?.index);
   /** 固定横向滚动条的尺寸与位置状态。 */
   const [horizontalScrollMetrics, setHorizontalScrollMetrics] = useState<HorizontalScrollMetrics>({
     contentWidth: 0,
@@ -1230,10 +1808,12 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
     viewportWidth: 0,
   });
 
+  /** 状态更新前后内容一致的 Evidence 图片数组。 */
+  const stablePreviewImages = useStablePreviewImages(images);
   /** 当前表格 Evidence 图片的 Blob URL 缓存。 */
   const previewImageUrlBundle = useMemo(
-    () => createPreviewImageUrlBundle(table?.workingHtml || '', images),
-    [images, table?.workingHtml]
+    () => createPreviewImageUrlBundle(stablePreviewImages),
+    [stablePreviewImages]
   );
 
   useEffect(() => {
@@ -1242,17 +1822,50 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
     };
   }, [previewImageUrlBundle]);
 
+  /** 当前 working table 图片实例到稳定 Blob URL 的映射。 */
+  const previewImageUrlsByKey = useMemo(
+    () => mapPreviewImageUrlsByKey(
+      table?.workingHtml || '',
+      previewImageUrlBundle.urlsByImageId
+    ),
+    [previewImageUrlBundle.urlsByImageId, table?.workingHtml]
+  );
+
   /** 完成安全改写后供 iframe 加载的整体 HTML。 */
   const previewHtml = useMemo(
     () => table
       ? buildPreviewDocumentHtml(
         table,
-        previewImageUrlBundle.urlsByKey,
+        previewImageUrlsByKey,
         selectedColumnIndex
       )
       : '',
-    [previewImageUrlBundle, selectedColumnIndex, table]
+    [previewImageUrlsByKey, selectedColumnIndex, table]
   );
+
+  /** 只有切换表格或 Comparison Column 才允许更新 iframe 的完整 srcDoc。 */
+  const previewDocumentKey = `${table?.index ?? 'empty'}:${selectedColumnIndex ?? 'all'}`;
+  /** 同一预览上下文内冻结 srcDoc，working 内容改为在 iframe 内局部更新。 */
+  const [previewDocument, setPreviewDocument] = useState(() => ({
+    html: previewHtml,
+    key: previewDocumentKey,
+  }));
+  /** 用于识别真实 srcDoc 上下文切换的上一文档快照。 */
+  const previousPreviewDocumentRef = useRef({
+    html: previewDocument.html,
+    key: previewDocument.key,
+  });
+  /** iframe 当前实际已加载或已局部写入的最新内容。 */
+  const lastAppliedPreviewDocumentRef = useRef({
+    html: previewDocument.html,
+    key: previewDocument.key,
+  });
+  if (previewDocument.key !== previewDocumentKey) {
+    setPreviewDocument({
+      html: previewHtml,
+      key: previewDocumentKey,
+    });
+  }
 
   /** 将轻量交互状态增量同步到当前 iframe，不重建 srcDoc。 */
   const postPreviewState = useCallback((): void => {
@@ -1265,16 +1878,39 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
     const targetOrigin = window.location.origin;
     previewWindow.postMessage({
       disabled: disabledRef.current,
+      previewRevision: previewRevisionRef.current,
+      resultStatusDisabled: resultStatusDisabledRef.current,
       selectedRowIndexes: selectedRowIndexesRef.current,
       type: PREVIEW_STATE_MESSAGE_TYPE,
     }, targetOrigin);
   }, []);
 
-  useEffect(() => {
-    disabledRef.current = disabled;
-    selectedRowIndexesRef.current = selectedRowIndexes;
+  /** 在绘制前同步 DOM 状态，并通知 iframe runtime 更新版本。 */
+  const syncCurrentPreviewState = useCallback((): void => {
+    syncFramePreviewState(iframeRef.current, {
+      disabled: disabledRef.current,
+      previewRevision: previewRevisionRef.current,
+      resultStatusDisabled: resultStatusDisabledRef.current,
+      selectedRowIndexes: selectedRowIndexesRef.current,
+    });
     postPreviewState();
-  }, [disabled, postPreviewState, selectedRowIndexes]);
+  }, [postPreviewState]);
+
+  useLayoutEffect(() => {
+    disabledRef.current = disabled;
+    previewRevisionRef.current = previewRevision;
+    resultStatusDisabledRef.current = resultStatusDisabled;
+    selectedRowIndexesRef.current = selectedRowIndexes;
+    tableIndexRef.current = table?.index;
+    syncCurrentPreviewState();
+  }, [
+    disabled,
+    previewRevision,
+    resultStatusDisabled,
+    selectedRowIndexes,
+    syncCurrentPreviewState,
+    table?.index,
+  ]);
 
   /** 同步固定横向滚动条尺寸。 */
   const updateHorizontalScrollMetrics = useCallback((): void => {
@@ -1415,15 +2051,66 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
     };
   }, [updateHorizontalScrollMetrics]);
 
+  /** 将 working table 的最新内容局部写入现有 iframe，并刷新新表格的尺寸监听。 */
+  const patchFramePreviewContent = useCallback((): void => {
+    if (!replaceFramePreviewContent(iframeRef.current, previewHtml)) {
+      return;
+    }
+    lastAppliedPreviewDocumentRef.current = {
+      html: previewHtml,
+      key: previewDocument.key,
+    };
+    frameResizeCleanupRef.current();
+    syncCurrentPreviewState();
+    updateHorizontalScrollMetrics();
+    frameResizeCleanupRef.current = bindFrameResizeSync();
+  }, [
+    bindFrameResizeSync,
+    previewDocument.key,
+    previewHtml,
+    syncCurrentPreviewState,
+    updateHorizontalScrollMetrics,
+  ]);
+
+  useLayoutEffect(() => {
+    const lastAppliedDocument = lastAppliedPreviewDocumentRef.current;
+    if (
+      lastAppliedDocument.key !== previewDocument.key
+      || previewHtml === lastAppliedDocument.html
+    ) {
+      return;
+    }
+    patchFramePreviewContent();
+  }, [patchFramePreviewContent, previewDocument.key, previewHtml]);
+
   /** iframe 加载后同步滚动条。 */
   const handleFrameLoad = useCallback((): void => {
     frameScrollCleanupRef.current();
     frameResizeCleanupRef.current();
+    let appliedHtml = previewDocument.html;
+    if (previewHtml !== previewDocument.html) {
+      const replaced = replaceFramePreviewContent(iframeRef.current, previewHtml);
+      if (replaced) {
+        appliedHtml = previewHtml;
+      }
+    }
+    lastAppliedPreviewDocumentRef.current = {
+      html: appliedHtml,
+      key: previewDocument.key,
+    };
+    syncCurrentPreviewState();
     updateHorizontalScrollMetrics();
     frameScrollCleanupRef.current = bindFrameScrollSync();
     frameResizeCleanupRef.current = bindFrameResizeSync();
-    postPreviewState();
-  }, [bindFrameResizeSync, bindFrameScrollSync, postPreviewState, updateHorizontalScrollMetrics]);
+  }, [
+    bindFrameResizeSync,
+    bindFrameScrollSync,
+    previewDocument.html,
+    previewDocument.key,
+    previewHtml,
+    syncCurrentPreviewState,
+    updateHorizontalScrollMetrics,
+  ]);
 
   /** 处理固定底部滚动条滑块按下。 */
   const handleHorizontalThumbMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>): void => {
@@ -1508,10 +2195,52 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
     };
   }, [updateHorizontalScrollMetrics]);
 
+  useLayoutEffect(() => {
+    const previousDocument = previousPreviewDocumentRef.current;
+    if (previousDocument.key === previewDocument.key) {
+      return;
+    }
+    /** 当前 srcDoc 状态对应的稳定快照。 */
+    const currentDocument = {
+      html: previewDocument.html,
+      key: previewDocument.key,
+    };
+    previousPreviewDocumentRef.current = currentDocument;
+    if (previousDocument.html === previewDocument.html) {
+      if (lastAppliedPreviewDocumentRef.current.html !== previewDocument.html) {
+        patchFramePreviewContent();
+      } else {
+        lastAppliedPreviewDocumentRef.current = currentDocument;
+      }
+    } else {
+      lastAppliedPreviewDocumentRef.current = currentDocument;
+      frameScrollCleanupRef.current();
+      frameResizeCleanupRef.current();
+      frameScrollCleanupRef.current = () => {};
+      frameResizeCleanupRef.current = () => {};
+    }
+    if (!horizontalDraggingRef.current) {
+      return;
+    }
+    horizontalDraggingRef.current = false;
+    pendingHorizontalDragClientXRef.current = null;
+    setHorizontalDragInteraction(
+      iframeRef.current,
+      horizontalThumbRef.current,
+      false
+    );
+    cancelHorizontalDragFrame();
+  }, [
+    cancelHorizontalDragFrame,
+    patchFramePreviewContent,
+    previewDocument.html,
+    previewDocument.key,
+  ]);
+
   useEffect(() => {
-    /** 当前 iframe 节点，用于预览文档切换时恢复鼠标交互。 */
+    /** 当前 iframe 节点，用于组件卸载时恢复鼠标交互。 */
     const horizontalIframe = iframeRef.current;
-    /** 当前滑块节点，用于预览文档切换时清理样式。 */
+    /** 当前滑块节点，用于组件卸载时清理样式。 */
     const horizontalThumb = horizontalThumbRef.current;
     return () => {
       frameScrollCleanupRef.current();
@@ -1523,10 +2252,10 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
       frameScrollCleanupRef.current = () => {};
       frameResizeCleanupRef.current = () => {};
     };
-  }, [cancelHorizontalDragFrame, previewHtml]);
+  }, [cancelHorizontalDragFrame]);
 
-  useEffect(() => {
-    /** 分发 iframe 内部行选择、图片预览和删除事件。 */
+  useLayoutEffect(() => {
+    /** 分发 iframe 内部行选择、图片预览、删除和 Result 状态事件。 */
     const handleFrameMessage = (event: MessageEvent): void => {
       if (
         event.origin !== window.location.origin
@@ -1554,17 +2283,45 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
         return;
       }
 
-      onEvidenceImageDelete({
-        imageId: event.data.imageId,
-        instanceId: event.data.instanceId,
-      });
+      if (event.data.action === 'set-result-status') {
+        if (
+          disabledRef.current
+          || resultStatusDisabledRef.current
+          || event.data.tableIndex !== tableIndexRef.current
+          || event.data.previewRevision !== previewRevisionRef.current
+        ) {
+          return;
+        }
+        onResultStatusChange({
+          imageId: event.data.imageId,
+          instanceId: event.data.instanceId,
+          passed: event.data.passed,
+          previewRevision: event.data.previewRevision,
+          rowIndex: event.data.rowIndex,
+          sourceColumnKey: event.data.sourceColumnKey,
+          tableIndex: event.data.tableIndex,
+        });
+        return;
+      }
+
+      if (event.data.action === 'delete') {
+        onEvidenceImageDelete({
+          imageId: event.data.imageId,
+          instanceId: event.data.instanceId,
+        });
+      }
     };
 
     window.addEventListener('message', handleFrameMessage);
     return () => {
       window.removeEventListener('message', handleFrameMessage);
     };
-  }, [onEvidenceImageDelete, onEvidenceImagePreview, onSelectedRowIndexesChange]);
+  }, [
+    onEvidenceImageDelete,
+    onEvidenceImagePreview,
+    onResultStatusChange,
+    onSelectedRowIndexesChange,
+  ]);
 
   if (!table) {
     return <Empty description="No table selected" />;
@@ -1607,7 +2364,7 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
         className="min-h-0 flex-1 w-full border-0"
         data-testid="copy-test-table-preview-iframe"
         onLoad={handleFrameLoad}
-        srcDoc={previewHtml}
+        srcDoc={previewDocument.html}
         title="CopyTest table preview"
       />
       <div

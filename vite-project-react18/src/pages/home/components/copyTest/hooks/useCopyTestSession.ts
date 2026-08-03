@@ -6,6 +6,7 @@ import type { CopyTestImage, CopyTestRowInput } from '../api/copyTestApi';
 import type {
   CopyTestEvidenceDeleteTarget,
   CopyTestHeader,
+  CopyTestResultStatusUpdate,
   CopyTestTableEntry,
   CopyTestValidationResultWithEvidence,
 } from '../types';
@@ -15,6 +16,7 @@ import {
   deleteCopyTestEvidenceImage,
   ensureCopyTestWorkingColumns,
   hydrateCopyTestValidationSnapshot,
+  setCopyTestResultStatus,
   type CopyTestValidationSnapshot,
 } from '../table/copyTestTableEditor';
 import {
@@ -73,6 +75,8 @@ export interface UseCopyTestSessionResult {
   resetSession: () => void;
   /** 清空各列保存的校验图片快照。 */
   resetValidationSnapshots: () => void;
+  /** working table 内容变更时递增的预览版本号。 */
+  revision: number;
   /** 当前选中 Comparison Column 的解析上下文。 */
   selectedColumnContext: CopyTestColumnContext | null;
   /** 当前选中 Comparison Column 的模型下标。 */
@@ -89,6 +93,8 @@ export interface UseCopyTestSessionResult {
   selectedTableIndex?: number;
   /** 更新选中的来源原子组锚点行。 */
   setSelectedRowIndexes: (value: number[]) => void;
+  /** 将当前来源 Pair 中单个 Result Screen 移入明确状态分组。 */
+  setResultStatus: (update: CopyTestResultStatusUpdate) => boolean;
   /** 当前 storage 中解析出的全部有效表格。 */
   tables: CopyTestTableEntry[];
 }
@@ -268,6 +274,7 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
   const {
     originalStorageHtml,
     pendingExportPairKeys,
+    revision,
     selectedColumnIndex,
     selectedRowIndexes,
     selectedTableIndex,
@@ -537,6 +544,87 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     return { imageStillUsed: result.imageStillUsed, removed: true };
   };
 
+  /** 从更新后的 working DOM 同步逐 Screen 状态和真实图片快照。 */
+  const synchronizeResultStatusSnapshot = (
+    snapshotKey: string,
+    table: CopyTestTableEntry,
+    columnIndex: number,
+    columnLabel: string
+  ): void => {
+    /** Result DOM 中按 Screen 恢复出的状态和轻量图片身份。 */
+    const snapshot = hydrateCopyTestValidationSnapshot(
+      table,
+      columnIndex,
+      columnLabel
+    );
+    if (!snapshot) {
+      return;
+    }
+
+    /** 优先保留浏览器内已有真实内容的可用图片。 */
+    const availableImages = mergeCopyTestImageIdentities(
+      snapshot.images,
+      validationImageSnapshotsRef.current[snapshotKey] || [],
+      importedPreviewImagesRef.current
+    );
+    /** 当前 Result 仍实际引用的图片文件名。 */
+    const referencedFileNames = getReferencedValidationImageFileNames(snapshot.results);
+    /** 仅保存当前 Pair 仍引用的真实或轻量图片身份。 */
+    const referencedImages = availableImages.filter(image => {
+      return referencedFileNames.has(image.fileName);
+    });
+    validationImageSnapshotsRef.current = {
+      ...validationImageSnapshotsRef.current,
+      [snapshotKey]: referencedImages,
+    };
+    validationResultSnapshotsRef.current = {
+      ...validationResultSnapshotsRef.current,
+      [snapshotKey]: bindResultImages(snapshot.results, referencedImages),
+    };
+  };
+
+  /** 人工移动当前来源 Pair 中单个 Screen 的状态分组。 */
+  const setResultStatus = (update: CopyTestResultStatusUpdate): boolean => {
+    if (
+      !selectedTable
+      || !selectedHeader
+      || selectedColumnIndex === undefined
+      || update.tableIndex !== selectedTable.index
+      || update.previewRevision !== revision
+    ) {
+      return false;
+    }
+
+    /** 将目标 Screen 移入明确状态分组，重复消息不会产生额外变更。 */
+    const result = setCopyTestResultStatus(
+      selectedTable,
+      selectedColumnIndex,
+      selectedHeader.label,
+      update
+    );
+    if (!result.changed) {
+      return false;
+    }
+
+    /** 当前表格与来源列共用的校验快照键。 */
+    const snapshotKey = buildSnapshotKey(
+      selectedTable.index,
+      selectedColumnIndex,
+      selectedHeader.label
+    );
+    synchronizeResultStatusSnapshot(
+      snapshotKey,
+      result.table,
+      selectedColumnIndex,
+      selectedHeader.label
+    );
+    updateWorkingTable(
+      result.table,
+      buildPendingExportPairKey(selectedTable.index, update.sourceColumnKey)
+    );
+    return true;
+  };
+
   /** 更新当前选中的来源原子组首行。 */
   const setSelectedRowIndexes = (value: number[]): void => {
     /** 将组内任意行统一映射到来源原子组锚点的规范化下标。 */
@@ -560,6 +648,7 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     originalStorageHtml,
     resetSession,
     resetValidationSnapshots,
+    revision,
     selectedColumnContext,
     selectedColumnHasExportableContent,
     selectedColumnIndex,
@@ -568,6 +657,7 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     selectedTable,
     selectedTableIndex,
     setSelectedRowIndexes,
+    setResultStatus,
     tables,
   };
 };

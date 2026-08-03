@@ -29,6 +29,7 @@ const hoisted = vi.hoisted(() => ({
     handleConfluenceUrlChange: vi.fn(),
     handleEvidenceImageDelete: vi.fn(),
     handleEvidenceImagePreview: vi.fn(),
+    handleResultStatusChange: vi.fn(),
     handleExportToConfluence: vi.fn(),
     handleFilesSelected: vi.fn(),
     handleLoadTables: vi.fn(),
@@ -46,6 +47,7 @@ const hoisted = vi.hoisted(() => ({
         { base64: 'data:image/png;base64,QUJD', fileName: 'screen.png' },
       ]),
       getCurrentValidationImages: vi.fn(() => []),
+      revision: 1,
       selectedColumnIndex: 1,
       selectedRowIndexes: [0],
       selectedTable: {

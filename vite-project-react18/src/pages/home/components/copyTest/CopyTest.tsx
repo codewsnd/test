@@ -229,7 +229,10 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
                   table={tableState.selectedTable}
                   onEvidenceImageDelete={controller.handleEvidenceImageDelete}
                   onEvidenceImagePreview={controller.handleEvidenceImagePreview}
+                  onResultStatusChange={controller.handleResultStatusChange}
                   onSelectedRowIndexesChange={tableState.setSelectedRowIndexes}
+                  previewRevision={tableState.revision}
+                  resultStatusDisabled={controller.exportLoading || fileExporting}
                 />
               </div>
             )}

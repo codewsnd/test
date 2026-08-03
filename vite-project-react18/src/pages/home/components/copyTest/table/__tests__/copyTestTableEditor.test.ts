@@ -5,8 +5,12 @@ import {
   bindResultImages,
   deleteCopyTestEvidenceImage,
   ensureCopyTestWorkingColumns,
+  hydrateCopyTestValidationSnapshot,
+  setCopyTestResultStatus,
 } from '../copyTestTableEditor';
+import { buildCopyTestExportTableModel } from '../../export/copyTestExportModel';
 import { getCopyTestImageId } from '../copyTestImageUtils';
+import { buildCurrentColumnExportStorage } from '../copyTestTableExporter';
 import {
   buildCopyTestRowGroups,
   findGeneratedColumnIndexes,
@@ -23,8 +27,12 @@ import {
   COPY_TEST_GENERATED_EVIDENCE_TYPE,
   COPY_TEST_GENERATED_RESULT_TYPE,
   COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE,
+  COPY_TEST_RESULT_FAILED_GROUP_VALUE,
   COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE,
   COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE,
+  COPY_TEST_RESULT_PASSED_GROUP_VALUE,
+  COPY_TEST_RESULT_RETAINED_LANGUAGE_ISSUES_ATTRIBUTE,
+  COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE,
 } from '../tableConstants';
 import { parseHtml } from '../tableModel';
 
@@ -84,6 +92,28 @@ const getResultImageIds = (cell: Element | undefined): string[] => {
   }
   return Array.from(cell.querySelectorAll(`[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`))
     .map(reference => reference.getAttribute(COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE) || '');
+};
+
+/** 读取一个 Result 状态分组中的图片 ID。 */
+const getResultGroupImageIds = (
+  resultRoot: Element,
+  groupValue: string
+): string[] => {
+  const group = Array.from(resultRoot.children).find(child => {
+    return child.getAttribute(COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE) === groupValue;
+  });
+  return getResultImageIds(group);
+};
+
+/** 读取 Result 中指定图片当前实例 ID。 */
+const getResultImageInstanceId = (
+  resultRoot: Element,
+  imageId: string
+): string => {
+  const reference = Array.from(resultRoot.querySelectorAll(
+    `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`
+  )).find(item => item.getAttribute(COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE) === imageId);
+  return reference?.getAttribute(COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE) || '';
 };
 
 /** 构建结构化删除快照。 */
@@ -193,6 +223,280 @@ describe('copyTestTableEditor', () => {
     const createdEmptyColumns = applyCopyTestValidationResults(table, [], 9, 'Missing', images);
     expect(createdEmptyColumns.workingHtml).toContain('Test Result - Missing');
     expect(createdEmptyColumns.workingHtml).toContain('Test Evidence - Missing');
+  });
+
+  it('moves only the target Screen between status groups and keeps export content clean', () => {
+    /** 单行双 Screen 失败结果用于覆盖三种分组创建和移动场景。 */
+    const table = parseCopyTestStorageTables(
+      '<table><tr><th>Target</th></tr><tr><td>copy</td></tr></table>'
+    )[0];
+    /** 原始失败结果包含两张 Evidence 和必须按 Screen 往返保留的错误信息。 */
+    const results = bindResultImages([{
+      evidenceImageFileNames: [SCREEN_1.fileName, SCREEN_2.fileName],
+      languageIssues: ['Visible copy differs.'],
+      passed: false,
+      rowIndex: 0,
+    }], images);
+    /** 写入初始失败结果后的工作表格。 */
+    const validated = applyCopyTestValidationResults(table, results, 0, 'Target', images);
+    /** 当前来源列对应的稳定 ownership 键。 */
+    const sourceColumnKey = getSourceColumnKey(0, 'Target');
+    /** 切换前不应发生变化的 Evidence 单元格结构。 */
+    const initialIndexes = findGeneratedColumnIndexes(validated.headers, sourceColumnKey);
+    const evidenceBefore = validated.model.rows[1]
+      .slots[initialIndexes.evidence!]!.cell.element.outerHTML;
+    const initialRoot = parseHtml(validated.workingHtml).querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    )!;
+    const screen1InstanceId = getResultImageInstanceId(initialRoot, SCREEN_1.fileName);
+    const screen2InstanceId = getResultImageInstanceId(initialRoot, SCREEN_2.fileName);
+
+    /** 只有 Failed 时，把 Screen01 移到新建的 Passed 分组。 */
+    const mixed = setCopyTestResultStatus(validated, 0, 'Target', {
+      imageId: SCREEN_1.fileName,
+      instanceId: screen1InstanceId,
+      passed: true,
+      rowIndex: 0,
+      sourceColumnKey,
+    });
+    const mixedDoc = parseHtml(mixed.table.workingHtml);
+    const mixedRoot = mixedDoc.querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    )!;
+    const mixedSnapshot = hydrateCopyTestValidationSnapshot(
+      mixed.table,
+      0,
+      'Target'
+    );
+    const mixedExportModel = buildCopyTestExportTableModel(
+      mixed.table.workingHtml,
+      [SCREEN_1, SCREEN_2]
+    );
+    const mixedResultCell = mixedExportModel.rows[1].cells.find(cell => {
+      return cell.kind === 'result';
+    });
+    /** 将混合状态通过现有当前列增量导出链路写回 Confluence storage。 */
+    const confluenceStorage = buildCurrentColumnExportStorage({
+      exportScope: 'copytest-cccccccccccccccccccccccccccccccc',
+      originalStorageHtml: table.originalHtml,
+      selectedColumnIndex: 0,
+      selectedColumnLabel: 'Target',
+      table: mixed.table,
+    });
+    const confluenceDocument = parseHtml(confluenceStorage || '');
+    const confluenceResult = confluenceDocument.querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    );
+
+    expect(mixed.changed).toBe(true);
+    expect(mixed.passed).toBe(true);
+    expect(getResultGroupImageIds(
+      mixedRoot,
+      COPY_TEST_RESULT_PASSED_GROUP_VALUE
+    )).toEqual([SCREEN_1.fileName]);
+    expect(getResultGroupImageIds(
+      mixedRoot,
+      COPY_TEST_RESULT_FAILED_GROUP_VALUE
+    )).toEqual([SCREEN_2.fileName]);
+    expect(mixedRoot.textContent).toContain('Visible copy differs.');
+    expect(mixedRoot.querySelector(
+      `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="${SCREEN_1.fileName}"]`
+    )?.getAttribute(COPY_TEST_RESULT_RETAINED_LANGUAGE_ISSUES_ATTRIBUTE)).toBe(
+      JSON.stringify(['Visible copy differs.'])
+    );
+    expect(mixedSnapshot?.results[0]).toMatchObject({
+      languageIssues: ['Visible copy differs.'],
+      passed: true,
+      rowIndex: 0,
+      screenStatuses: [
+        {
+          imageId: SCREEN_1.fileName,
+          languageIssues: ['Visible copy differs.'],
+          passed: true,
+        },
+        {
+          imageId: SCREEN_2.fileName,
+          languageIssues: ['Visible copy differs.'],
+          passed: false,
+        },
+      ],
+    });
+    expect(mixedResultCell?.text).toBe(
+      'Passed:\n• Screen01\nFailed:\n• Screen02\n• Visible copy differs.'
+    );
+    expect(mixedResultCell?.text).not.toContain('Set to');
+    expect(confluenceStorage).not.toBeNull();
+    expect(Array.from(confluenceResult?.querySelectorAll('strong') || [])
+      .map(status => status.textContent)).toEqual(['Passed:', 'Failed:']);
+    expect(confluenceResult?.textContent).toContain('Visible copy differs.');
+    expect(confluenceStorage).not.toContain('Set to Failed');
+    expect(confluenceStorage).not.toContain('data-copy-test-result-status-button');
+    expect(mixed.table.workingHtml).not.toContain('data-copy-test-result-status-button');
+    expect(mixed.table.workingHtml).not.toContain('Set to Failed');
+    expect(mixed.table.model.rows[1]
+      .slots[initialIndexes.evidence!]!.cell.element.outerHTML).toBe(evidenceBefore);
+
+    /** 混合状态下，把 Failed Screen02 移到已有 Passed，Failed 分组随即消失。 */
+    const onlyPassed = setCopyTestResultStatus(mixed.table, 0, 'Target', {
+      imageId: SCREEN_2.fileName,
+      instanceId: screen2InstanceId,
+      passed: true,
+      rowIndex: 0,
+      sourceColumnKey,
+    });
+    const onlyPassedRoot = parseHtml(onlyPassed.table.workingHtml).querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    )!;
+    expect(getResultGroupImageIds(
+      onlyPassedRoot,
+      COPY_TEST_RESULT_PASSED_GROUP_VALUE
+    )).toEqual([SCREEN_1.fileName, SCREEN_2.fileName]);
+    expect(getResultGroupImageIds(
+      onlyPassedRoot,
+      COPY_TEST_RESULT_FAILED_GROUP_VALUE
+    )).toEqual([]);
+    expect(onlyPassedRoot.querySelector(
+      `[${COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE}="${COPY_TEST_RESULT_FAILED_GROUP_VALUE}"]`
+    )).toBeNull();
+    expect(onlyPassedRoot.textContent).not.toContain('Visible copy differs.');
+
+    /** 只有 Passed 时，把 Screen01 移到新建的 Failed 并恢复自己的错误信息。 */
+    const mixedAgain = setCopyTestResultStatus(onlyPassed.table, 0, 'Target', {
+      imageId: SCREEN_1.fileName,
+      instanceId: screen1InstanceId,
+      passed: false,
+      rowIndex: 0,
+      sourceColumnKey,
+    });
+    const mixedAgainRoot = parseHtml(mixedAgain.table.workingHtml).querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    )!;
+    expect(getResultGroupImageIds(
+      mixedAgainRoot,
+      COPY_TEST_RESULT_PASSED_GROUP_VALUE
+    )).toEqual([SCREEN_2.fileName]);
+    expect(getResultGroupImageIds(
+      mixedAgainRoot,
+      COPY_TEST_RESULT_FAILED_GROUP_VALUE
+    )).toEqual([SCREEN_1.fileName]);
+    expect(mixedAgainRoot.textContent).toContain('Visible copy differs.');
+
+    /** 混合状态下，把 Passed Screen02 移到已有 Failed，顺序恢复为 Screen01/02。 */
+    const onlyFailed = setCopyTestResultStatus(mixedAgain.table, 0, 'Target', {
+      imageId: SCREEN_2.fileName,
+      instanceId: screen2InstanceId,
+      passed: false,
+      rowIndex: 0,
+      sourceColumnKey,
+    });
+    const onlyFailedRoot = parseHtml(onlyFailed.table.workingHtml).querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    )!;
+    expect(getResultGroupImageIds(
+      onlyFailedRoot,
+      COPY_TEST_RESULT_PASSED_GROUP_VALUE
+    )).toEqual([]);
+    expect(getResultGroupImageIds(
+      onlyFailedRoot,
+      COPY_TEST_RESULT_FAILED_GROUP_VALUE
+    )).toEqual([SCREEN_1.fileName, SCREEN_2.fileName]);
+    expect(onlyFailedRoot.querySelector(
+      `[${COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE}="${COPY_TEST_RESULT_PASSED_GROUP_VALUE}"]`
+    )).toBeNull();
+    expect(onlyFailed.table.model.rows[1]
+      .slots[initialIndexes.evidence!]!.cell.element.outerHTML).toBe(evidenceBefore);
+
+    /** 相同目标、错误来源列或错误 Screen 身份必须保持幂等。 */
+    expect(setCopyTestResultStatus(onlyFailed.table, 0, 'Target', {
+      imageId: SCREEN_1.fileName,
+      instanceId: screen1InstanceId,
+      passed: false,
+      rowIndex: 0,
+      sourceColumnKey,
+    })).toEqual({ changed: false, table: onlyFailed.table });
+    expect(setCopyTestResultStatus(onlyFailed.table, 0, 'Target', {
+      imageId: SCREEN_1.fileName,
+      instanceId: 'stale-instance',
+      passed: true,
+      rowIndex: 0,
+      sourceColumnKey,
+    })).toEqual({ changed: false, table: onlyFailed.table });
+    expect(setCopyTestResultStatus(onlyFailed.table, 0, 'Target', {
+      imageId: SCREEN_1.fileName,
+      instanceId: screen1InstanceId,
+      passed: true,
+      rowIndex: 0,
+      sourceColumnKey: 'stale-column',
+    })).toEqual({ changed: false, table: onlyFailed.table });
+
+    const invalidWorkingTable = { ...validated, workingHtml: '<p>bad</p>' };
+    expect(setCopyTestResultStatus(invalidWorkingTable, 0, 'Target', {
+      imageId: SCREEN_1.fileName,
+      instanceId: screen1InstanceId,
+      passed: true,
+      rowIndex: 0,
+      sourceColumnKey,
+    })).toEqual({ changed: false, table: invalidWorkingTable });
+  });
+
+  it('upgrades a legacy single-status Result when one Screen changes status', () => {
+    /** 先生成带完整 Screen 身份的当前结构，再降级成旧单状态 DOM fixture。 */
+    const table = parseCopyTestStorageTables(
+      '<table><tr><th>Target</th></tr><tr><td>copy</td></tr></table>'
+    )[0];
+    const results = bindResultImages([{
+      evidenceImageFileNames: [SCREEN_1.fileName, SCREEN_2.fileName],
+      languageIssues: ['Legacy retained issue.'],
+      passed: true,
+      rowIndex: 0,
+    }], images);
+    const validated = applyCopyTestValidationResults(table, results, 0, 'Target', images);
+    const legacyDocument = parseHtml(validated.workingHtml);
+    const legacyRoot = legacyDocument.querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    )!;
+    const legacyItems = Array.from(legacyRoot.querySelectorAll<HTMLLIElement>(
+      `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`
+    )).map(item => {
+      item.removeAttribute(COPY_TEST_RESULT_RETAINED_LANGUAGE_ISSUES_ATTRIBUTE);
+      return item.outerHTML;
+    });
+    legacyRoot.innerHTML = `<strong>Passed:</strong><ul>${legacyItems.join('')}</ul>`;
+    legacyRoot.setAttribute(
+      COPY_TEST_RESULT_RETAINED_LANGUAGE_ISSUES_ATTRIBUTE,
+      JSON.stringify(['Legacy retained issue.'])
+    );
+    const legacyTable = parseCopyTestStorageTables(
+      legacyDocument.querySelector('table')!.outerHTML
+    )[0];
+    const sourceColumnKey = getSourceColumnKey(0, 'Target');
+    const screen1InstanceId = getResultImageInstanceId(legacyRoot, SCREEN_1.fileName);
+
+    /** 第一次人工移动应把旧根节点升级为新双分组结构，并恢复根级历史错误。 */
+    const upgraded = setCopyTestResultStatus(legacyTable, 0, 'Target', {
+      imageId: SCREEN_1.fileName,
+      instanceId: screen1InstanceId,
+      passed: false,
+      rowIndex: 0,
+      sourceColumnKey,
+    });
+    const upgradedRoot = parseHtml(upgraded.table.workingHtml).querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    )!;
+
+    expect(upgraded.changed).toBe(true);
+    expect(getResultGroupImageIds(
+      upgradedRoot,
+      COPY_TEST_RESULT_PASSED_GROUP_VALUE
+    )).toEqual([SCREEN_2.fileName]);
+    expect(getResultGroupImageIds(
+      upgradedRoot,
+      COPY_TEST_RESULT_FAILED_GROUP_VALUE
+    )).toEqual([SCREEN_1.fileName]);
+    expect(upgradedRoot.textContent).toContain('Legacy retained issue.');
+    expect(Array.from(upgradedRoot.children).every(child => {
+      return child.hasAttribute(COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE);
+    })).toBe(true);
   });
 
   it('uses Column N labels for new and existing managed pairs with a blank source header', () => {
@@ -748,6 +1052,79 @@ describe('copyTestTableEditor', () => {
     expect(parseHtml(deleted.table.workingHtml).querySelectorAll(
       `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
     )).toHaveLength(0);
+  });
+
+  it('preserves the remaining Screen status and retained issues after mixed Evidence deletion', () => {
+    /** 单行双 Screen 的失败结果，用于先构造混合状态再删除其中一张 Evidence。 */
+    const table = parseCopyTestStorageTables(
+      '<table><tr><th>Target</th></tr><tr><td>copy</td></tr></table>'
+    )[0];
+    const results = bindResultImages([{
+      evidenceImageFileNames: [SCREEN_1.fileName, SCREEN_2.fileName],
+      languageIssues: ['Visible copy differs.'],
+      passed: false,
+      rowIndex: 0,
+    }], images);
+    const validated = applyCopyTestValidationResults(table, results, 0, 'Target', images);
+    const sourceColumnKey = getSourceColumnKey(0, 'Target');
+    const initialRoot = parseHtml(validated.workingHtml).querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    )!;
+    const screen1InstanceId = getResultImageInstanceId(initialRoot, SCREEN_1.fileName);
+    const screen2InstanceId = getResultImageInstanceId(initialRoot, SCREEN_2.fileName);
+
+    /** Screen01 先移动到 Passed，Screen02 保持 Failed。 */
+    const mixed = setCopyTestResultStatus(validated, 0, 'Target', {
+      imageId: SCREEN_1.fileName,
+      instanceId: screen1InstanceId,
+      passed: true,
+      rowIndex: 0,
+      sourceColumnKey,
+    });
+    /** 删除仍为 Failed 的 Screen02 后，只应留下原状态不变的 Passed Screen01。 */
+    const deleted = deleteCopyTestEvidenceImage(
+      mixed.table,
+      { imageId: SCREEN_2.fileName, instanceId: screen2InstanceId },
+      0,
+      'Target'
+    );
+    const remainingRoot = parseHtml(deleted.table.workingHtml).querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    )!;
+
+    expect(deleted.removed).toBe(true);
+    expect(getResultGroupImageIds(
+      remainingRoot,
+      COPY_TEST_RESULT_PASSED_GROUP_VALUE
+    )).toEqual([SCREEN_1.fileName]);
+    expect(getResultGroupImageIds(
+      remainingRoot,
+      COPY_TEST_RESULT_FAILED_GROUP_VALUE
+    )).toEqual([]);
+    expect(remainingRoot.textContent).not.toContain('Visible copy differs.');
+    expect(deleted.validationResults?.[0].screenStatuses).toEqual([{
+      imageId: SCREEN_1.fileName,
+      languageIssues: ['Visible copy differs.'],
+      passed: true,
+    }]);
+
+    /** 删除重投影后再把 Screen01 移回 Failed，仍应恢复原错误信息。 */
+    const restoredFailed = setCopyTestResultStatus(deleted.table, 0, 'Target', {
+      imageId: SCREEN_1.fileName,
+      instanceId: getResultImageInstanceId(remainingRoot, SCREEN_1.fileName),
+      passed: false,
+      rowIndex: 0,
+      sourceColumnKey,
+    });
+    const restoredRoot = parseHtml(restoredFailed.table.workingHtml).querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    )!;
+    expect(restoredFailed.changed).toBe(true);
+    expect(getResultGroupImageIds(
+      restoredRoot,
+      COPY_TEST_RESULT_FAILED_GROUP_VALUE
+    )).toEqual([SCREEN_1.fileName]);
+    expect(restoredRoot.textContent).toContain('Visible copy differs.');
   });
 
   it('renumbers remaining screens and removes Passed after every image is deleted', () => {

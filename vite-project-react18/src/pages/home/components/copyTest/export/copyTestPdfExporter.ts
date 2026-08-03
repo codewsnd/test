@@ -106,7 +106,7 @@ interface CopyTestPdfSegmenterConstructor {
 interface CopyTestPdfCellDef extends CellDef {
   /** 供绘制图片和非拉丁文字时读取的原始中立单元格。 */
   copyTestCell: CopyTestExportCell;
-  /** Result 单元格 Passed 或 Failed 标签使用的可选 RGB 颜色。 */
+  /** Result 单元格首个 Passed 或 Failed 标签使用的可选 RGB 颜色。 */
   statusColor?: [number, number, number];
 }
 
@@ -143,18 +143,33 @@ const getPdfColumnWidth = (kind: CopyTestExportCellKind): number => {
   return COPY_TEST_EXPORT_DEFAULT_COLUMN_WIDTH * COPY_TEST_PDF_PIXEL_TO_POINT;
 };
 
-/** 根据 Result 内容读取 PDF 字体颜色。 */
-const getPdfTextColor = (cell: CopyTestExportCell): [number, number, number] | undefined => {
+/** 读取 Result 中单个状态行对应的 PDF 字体颜色。 */
+const getPdfStatusLineColor = (
+  cell: CopyTestExportCell,
+  line: string
+): [number, number, number] | undefined => {
   if (cell.kind !== 'result' || cell.header) {
     return undefined;
   }
-  if (cell.text.startsWith(COPY_TEST_EXPORT_PASSED_LABEL)) {
+  if (line === COPY_TEST_EXPORT_PASSED_LABEL) {
     return hexToRgb(COPY_TEST_EXPORT_PASSED_COLOR);
   }
-  if (cell.text.startsWith(COPY_TEST_EXPORT_FAILED_LABEL)) {
+  if (line === COPY_TEST_EXPORT_FAILED_LABEL) {
     return hexToRgb(COPY_TEST_EXPORT_FAILED_COLOR);
   }
   return undefined;
+};
+
+/** 判断 Result 单元格是否包含至少一个可着色的状态行。 */
+const hasPdfStatusLine = (cell: CopyTestExportCell): boolean => {
+  return cell.text.split('\n').some(line => {
+    return Boolean(getPdfStatusLineColor(cell, line));
+  });
+};
+
+/** 读取 Result 首行状态色，供 AutoTable 原始单元格元数据兼容使用。 */
+const getPdfTextColor = (cell: CopyTestExportCell): [number, number, number] | undefined => {
+  return getPdfStatusLineColor(cell, cell.text.split('\n')[0] || '');
 };
 
 /** 根据图片 data URL 读取 jsPDF 支持的格式。 */
@@ -235,7 +250,7 @@ const getPdfStatusDetailGap = (
   cell: CopyTestExportCell,
   lines: string[]
 ): number => {
-  return getPdfTextColor(cell) && lines.length > 1
+  return hasPdfStatusLine(cell) && lines.length > 1
     ? COPY_TEST_PDF_STATUS_DETAIL_GAP
     : 0;
 };
@@ -370,11 +385,9 @@ const getPdfRasterTextLines = (
   }
   /** PDF 点数宽度换算成 Canvas CSS 像素后的可用宽度。 */
   const maximumWidth = availableWidth / COPY_TEST_PDF_PIXEL_TO_POINT;
-  return text.split('\n').flatMap((paragraph, paragraphIndex) => {
-    /** 表头和 Result 第一行使用粗体完成同字体测量。 */
-    const bold = cell.header || (
-      paragraphIndex === 0 && Boolean(getPdfTextColor(cell))
-    );
+  return text.split('\n').flatMap(paragraph => {
+    /** 表头和 Result 状态行使用粗体完成同字体测量。 */
+    const bold = cell.header || Boolean(getPdfStatusLineColor(cell, paragraph));
     context.font = getPdfRasterFont(bold);
     return wrapPdfRasterParagraph(context, paragraph, maximumWidth);
   });
@@ -496,7 +509,6 @@ const createRasterTextDataUrl = (
   doc: jsPDF,
   cell: CopyTestExportCell,
   lines: string[],
-  statusColor: string | undefined,
   widthInPoints: number
 ): string | null => {
   /** PDF 点数换算到浏览器 CSS 像素后的宽度。 */
@@ -526,14 +538,16 @@ const createRasterTextDataUrl = (
   context.scale(COPY_TEST_PDF_CANVAS_SCALE, COPY_TEST_PDF_CANVAS_SCALE);
   context.textBaseline = 'top';
   lines.forEach((line, lineIndex) => {
-    /** 仅 Result 第一行使用 Passed 或 Failed 状态色。 */
-    const isStatusLine = lineIndex === 0 && Boolean(statusColor);
+    /** 当前 Result 状态行使用的可选 RGB 颜色。 */
+    const statusColor = getPdfStatusLineColor(cell, line);
     /** 当前文字行是否需要从右向左绘制。 */
     const rightToLeft = COPY_TEST_PDF_RTL_TEXT_PATTERN.test(line);
     /** 状态行之后需要追加的额外段落间距。 */
     const detailGap = lineIndex > 0 ? statusDetailGapInCssPixels : 0;
-    context.fillStyle = isStatusLine && statusColor ? statusColor : '#141414';
-    context.font = getPdfRasterFont(cell.header || isStatusLine);
+    context.fillStyle = statusColor
+      ? `#${statusColor.map(value => value.toString(16).padStart(2, '0')).join('')}`
+      : '#141414';
+    context.font = getPdfRasterFont(cell.header || Boolean(statusColor));
     context.direction = rightToLeft ? 'rtl' : 'ltr';
     context.textAlign = rightToLeft ? 'right' : 'left';
     context.fillText(
@@ -572,12 +586,6 @@ const drawRasterText = (
   cell: CopyTestExportCell,
   lines: string[]
 ): void => {
-  /** 当前 Result 第一行在 PDF 中使用的可选状态色。 */
-  const statusRgb = getPdfTextColor(cell);
-  /** Canvas 使用的十六进制状态色。 */
-  const statusColor = statusRgb
-    ? `#${statusRgb.map(value => value.toString(16).padStart(2, '0')).join('')}`
-    : undefined;
   /** 当前栅格文字块在 PDF 中使用的准确点数高度。 */
   const textHeight = getPdfTextHeight(doc, cell, lines);
   /** 当前单元格文本区域栅格化后的 PNG data URL。 */
@@ -585,7 +593,6 @@ const drawRasterText = (
     doc,
     cell,
     lines,
-    statusColor,
     Math.max(1, data.cell.width - COPY_TEST_PDF_CELL_PADDING * 2)
   );
   if (!textDataUrl) {
@@ -610,9 +617,7 @@ const drawPdfResultText = (
   cell: CopyTestExportCell,
   lines: string[]
 ): void => {
-  /** 当前 Result 单元格可选的状态 RGB 颜色。 */
-  const statusColor = getPdfTextColor(cell);
-  if (!statusColor || lines.length === 0) {
+  if (!hasPdfStatusLine(cell) || lines.length === 0) {
     return;
   }
   /** 当前完整 Result 文字块的点数高度。 */
@@ -625,20 +630,24 @@ const drawPdfResultText = (
   const statusDetailGap = getPdfStatusDetailGap(cell, lines);
   /** 当前 Result 文字块的左侧绘制坐标。 */
   const textX = data.cell.x + data.cell.padding('left');
-  doc.setFont('helvetica', 'bold');
   doc.setFontSize(data.cell.styles.fontSize);
-  doc.setTextColor(...statusColor);
-  doc.text(lines[0], textX, textTop, { baseline: 'top' });
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(20, 20, 20);
-  lines.slice(1).forEach((line, detailIndex) => {
-    /** 当前 Screen 或失败原因行相对状态行的纵向坐标。 */
+  lines.forEach((line, lineIndex) => {
+    /** 当前行若为状态标签则使用对应的 Passed 或 Failed 颜色。 */
+    const statusColor = getPdfStatusLineColor(cell, line);
+    /** 当前 Screen、失败原因或状态行的纵向坐标。 */
     const lineY = textTop
-      + lineHeight
-      + statusDetailGap
-      + detailIndex * lineHeight;
+      + lineIndex * lineHeight
+      + (lineIndex > 0 ? statusDetailGap : 0);
+    doc.setFont('helvetica', statusColor ? 'bold' : 'normal');
+    if (statusColor) {
+      doc.setTextColor(...statusColor);
+    } else {
+      doc.setTextColor(20, 20, 20);
+    }
     doc.text(line, textX, lineY, { baseline: 'top' });
   });
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(20, 20, 20);
 };
 
 /** 在 AutoTable 单元格文字下方按顺序绘制 Evidence 图片。 */
@@ -930,7 +939,7 @@ export const createCopyTestPdfBlob = (model: CopyTestExportTableModel): Blob => 
         return;
       }
       /** Result 或多语言单元格是否需要避开 AutoTable 默认字体绘制。 */
-      const customDraw = Boolean(getPdfTextColor(cell))
+      const customDraw = hasPdfStatusLine(cell)
         || shouldRasterPdfText(data.cell.text.join('\n'));
       if (!customDraw) {
         return;

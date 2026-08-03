@@ -4,8 +4,8 @@ import { useCopyTestController } from '../useCopyTestController';
 
 const hoisted = vi.hoisted(() => ({
   attachmentsApi: vi.fn(),
-  confirm: vi.fn((config: { onOk?: () => void }) => {
-    config.onOk?.();
+  confirm: vi.fn((config: { onOk?: () => unknown }) => {
+    return config.onOk?.();
   }),
   messageError: vi.fn(),
   messageSuccess: vi.fn(),
@@ -137,6 +137,18 @@ describe('useCopyTestController', () => {
     await act(() => result.current.handleValidateClick());
     expect(hoisted.validationApi).toHaveBeenCalledTimes(1);
     act(() => {
+      result.current.handleResultStatusChange({
+        imageId: 'screen-uuid-value.png',
+        instanceId: '1:Target:1:screen-uuid-value.png',
+        passed: false,
+        previewRevision: result.current.tableState.revision,
+        rowIndex: 0,
+        sourceColumnKey: '1:Target',
+        tableIndex: 0,
+      });
+    });
+    expect(result.current.tableState.selectedTable?.workingHtml).toContain('Failed:');
+    act(() => {
       result.current.handleExportToConfluence();
     });
     await act(() => Promise.resolve());
@@ -157,6 +169,110 @@ describe('useCopyTestController', () => {
       result.current.handleMainClose();
     });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('locks Result status changes throughout Confluence export preparation', async () => {
+    const firstExportRead = createDeferred<{ storage: string }>();
+    hoisted.storageApi.mockResolvedValue({ storage: storageHtml });
+    hoisted.attachmentsApi.mockResolvedValue({ images: [] });
+    hoisted.uploadApi.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
+
+    act(() => {
+      result.current.handleConfluenceUrlChange('http://wiki');
+    });
+    await act(() => result.current.handleLoadTables());
+    act(() => {
+      result.current.handleComparisonColumnChange(1);
+    });
+    act(() => {
+      result.current.tableState.applyValidationResults([{
+        evidenceImageFileNames: ['screen.png'],
+        evidenceImages: [{
+          base64: 'data:image/png;base64,QUJD',
+          fileName: 'screen.png',
+        }],
+        languageIssues: [],
+        passed: true,
+        rowIndex: 0,
+      }], [{
+        base64: 'data:image/png;base64,QUJD',
+        fileName: 'screen.png',
+      }], 1, 'Target', 0);
+    });
+    /** 先只打开静态确认框，不立即执行其 onOk。 */
+    let confirmExport: (() => unknown) | undefined;
+    hoisted.confirm.mockImplementationOnce(config => {
+      confirmExport = config.onOk;
+      return undefined;
+    });
+    act(() => {
+      result.current.handleExportToConfluence();
+    });
+    expect(result.current.exportLoading).toBe(false);
+
+    /** 确认前的合法状态变化必须成为随后导出的最新快照。 */
+    act(() => {
+      result.current.handleResultStatusChange({
+        imageId: 'screen.png',
+        instanceId: '1:Target:1:screen.png',
+        passed: false,
+        previewRevision: result.current.tableState.revision,
+        rowIndex: 0,
+        sourceColumnKey: '1:Target',
+        tableIndex: 0,
+      });
+    });
+    expect(result.current.tableState.selectedTable?.workingHtml).toContain('Failed:');
+    const revisionBeforeExport = result.current.tableState.revision;
+    const workingHtmlBeforeExport = result.current.tableState.selectedTable?.workingHtml;
+
+    hoisted.storageApi.mockReset();
+    hoisted.storageApi
+      .mockImplementationOnce(() => firstExportRead.promise)
+      .mockResolvedValue({ storage: storageHtml });
+
+    let exportPromise: Promise<void> | undefined;
+    act(() => {
+      exportPromise = confirmExport?.() as Promise<void>;
+    });
+    /** 等待同步导出锁进入 storage 第一次读取。 */
+    await act(() => Promise.resolve());
+    expect(result.current.exportLoading).toBe(true);
+    act(() => {
+      result.current.handleResultStatusChange({
+        imageId: 'screen.png',
+        instanceId: '1:Target:1:screen.png',
+        passed: true,
+        previewRevision: revisionBeforeExport,
+        rowIndex: 0,
+        sourceColumnKey: '1:Target',
+        tableIndex: 0,
+      });
+    });
+    expect(result.current.tableState.revision).toBe(revisionBeforeExport);
+    expect(result.current.tableState.selectedTable?.workingHtml).toBe(workingHtmlBeforeExport);
+
+    firstExportRead.resolve({ storage: storageHtml });
+    await act(() => exportPromise);
+    expect(result.current.exportLoading).toBe(false);
+    expect(hoisted.uploadApi).toHaveBeenCalledTimes(1);
+    const uploadRequest = hoisted.uploadApi.mock.calls[0][0] as { storageHtml: string };
+    expect(uploadRequest.storageHtml).toContain('Failed:');
+
+    /** 导出临界区结束后，新版本身份的状态操作恢复可用。 */
+    act(() => {
+      result.current.handleResultStatusChange({
+        imageId: 'screen.png',
+        instanceId: '1:Target:1:screen.png',
+        passed: true,
+        previewRevision: result.current.tableState.revision,
+        rowIndex: 0,
+        sourceColumnKey: '1:Target',
+        tableIndex: 0,
+      });
+    });
+    expect(result.current.tableState.selectedTable?.workingHtml).toContain('Passed:');
   });
 
   it('covers busy guards and failing request branches', async () => {

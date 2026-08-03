@@ -7,6 +7,7 @@ import type {
 } from './table/tableModel';
 import type {
   CopyTestEvidenceDeleteTarget as CopyTestEditorEvidenceDeleteTarget,
+  CopyTestResultStatusUpdate as CopyTestEditorResultStatusUpdate,
   CopyTestValidationResultWithEvidence as CopyTestEditorValidationResultWithEvidence,
 } from './table/copyTestTableEditor';
 import type { CopyTestWorkingTable } from './table/copyTestTableParser';
@@ -45,6 +46,14 @@ export interface CopyTestEvidencePreviewInfo {
 
 /** 删除 Evidence 图片时用于定位具体图片实例的信息。 */
 export type CopyTestEvidenceDeleteTarget = CopyTestEditorEvidenceDeleteTarget;
+
+/** 人工移动单个 Result Screen 状态时使用的稳定目标和预览身份。 */
+export interface CopyTestResultStatusUpdate extends CopyTestEditorResultStatusUpdate {
+  /** 生成操作按钮时所属的工作表格下标。 */
+  tableIndex: number;
+  /** 生成操作按钮时所属的表格会话版本。 */
+  previewRevision: number;
+}
 
 /** 已绑定 Evidence 内存图片的校验结果。 */
 export type CopyTestValidationResultWithEvidence = CopyTestEditorValidationResultWithEvidence;

@@ -197,9 +197,21 @@ const buildSingleResultPdfModel = (
 interface PdfCanvasTextDraw {
   /** 绘制当前文字行时使用的方向。 */
   direction: CanvasDirection;
+  /** 绘制当前文字行时使用的 CSS 颜色。 */
+  fillStyle: string;
   /** 绘制当前文字行时使用的完整字体声明。 */
   font: string;
   /** 当前绘制的文字行。 */
+  text: string;
+}
+
+/** jsPDF 向量文字调用时锁定的状态样式。 */
+interface PdfVectorTextDraw {
+  /** 绘制当前文字时使用的 CSS 十六进制颜色。 */
+  color: string;
+  /** 绘制当前文字时使用的字体样式。 */
+  fontStyle: string;
+  /** 当前绘制的文字。 */
   text: string;
 }
 
@@ -209,22 +221,31 @@ type PdfTextArguments = Parameters<jsPDF['text']>;
 /** 在新建 jsPDF 实例初始化时捕获真实 text 调用。 */
 const installPdfTextCapture = (): {
   calls: PdfTextArguments[];
+  draws: PdfVectorTextDraw[];
   remove: () => void;
 } => {
   /** 当前测试期间所有真实 PDF 文字绘制调用。 */
   const calls: PdfTextArguments[] = [];
+  /** 当前测试期间所有真实 PDF 文字绘制样式。 */
+  const draws: PdfVectorTextDraw[] = [];
   /** jsPDF 初始化事件中安装到当前文档实例的方法包装器。 */
   const initializedEvent = ['initialized', function (this: jsPDF): void {
     /** 当前文档原始的文字绘制方法。 */
     const originalText = this.text;
     this.text = ((...args: PdfTextArguments): jsPDF => {
       calls.push(args);
+      draws.push({
+        color: this.getTextColor(),
+        fontStyle: this.getFont().fontStyle,
+        text: Array.isArray(args[0]) ? args[0].join('\n') : args[0],
+      });
       return originalText.apply(this, args);
     }) as jsPDF['text'];
   }];
   jsPDF.API.events.push(initializedEvent);
   return {
     calls,
+    draws,
     remove: () => {
       /** 当前初始化事件在 jsPDF 全局事件列表中的位置。 */
       const eventIndex = jsPDF.API.events.indexOf(initializedEvent);
@@ -255,6 +276,7 @@ const installPdfCanvasStub = (): PdfCanvasTextDraw[] => {
   context.fillText.mockImplementation((text: string) => {
     textDraws.push({
       direction: context.direction,
+      fillStyle: String(context.fillStyle),
       font: context.font,
       text,
     });
@@ -545,6 +567,41 @@ describe('CopyTest format exporters', () => {
     );
   });
 
+  it('colors every Passed and Failed status line in one mixed Excel Result cell', async () => {
+    /** 同时包含 Passed 和 Failed 分组的单个 Result 文本。 */
+    const mixedResultText = [
+      'Passed:',
+      '• Screen01',
+      'Failed:',
+      '• Screen02',
+      '  • Copy mismatch',
+    ].join('\n');
+    /** 使用真实 SheetJS 和 OOXML 补丁生成的混合状态工作簿。 */
+    const excelBlob = createCopyTestExcelBlob(
+      buildSingleResultPdfModel(mixedResultText)
+    );
+    /** 混合状态工作簿的工作表 XML。 */
+    const worksheetXml = readArchiveXml(
+      await readBlobArchive(excelBlob),
+      'xl/worksheets/sheet1.xml'
+    );
+    /** 混合 Result 对应的 A2 单元格 XML。 */
+    const mixedResultCell = /<c[^>]*r="A2"[^>]*>[\s\S]*?<\/c>/.exec(
+      worksheetXml
+    )?.[0];
+    /** 回读工作簿验证富文本改写没有改变原始值。 */
+    const worksheet = XLSX.read(await excelBlob.arrayBuffer(), {
+      type: 'array',
+    }).Sheets.CopyTest;
+
+    expect(worksheet.A2.v).toBe(mixedResultText);
+    expect(mixedResultCell?.match(/rgb="FF00875A"/g)).toHaveLength(1);
+    expect(mixedResultCell?.match(/rgb="FFFF0000"/g)).toHaveLength(1);
+    expect(mixedResultCell?.match(/<b\/>/g)).toHaveLength(2);
+    expect(mixedResultCell).toContain('• Screen01');
+    expect(mixedResultCell).toContain('Copy mismatch');
+  });
+
   it('shows an unavailable marker when Excel cannot embed an image directly', () => {
     /** 仅把第一张 Evidence 图片替换为 Excel 不支持格式的完整模型。 */
     const unsupportedImageModel: CopyTestExportTableModel = {
@@ -678,6 +735,34 @@ describe('CopyTest format exporters', () => {
     expect(imageRelationshipTargets.map(target => target.split('/').pop())).toEqual(
       wordMediaPaths.map(path => path.split('/').pop())
     );
+  });
+
+  it('colors both status lines in one mixed Word Result cell', async () => {
+    /** 同一 Result 单元格中包含两个状态分组的完整导出文本。 */
+    const mixedResultText = [
+      'Passed:',
+      '• Screen01',
+      'Failed:',
+      '• Screen02',
+      '  • Copy mismatch',
+    ].join('\n');
+    const wordBlob = await createCopyTestWordBlob(
+      buildSingleResultPdfModel(mixedResultText)
+    );
+    const wordDocumentXml = readArchiveXml(
+      await readBlobArchive(wordBlob),
+      'word/document.xml'
+    );
+    const mixedResultCell = getWordTableCellXml(wordDocumentXml, 'Screen02');
+
+    expect(mixedResultCell).toContain('Passed:');
+    expect(mixedResultCell).toContain('Failed:');
+    expect(mixedResultCell.match(
+      /<w:color\b[^>]*w:val="00875A"[^>]*\/?>/g
+    )).toHaveLength(1);
+    expect(mixedResultCell.match(
+      /<w:color\b[^>]*w:val="FF0000"[^>]*\/?>/g
+    )).toHaveLength(1);
   });
 
   it('escapes special characters into valid Word document XML', async () => {
@@ -814,13 +899,50 @@ describe('CopyTest format exporters', () => {
     expect(statusCall?.[3]).toEqual(expect.objectContaining({ baseline: 'top' }));
   });
 
+  it('colors and bolds every status line in one mixed vector PDF Result cell', () => {
+    /** 真实 jsPDF 文本绘制调用和调用时样式。 */
+    const textCapture = installPdfTextCapture();
+    try {
+      createCopyTestPdfBlob(buildSingleResultPdfModel([
+        'Passed:',
+        '• Screen01',
+        'Failed:',
+        '• Screen02',
+        '  • Copy mismatch',
+      ].join('\n')));
+    } finally {
+      textCapture.remove();
+    }
+    /** 绿色 Passed 状态行的真实绘制样式。 */
+    const passedDraw = textCapture.draws.find(draw => draw.text === 'Passed:');
+    /** 红色 Failed 状态行的真实绘制样式。 */
+    const failedDraw = textCapture.draws.find(draw => draw.text === 'Failed:');
+    /** 普通 Screen 行的真实绘制样式。 */
+    const screenDraw = textCapture.draws.find(draw => draw.text === '• Screen02');
+
+    expect(passedDraw).toEqual(expect.objectContaining({
+      fontStyle: 'bold',
+      text: 'Passed:',
+    }));
+    expect(passedDraw?.color).toMatch(/^#008[67]5a$/i);
+    expect(failedDraw).toEqual(expect.objectContaining({
+      color: '#ff0000',
+      fontStyle: 'bold',
+      text: 'Failed:',
+    }));
+    expect(screenDraw?.fontStyle).toBe('normal');
+    expect(screenDraw?.color).not.toBe(passedDraw?.color);
+    expect(screenDraw?.color).not.toBe(failedDraw?.color);
+  });
+
   it('rasterizes multilingual PDF text with browser font fallback and RTL direction', () => {
     /** 多语言 Canvas 实际绘制记录。 */
     const textDraws = installPdfCanvasStub();
     /** 包含多种脚本且必须全部经过浏览器字体回退的 Result 文本。 */
     const multilingualText = [
-      'Failed:',
+      'Passed:',
       'Русский текст',
+      'Failed:',
       'العربية',
       'हिन्दी',
       'ไทย',
@@ -835,6 +957,11 @@ describe('CopyTest format exporters', () => {
 
     expect(textDraws.map(draw => draw.text)).toEqual(multilingualText.split('\n'));
     expect(textDraws.every(draw => draw.font.includes('"Noto Sans"'))).toBe(true);
+    expect(textDraws.find(draw => draw.text === 'Passed:')?.fillStyle).toBe('#00875a');
+    expect(textDraws.find(draw => draw.text === 'Failed:')?.fillStyle).toBe('#ff0000');
+    expect(textDraws.find(draw => draw.text === 'Passed:')?.font).toContain('700');
+    expect(textDraws.find(draw => draw.text === 'Failed:')?.font).toContain('700');
+    expect(textDraws.find(draw => draw.text === 'Русский текст')?.fillStyle).toBe('#141414');
     expect(textDraws.find(draw => draw.text === 'العربية')?.direction).toBe('rtl');
     expect(textDraws.find(draw => draw.text === 'Русский текст')?.direction).toBe('ltr');
     expect(addImage.mock.calls.some(call => call[0] === ONE_PIXEL_PNG)).toBe(true);

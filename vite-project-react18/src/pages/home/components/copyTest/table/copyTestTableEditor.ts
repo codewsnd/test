@@ -17,8 +17,13 @@ import {
   COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE,
   COPY_TEST_PASSED_COLOR,
   COPY_TEST_OWNER_ID_ATTRIBUTE,
+  COPY_TEST_RESULT_FAILED_GROUP_VALUE,
   COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE,
   COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE,
+  COPY_TEST_RESULT_PASSED_GROUP_VALUE,
+  COPY_TEST_RESULT_RETAINED_LANGUAGE_ISSUES_ATTRIBUTE,
+  COPY_TEST_RESULT_SCREEN_ORDER_ATTRIBUTE,
+  COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE,
   COPY_TEST_SCHEMA_ATTRIBUTE,
   COPY_TEST_SCHEMA_VERSION,
 } from './tableConstants';
@@ -51,6 +56,18 @@ import { getCopyTestImageId } from './copyTestImageUtils';
 export interface CopyTestValidationResultWithEvidence extends CopyTestValidationResult {
   /** 根据模型文件名绑定出的 Evidence 内存图片。 */
   evidenceImages: CopyTestImage[];
+  /** 同一来源行内按图片文件名保存的人工 Screen 状态；缺省时继承行级 AI 结果。 */
+  screenStatuses?: CopyTestResultScreenStatus[];
+}
+
+/** 单个 Result Screen 的持久状态。 */
+export interface CopyTestResultScreenStatus {
+  /** Evidence 附件文件名，也是同一来源行内的稳定 Screen 身份。 */
+  imageId: string;
+  /** 当前 Screen 在 Failed 状态下需要显示或往返保留的问题。 */
+  languageIssues: string[];
+  /** 当前 Screen 是否属于 Passed 分组。 */
+  passed: boolean;
 }
 
 /** Evidence 图片删除目标。 */
@@ -83,6 +100,30 @@ export interface CopyTestValidationSnapshot {
   results: CopyTestValidationResultWithEvidence[];
 }
 
+/** 预览层请求写入的明确 Result 目标状态。 */
+export interface CopyTestResultStatusUpdate {
+  /** 当前 Screen 对应的 Evidence 附件文件名。 */
+  imageId: string;
+  /** 当前 Result DOM 中用于防止误定位的 Screen 实例 ID。 */
+  instanceId: string;
+  /** 目标状态是否为 Passed。 */
+  passed: boolean;
+  /** 来源原子组使用的业务数据行下标。 */
+  rowIndex: number;
+  /** 当前 Result/Evidence Pair 所属的来源列键。 */
+  sourceColumnKey: string;
+}
+
+/** 人工移动单个 Result Screen 状态后的结果。 */
+export interface CopyTestResultStatusToggleResult {
+  /** 是否找到并移动了目标 Screen。 */
+  changed: boolean;
+  /** 移动后的 Screen 是否为 Passed；未移动时为空。 */
+  passed?: boolean;
+  /** 完成人工 Screen 状态移动后的工作表格。 */
+  table: CopyTestWorkingTable;
+}
+
 /** 生成列上下文。 */
 interface GeneratedColumnContext {
   /** 当前 Comparison Column 的 Evidence 列下标。 */
@@ -107,6 +148,16 @@ interface ScreenRef {
   instanceId: string;
   /** Result 和 Evidence 共同显示的 Screen 标签。 */
   label: string;
+  /** Screen 在当前 Evidence 序列中的稳定显示顺序。 */
+  order: number;
+}
+
+/** Result DOM 中可独立移动的单个 Screen。 */
+interface ResultScreenEntry extends ScreenRef {
+  /** 当前 Screen 往返保留的问题说明。 */
+  languageIssues: string[];
+  /** 当前 Screen 是否位于 Passed 分组。 */
+  passed: boolean;
 }
 
 /** Evidence 合并组。 */
@@ -533,20 +584,44 @@ const createScreenRefs = (
 ): ScreenRef[] => {
   return screens.map(
     /** 为当前行组的每张 Evidence 图片生成稳定引用与展示标签。 */
-    screen => ({
+    (screen, screenIndex) => ({
       image: screen.image,
       imageId: getCopyTestImageId(screen.image),
       instanceId: getImageInstanceId(screen.image, anchorRowIndex, sourceColumnKey),
       label: screen.label,
+      order: screenIndex,
     })
   );
 };
 
+/** 将错误信息规范为去重后的非空字符串。 */
+const normalizeLanguageIssues = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  /** 通过字符串与非空校验的问题说明。 */
+  const issues = value.flatMap(item => {
+    return typeof item === 'string' && item.trim() !== '' ? [item] : [];
+  });
+  return Array.from(new Set(issues));
+};
+
 /** 读取失败原因。 */
 const getFailureReasons = (result: CopyTestValidationResultWithEvidence): string[] => {
-  return result.languageIssues.filter(
-    /** 忽略模型返回的空白问题描述。 */
-    reason => reason.trim() !== ''
+  return normalizeLanguageIssues(result.languageIssues);
+};
+
+/** 在 Result Screen（兼容旧根节点）保存可供状态往返恢复的错误信息。 */
+const writeRetainedLanguageIssues = (container: Element, languageIssues: string[]): void => {
+  if (languageIssues.length === 0) {
+    container.removeAttribute(COPY_TEST_RESULT_RETAINED_LANGUAGE_ISSUES_ATTRIBUTE);
+    return;
+  }
+
+  container.setAttribute(
+    COPY_TEST_RESULT_RETAINED_LANGUAGE_ISSUES_ATTRIBUTE,
+    JSON.stringify(languageIssues)
   );
 };
 
@@ -568,41 +643,96 @@ const appendFailureReasonItems = (
   );
 };
 
-/** 追加 Result 的图片列表。 */
-const appendResultScreenList = (
-  doc: Document,
-  container: HTMLElement,
+/** 按持久 Screen 状态把图片引用转换为可独立移动的 Result 条目。 */
+const buildResultScreenEntries = (
   result: CopyTestValidationResultWithEvidence,
   screens: ScreenRef[]
-): void => {
-  /** 承载当前 Result 所有 Screen 引用的无序列表。 */
-  const list = doc.createElement('ul');
-  /** 当前失败结果去除空白项后的问题描述。 */
-  const failureReasons = getFailureReasons(result);
-  if (screens.length === 0) {
-    appendFailureReasonItems(doc, list, failureReasons);
-    container.appendChild(list);
-    return;
-  }
-
-  screens.forEach(
-    /** 为每张 Evidence 图片写入可精确删除的 Result 引用项。 */
-    screen => {
-      /** 带图片 ID 与实例 ID 的 Result 一级列表项。 */
-      const item = doc.createElement(RESULT_LIST_ITEM_TAG);
-      item.setAttribute(COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE, screen.imageId);
-      item.setAttribute(COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE, screen.instanceId);
-      item.appendChild(doc.createTextNode(screen.label));
-      if (!result.passed && failureReasons.length > 0) {
-        /** 当前 Screen 下展示全部失败原因的二级列表。 */
-        const issueList = doc.createElement('ul');
-        appendFailureReasonItems(doc, issueList, failureReasons);
-        item.appendChild(issueList);
-      }
-      list.appendChild(item);
-    }
+): ResultScreenEntry[] => {
+  /** 人工状态按同一来源行内稳定的图片文件名索引。 */
+  const statusByImageId = new Map(
+    (result.screenStatuses || []).map(status => [status.imageId, status])
   );
-  container.appendChild(list);
+  /** 没有人工状态时全部 Screen 继承的行级 AI 问题。 */
+  const fallbackLanguageIssues = getFailureReasons(result);
+  return screens.map(screen => {
+    /** 当前图片可选的人工状态。 */
+    const status = statusByImageId.get(screen.imageId);
+    return {
+      ...screen,
+      languageIssues: status
+        ? normalizeLanguageIssues(status.languageIssues)
+        : fallbackLanguageIssues,
+      passed: status?.passed ?? result.passed,
+    };
+  });
+};
+
+/** 创建单个 Result Screen 条目。 */
+const createResultScreenItem = (
+  doc: Document,
+  entry: ResultScreenEntry
+): HTMLLIElement => {
+  /** 带图片身份、顺序与隐藏问题的 Result 一级列表项。 */
+  const item = doc.createElement(RESULT_LIST_ITEM_TAG);
+  item.setAttribute(COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE, entry.imageId);
+  item.setAttribute(COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE, entry.instanceId);
+  item.setAttribute(COPY_TEST_RESULT_SCREEN_ORDER_ATTRIBUTE, String(entry.order));
+  writeRetainedLanguageIssues(item, entry.languageIssues);
+  item.appendChild(doc.createTextNode(entry.label));
+  if (!entry.passed && entry.languageIssues.length > 0) {
+    /** 当前 Failed Screen 下展示全部失败原因的二级列表。 */
+    const issueList = doc.createElement('ul');
+    appendFailureReasonItems(doc, issueList, entry.languageIssues);
+    item.appendChild(issueList);
+  }
+  return item;
+};
+
+/** 创建 Passed 或 Failed 状态分组。 */
+const createResultStatusGroup = (
+  doc: Document,
+  passed: boolean,
+  entries: ResultScreenEntry[]
+): HTMLElement => {
+  /** 一个状态分组使用的持久容器。 */
+  const group = doc.createElement(COPY_TEST_CONTENT_BLOCK_TAG);
+  /** 显示 Passed 或 Failed 状态的强调节点。 */
+  const status = doc.createElement(COPY_TEST_CONTENT_LABEL_TAG);
+  /** 当前状态分组承载的 Screen 列表。 */
+  const list = doc.createElement('ul');
+  group.setAttribute(
+    COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE,
+    passed ? COPY_TEST_RESULT_PASSED_GROUP_VALUE : COPY_TEST_RESULT_FAILED_GROUP_VALUE
+  );
+  status.textContent = passed ? PASSED_LABEL : FAILED_LABEL;
+  status.setAttribute(
+    'style',
+    `color:${passed ? COPY_TEST_PASSED_COLOR : COPY_TEST_FAILED_COLOR};font-weight:700;`
+  );
+  entries.forEach(entry => list.appendChild(createResultScreenItem(doc, entry)));
+  group.appendChild(status);
+  group.appendChild(list);
+  return group;
+};
+
+/** 从规范 Screen 条目创建唯一 managed Result 根节点。 */
+const createResultContentFromEntries = (
+  doc: Document,
+  entries: ResultScreenEntry[]
+): HTMLElement => {
+  /** 标记为 CopyTest Result 受控内容的唯一根块。 */
+  const container = doc.createElement(COPY_TEST_CONTENT_BLOCK_TAG);
+  container.setAttribute(COPY_TEST_GENERATED_CONTENT_ATTRIBUTE, COPY_TEST_GENERATED_RESULT_TYPE);
+  [true, false].forEach(passed => {
+    /** 当前 Passed 或 Failed 分组内按 Evidence 顺序排列的 Screen。 */
+    const groupEntries = entries
+      .filter(entry => entry.passed === passed)
+      .sort((left, right) => left.order - right.order);
+    if (groupEntries.length > 0) {
+      container.appendChild(createResultStatusGroup(doc, passed, groupEntries));
+    }
+  });
+  return container;
 };
 
 /** 创建 Result 受控内容。 */
@@ -611,19 +741,10 @@ const createResultContent = (
   result: CopyTestValidationResultWithEvidence,
   screens: ScreenRef[]
 ): HTMLElement => {
-  /** 标记为 CopyTest Result 受控内容的根块。 */
-  const container = doc.createElement(COPY_TEST_CONTENT_BLOCK_TAG);
-  /** 显示 Passed 或 Failed 状态的强调节点。 */
-  const status = doc.createElement(COPY_TEST_CONTENT_LABEL_TAG);
-  container.setAttribute(COPY_TEST_GENERATED_CONTENT_ATTRIBUTE, COPY_TEST_GENERATED_RESULT_TYPE);
-  status.textContent = result.passed ? PASSED_LABEL : FAILED_LABEL;
-  status.setAttribute(
-    'style',
-    `color:${result.passed ? COPY_TEST_PASSED_COLOR : COPY_TEST_FAILED_COLOR};font-weight:700;`
+  return createResultContentFromEntries(
+    doc,
+    buildResultScreenEntries(result, screens)
   );
-  container.appendChild(status);
-  appendResultScreenList(doc, container, result, screens);
-  return container;
 };
 
 /** 创建 Evidence 图片节点。 */
@@ -1035,36 +1156,197 @@ export const ensureCopyTestWorkingColumns = (
   return ensured ? refreshWorkingTable(table, ensured.html) : table;
 };
 
-/** 从 Result 根块读取去重后的图片文件名。 */
-const readResultImageFileNames = (resultRoot: Element): string[] => {
-  /** 当前 Result 根块中按 DOM 顺序出现的图片文件名。 */
-  const fileNames = Array.from(
-    resultRoot.querySelectorAll(`[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`)
-  ).flatMap(reference => {
-    /** Result Screen 引用中保存的稳定图片文件名。 */
-    const fileName = reference.getAttribute(COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE)?.trim();
-    return fileName ? [fileName] : [];
-  });
-  return Array.from(new Set(fileNames));
+/** 从 Result 根节点读取人工切换时保留的错误信息。 */
+const readRetainedLanguageIssues = (resultRoot: Element): string[] => {
+  /** Result 根节点中保存的 JSON 错误信息。 */
+  const value = resultRoot.getAttribute(COPY_TEST_RESULT_RETAINED_LANGUAGE_ISSUES_ATTRIBUTE);
+  if (!value) {
+    return [];
+  }
+
+  try {
+    return normalizeLanguageIssues(JSON.parse(value));
+  } catch {
+    return [];
+  }
 };
 
-/** 从失败 Result 根块读取去重的问题说明。 */
-const readResultLanguageIssues = (resultRoot: Element): string[] => {
-  /** 新契约中通过 ownership 属性标记的问题说明。 */
+/** 从一个 Screen 条目读取可见的错误信息。 */
+const readVisibleScreenLanguageIssues = (reference: Element): string[] => {
+  /** 新结构中通过 ownership 属性标记的问题说明。 */
   const ownedIssueItems = Array.from(
-    resultRoot.querySelectorAll(`[${COPY_TEST_RESULT_LANGUAGE_ISSUE_ATTRIBUTE}]`)
+    reference.querySelectorAll(`[${COPY_TEST_RESULT_LANGUAGE_ISSUE_ATTRIBUTE}]`)
   );
-  /** 兼容已回写旧结构中的 Result Screen 二级问题列表。 */
+  /** 兼容旧结构中未带 ownership 标记的二级问题列表。 */
   const issueItems = ownedIssueItems.length > 0
     ? ownedIssueItems
-    : Array.from(resultRoot.querySelectorAll('ul ul li'));
-  /** Result 中保存的问题说明。 */
-  const issues = issueItems.flatMap(item => {
+    : Array.from(reference.querySelectorAll('ul li'));
+  return normalizeLanguageIssues(issueItems.flatMap(item => {
     /** 去除前后空白后的单条问题说明。 */
     const issue = item.textContent?.trim();
     return issue ? [issue] : [];
+  }));
+};
+
+/** 读取旧单分组 Result 根节点的明确状态。 */
+const readLegacyResultPassedState = (resultRoot: Element): boolean | undefined => {
+  /** 旧结构中由 Result 根节点直接拥有的状态强调文本。 */
+  const status = Array.from(resultRoot.children).find(child => {
+    return child.tagName.toLowerCase() === COPY_TEST_CONTENT_LABEL_TAG;
   });
-  return Array.from(new Set(issues));
+  const label = status?.textContent?.trim();
+  if (label === PASSED_LABEL) {
+    return true;
+  }
+  return label === FAILED_LABEL ? false : undefined;
+};
+
+/** 读取一个 Screen 所属的新分组或旧根节点状态。 */
+const readScreenPassedState = (
+  reference: Element,
+  resultRoot: Element
+): boolean | undefined => {
+  /** Screen 列表的直接所有者，可能是新状态分组或旧 Result 根节点。 */
+  const owner = reference.parentElement?.parentElement;
+  if (owner === resultRoot) {
+    return readLegacyResultPassedState(resultRoot);
+  }
+  if (owner?.parentElement !== resultRoot) {
+    return undefined;
+  }
+
+  /** 新结构状态分组的明确属性值。 */
+  const value = owner.getAttribute(COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE);
+  if (value === COPY_TEST_RESULT_PASSED_GROUP_VALUE) {
+    return true;
+  }
+  return value === COPY_TEST_RESULT_FAILED_GROUP_VALUE ? false : undefined;
+};
+
+/** 读取 Result Screen 引用开头的可见标签。 */
+const readResultScreenLabel = (reference: Element): string => {
+  /** Screen 引用中位于嵌套错误列表之前的文本节点。 */
+  const labelNode = Array.from(reference.childNodes).find(node => {
+    return node.nodeType === Node.TEXT_NODE && node.textContent?.trim();
+  });
+  return labelNode?.textContent?.trim() || '';
+};
+
+/** 读取 Screen 的持久顺序，旧结构回退到 ScreenNN 或 DOM 顺序。 */
+const readResultScreenOrder = (
+  reference: Element,
+  label: string,
+  domIndex: number
+): number => {
+  /** 新结构持久化的零基顺序。 */
+  const storedValue = reference.getAttribute(COPY_TEST_RESULT_SCREEN_ORDER_ATTRIBUTE);
+  const storedOrder = Number(storedValue);
+  if (storedValue !== null && Number.isInteger(storedOrder) && storedOrder >= 0) {
+    return storedOrder;
+  }
+
+  /** 旧结构 ScreenNN 标签中的一基序号。 */
+  const labelMatch = /^Screen(\d+)$/i.exec(label);
+  return labelMatch ? Math.max(0, Number(labelMatch[1]) - 1) : domIndex;
+};
+
+/** 读取单个 Screen 自己的问题，兼容旧根级 retained 属性。 */
+const readScreenLanguageIssues = (
+  reference: Element,
+  resultRoot: Element
+): string[] => {
+  /** 新结构在 Screen 条目上持久保留的问题。 */
+  const retainedIssues = readRetainedLanguageIssues(reference);
+  if (retainedIssues.length > 0) {
+    return retainedIssues;
+  }
+
+  /** Failed Screen 当前可见的问题。 */
+  const visibleIssues = readVisibleScreenLanguageIssues(reference);
+  if (visibleIssues.length > 0) {
+    return visibleIssues;
+  }
+  return readRetainedLanguageIssues(resultRoot);
+};
+
+/** 判断 Result Screen 身份在同一来源行内是否唯一。 */
+const hasUniqueResultScreenIdentities = (entries: ResultScreenEntry[]): boolean => {
+  const imageIds = new Set(entries.map(entry => entry.imageId));
+  const instanceIds = new Set(entries.map(entry => entry.instanceId));
+  const orders = new Set(entries.map(entry => entry.order));
+  return imageIds.size === entries.length
+    && instanceIds.size === entries.length
+    && orders.size === entries.length;
+};
+
+/** 从 Result 根节点恢复所有 Screen 的独立状态。 */
+const readResultScreenEntries = (resultRoot: Element): ResultScreenEntry[] => {
+  /** 按当前 DOM 扫描出的候选 Screen 引用。 */
+  const references = Array.from(
+    resultRoot.querySelectorAll(`[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`)
+  );
+  /** 候选引用恢复出的规范 Screen 状态。 */
+  const entries = references.flatMap((reference, domIndex) => {
+    /** 当前 Result Screen 引用的稳定图片 ID。 */
+    const imageId = reference.getAttribute(COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE)?.trim() || '';
+    /** 当前 Result Screen 引用的稳定图片实例 ID。 */
+    const instanceId = reference.getAttribute(COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE)?.trim() || '';
+    /** 当前 Result Screen 引用的展示标签。 */
+    const label = readResultScreenLabel(reference);
+    /** 当前 Screen 所属状态分组。 */
+    const passed = readScreenPassedState(reference, resultRoot);
+    if (!imageId || !instanceId || !label || passed === undefined) {
+      return [];
+    }
+    return [{
+      image: { base64: '', fileName: imageId },
+      imageId,
+      instanceId,
+      label,
+      languageIssues: readScreenLanguageIssues(reference, resultRoot),
+      order: readResultScreenOrder(reference, label, domIndex),
+      passed,
+    }];
+  });
+  if (
+    entries.length === 0
+    || entries.length !== references.length
+    || !hasUniqueResultScreenIdentities(entries)
+  ) {
+    return [];
+  }
+  return entries.sort((left, right) => left.order - right.order);
+};
+
+/** 精确查找当前 Result 中唯一匹配的 Screen。 */
+const findTargetResultScreen = (
+  entries: ResultScreenEntry[],
+  update: CopyTestResultStatusUpdate
+): ResultScreenEntry | undefined => {
+  const matches = entries.filter(entry => {
+    return entry.imageId === update.imageId && entry.instanceId === update.instanceId;
+  });
+  return matches.length === 1 ? matches[0] : undefined;
+};
+
+/** 只移动一个 managed Result Screen，保持其他 Screen 状态和顺序不变。 */
+const replaceManagedResultScreenStatus = (
+  resultRoot: Element,
+  update: CopyTestResultStatusUpdate
+): boolean => {
+  /** 当前 Result 原样恢复出的全部 Screen 独立状态。 */
+  const entries = readResultScreenEntries(resultRoot);
+  /** 当前消息严格匹配的唯一 Screen。 */
+  const target = findTargetResultScreen(entries, update);
+  if (!target || target.passed === update.passed) {
+    return false;
+  }
+
+  target.passed = update.passed;
+  resultRoot.replaceWith(
+    createResultContentFromEntries(resultRoot.ownerDocument, entries)
+  );
+  return true;
 };
 
 /** 从当前 managed Result 单元格恢复单个来源原子组结果。 */
@@ -1083,16 +1365,18 @@ const hydrateValidationResult = (
     return null;
   }
 
-  /** Result 状态节点是否明确标记为 Passed。 */
-  const passed = resultRoot.querySelector(COPY_TEST_CONTENT_LABEL_TAG)?.textContent?.trim() === PASSED_LABEL;
-  /** 当前逐行 Result 真正引用的图片文件名。 */
-  const evidenceImageFileNames = readResultImageFileNames(resultRoot);
-  if (evidenceImageFileNames.length === 0) {
+  /** 从新分组或旧单状态结构恢复出的全部 Screen。 */
+  const entries = readResultScreenEntries(resultRoot);
+  if (entries.length === 0) {
     return null;
   }
-  /** 当前失败 Result 中可恢复的问题说明。 */
-  const languageIssues = passed ? [] : readResultLanguageIssues(resultRoot);
 
+  /** 当前逐行 Result 真正引用的图片文件名。 */
+  const evidenceImageFileNames = entries.map(entry => entry.imageId);
+  /** 各 Screen 保留问题的去重并集，用作旧行级契约投影。 */
+  const languageIssues = normalizeLanguageIssues(
+    entries.flatMap(entry => entry.languageIssues)
+  );
   return {
     evidenceImageFileNames,
     evidenceImages: evidenceImageFileNames.flatMap(fileName => {
@@ -1101,8 +1385,14 @@ const hydrateValidationResult = (
       return image ? [image] : [];
     }),
     languageIssues,
-    passed,
+    /** 保持 AI 契约：至少一张 Screen 为 Passed 时，该来源行视为 Passed。 */
+    passed: entries.some(entry => entry.passed),
     rowIndex,
+    screenStatuses: entries.map(entry => ({
+      imageId: entry.imageId,
+      languageIssues: entry.languageIssues,
+      passed: entry.passed,
+    })),
   };
 };
 
@@ -1158,6 +1448,83 @@ export const hydrateCopyTestValidationSnapshot = (
     return result ? [result] : [];
   });
   return results.length > 0 ? { images, results } : null;
+};
+
+/** 定位当前来源 Pair 中待人工更新的 managed Result 根节点。 */
+const findManagedResultForStatusUpdate = (
+  table: CopyTestWorkingTable,
+  tableElement: HTMLTableElement,
+  selectedColumnIndex: number,
+  selectedColumnLabel: string,
+  update: CopyTestResultStatusUpdate
+): Element | undefined => {
+  /** 当前 Comparison Column 对应的严格 ownership 键。 */
+  const sourceColumnKey = getSourceColumnKey(selectedColumnIndex, selectedColumnLabel);
+  if (update.sourceColumnKey !== sourceColumnKey) {
+    return undefined;
+  }
+
+  /** 与业务数据行下标对应的不可拆分来源原子组。 */
+  const rowGroup = buildCopyTestRowGroups(table, selectedColumnIndex).find(group => {
+    return group.dataRowIndexes[0] === update.rowIndex;
+  });
+  if (!rowGroup) {
+    return undefined;
+  }
+
+  /** 新解析工作副本中的 Result 列和目标来源锚点单元格。 */
+  const model = parseTableModel(tableElement);
+  const resultColumnIndex = findGeneratedColumnIndexes(model.headers, sourceColumnKey).result;
+  const resultSlot = resultColumnIndex === undefined
+    ? undefined
+    : model.rows[rowGroup.anchorRowIndex]?.slots[resultColumnIndex];
+  if (!resultSlot?.owned || !isGeneratedCellForSource(
+    resultSlot.cell,
+    COPY_TEST_GENERATED_RESULT_TYPE,
+    sourceColumnKey
+  )) {
+    return undefined;
+  }
+
+  return getManagedContentElements(
+    resultSlot.cell.element,
+    COPY_TEST_GENERATED_RESULT_TYPE
+  )[0];
+};
+
+/** 将当前来源 Pair 的单个 Screen 移入明确的 Passed 或 Failed 分组。 */
+export const setCopyTestResultStatus = (
+  table: CopyTestWorkingTable,
+  selectedColumnIndex: number,
+  selectedColumnLabel: string,
+  update: CopyTestResultStatusUpdate
+): CopyTestResultStatusToggleResult => {
+  /** 从 workingHtml 创建的独立可编辑表格副本。 */
+  const doc = parseHtml(table.workingHtml);
+  const tableElement = doc.querySelector<HTMLTableElement>(TABLE_TAG_NAME);
+  if (!tableElement) {
+    return { changed: false, table };
+  }
+
+  /** 严格匹配当前来源列和业务行的 managed Result 根节点。 */
+  const resultRoot = findManagedResultForStatusUpdate(
+    table,
+    tableElement,
+    selectedColumnIndex,
+    selectedColumnLabel,
+    update
+  );
+  if (!resultRoot || !replaceManagedResultScreenStatus(resultRoot, update)) {
+    return { changed: false, table };
+  }
+
+  /** 只包含目标 Screen 分组变化的新工作表格。 */
+  const workingHtml = toConfluenceStorageHtml(tableElement.outerHTML);
+  return {
+    changed: true,
+    passed: update.passed,
+    table: refreshWorkingTable(table, workingHtml),
+  };
 };
 
 /** 判断工作表格中是否仍有指定图片的任意 Evidence 引用。 */
@@ -1320,10 +1687,21 @@ const removeImageFromValidationGroup = (
       return [];
     }
 
+    /** 删除目标文件后仍存在的逐 Screen 人工状态。 */
+    const screenStatuses = result.screenStatuses?.filter(status => {
+      return status.imageId !== imageFileName;
+    });
     return [{
       ...result,
       evidenceImageFileNames,
       evidenceImages: result.evidenceImages.filter(image => image.fileName !== imageFileName),
+      languageIssues: screenStatuses
+        ? normalizeLanguageIssues(screenStatuses.flatMap(status => status.languageIssues))
+        : result.languageIssues,
+      passed: screenStatuses
+        ? screenStatuses.some(status => status.passed)
+        : result.passed,
+      screenStatuses,
     }];
   });
 };

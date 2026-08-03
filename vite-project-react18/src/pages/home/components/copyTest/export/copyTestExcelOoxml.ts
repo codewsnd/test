@@ -126,14 +126,12 @@ interface CopyTestExcelDecodedImage {
   extension: CopyTestExcelImageExtension;
 }
 
-/** Result 单元格中需要单独着色的状态信息。 */
-interface CopyTestExcelResultStatus {
-  /** Excel 富文本使用的 ARGB 状态色。 */
-  color: string;
-  /** Passed: 或 Failed: 状态文本。 */
-  prefix: string;
-  /** 状态文本之后保持默认颜色的内容。 */
-  remainder: string;
+/** Result 单元格中的一个 Excel 富文本片段。 */
+interface CopyTestExcelTextRun {
+  /** 状态片段使用的可选 ARGB 颜色。 */
+  color?: string;
+  /** 当前富文本片段的完整文本。 */
+  text: string;
 }
 
 /** CFB 压缩包内单个文件的最小读取结构。 */
@@ -352,28 +350,43 @@ const serializeXml = (documentModel: XMLDocument): string => {
   return new XMLSerializer().serializeToString(documentModel);
 };
 
-/** 读取 Result 单元格内需要着色的状态前缀。 */
-const getExcelResultStatus = (
+/** 读取 Result 中单个状态行对应的 Excel ARGB 颜色。 */
+const getExcelResultLineColor = (line: string): string | undefined => {
+  if (line === COPY_TEST_EXPORT_PASSED_LABEL) {
+    return `FF${COPY_TEST_EXPORT_PASSED_COLOR}`;
+  }
+  if (line === COPY_TEST_EXPORT_FAILED_LABEL) {
+    return `FF${COPY_TEST_EXPORT_FAILED_COLOR}`;
+  }
+  return undefined;
+};
+
+/** 将 Result 单元格拆成状态标签和普通详情的 Excel 富文本片段。 */
+const getExcelResultTextRuns = (
   cell: CopyTestExportCell
-): CopyTestExcelResultStatus | null => {
+): CopyTestExcelTextRun[] | null => {
   if (cell.kind !== 'result' || cell.header) {
     return null;
   }
-  if (cell.text.startsWith(COPY_TEST_EXPORT_PASSED_LABEL)) {
-    return {
-      color: `FF${COPY_TEST_EXPORT_PASSED_COLOR}`,
-      prefix: COPY_TEST_EXPORT_PASSED_LABEL,
-      remainder: cell.text.slice(COPY_TEST_EXPORT_PASSED_LABEL.length),
-    };
-  }
-  if (cell.text.startsWith(COPY_TEST_EXPORT_FAILED_LABEL)) {
-    return {
-      color: `FF${COPY_TEST_EXPORT_FAILED_COLOR}`,
-      prefix: COPY_TEST_EXPORT_FAILED_LABEL,
-      remainder: cell.text.slice(COPY_TEST_EXPORT_FAILED_LABEL.length),
-    };
-  }
-  return null;
+  /** 当前 Result 的全部显式文本行。 */
+  const lines = cell.text.split('\n');
+  /** 当前 Result 是否包含至少一个合法状态标签。 */
+  let hasStatusLine = false;
+  /** 保留原始换行顺序的全部富文本片段。 */
+  const runs = lines.flatMap((line, lineIndex): CopyTestExcelTextRun[] => {
+    /** 当前状态行使用的可选 ARGB 颜色。 */
+    const color = getExcelResultLineColor(line);
+    /** 除最后一行外保留的原始换行符。 */
+    const newline = lineIndex < lines.length - 1 ? '\n' : '';
+    if (!color) {
+      return [{ text: `${line}${newline}` }];
+    }
+    hasStatusLine = true;
+    return newline
+      ? [{ color, text: line }, { text: newline }]
+      : [{ color, text: line }];
+  });
+  return hasStatusLine ? runs : null;
 };
 
 /** 创建 Excel inline rich text 中的一个文字节点。 */
@@ -406,7 +419,7 @@ const createExcelRichTextRun = (
 const applyExcelResultRichText = (
   documentModel: XMLDocument,
   cellElement: Element,
-  status: CopyTestExcelResultStatus
+  runs: CopyTestExcelTextRun[]
 ): void => {
   while (cellElement.firstChild) {
     cellElement.firstChild.remove();
@@ -414,10 +427,9 @@ const applyExcelResultRichText = (
   cellElement.setAttribute('t', 'inlineStr');
   /** 当前单元格的 inline string 容器。 */
   const inlineString = documentModel.createElementNS(COPY_TEST_EXCEL_SPREADSHEET_NAMESPACE, 'is');
-  inlineString.append(createExcelRichTextRun(documentModel, status.prefix, status.color));
-  if (status.remainder) {
-    inlineString.append(createExcelRichTextRun(documentModel, status.remainder));
-  }
+  runs.forEach(run => {
+    inlineString.append(createExcelRichTextRun(documentModel, run.text, run.color));
+  });
   cellElement.append(inlineString);
 };
 
@@ -434,9 +446,9 @@ const patchExcelResultColors = (
     )).map(element => [element.getAttribute('r') || '', element])
   );
   model.rows.flatMap(row => row.cells).forEach(cell => {
-    /** 当前 Result 单元格可选的 Passed 或 Failed 状态。 */
-    const status = getExcelResultStatus(cell);
-    if (!status) {
+    /** 当前 Result 单元格中按状态行拆分的富文本片段。 */
+    const runs = getExcelResultTextRuns(cell);
+    if (!runs) {
       return;
     }
     /** 当前中立单元格对应的 A1 引用。 */
@@ -444,7 +456,7 @@ const patchExcelResultColors = (
     /** SheetJS 输出中与中立单元格对应的 XML 节点。 */
     const cellElement = cellByReference.get(reference);
     if (cellElement) {
-      applyExcelResultRichText(worksheetDocument, cellElement, status);
+      applyExcelResultRichText(worksheetDocument, cellElement, runs);
     }
   });
 };
