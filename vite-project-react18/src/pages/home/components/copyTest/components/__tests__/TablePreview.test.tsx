@@ -40,6 +40,12 @@ const PREVIEW_EQUAL_BUSINESS_COLUMN_WIDTH = 'calc((100% - 42px) / 3)';
 const EVIDENCE_DELETE_BUTTON_SELECTOR = 'button[aria-label="Delete evidence image"]';
 /** Result 状态切换链接选择器。 */
 const RESULT_STATUS_LINK_SELECTOR = 'a[data-copy-test-result-status-link]';
+/** 仅供系统预览显示的标点识别复核提示选择器。 */
+const PUNCTUATION_REVIEW_WARNING_SELECTOR =
+  '[data-copy-test-punctuation-review-warning]';
+/** 标点较多且存在 Failed 时显示的固定英文提示。 */
+const PUNCTUATION_REVIEW_WARNING_TEXT =
+  'Punctuation recognition may be inaccurate. Please review.';
 const SELECTION_CHECKBOX_ATTRIBUTE = 'data-copy-test-selection-checkbox';
 const SELECTION_ROW_INDEXES_ATTRIBUTE = 'data-copy-test-selection-row-indexes';
 const SELECTION_SELECT_ALL_ATTRIBUTE = 'data-copy-test-selection-all';
@@ -123,6 +129,25 @@ const replaceManagedResultContent = (content: string): string => {
   }
   resultRoot.innerHTML = content;
   return table.outerHTML;
+};
+
+/** 构建拥有指定原始文案和 Result 内容的单行组预览表格。 */
+const buildPunctuationWarningTable = (
+  sourceText: string,
+  resultContent: string
+) => {
+  const doc = new DOMParser().parseFromString(
+    replaceManagedResultContent(resultContent),
+    'text/html'
+  );
+  const table = doc.querySelector<HTMLTableElement>('table');
+  /** fixture 第二物理行中横跨当前 Comparison Column 的原始文案单元格。 */
+  const sourceCell = table?.rows[1]?.cells[1];
+  if (!table || !sourceCell) {
+    throw new Error('Expected punctuation warning fixture');
+  }
+  sourceCell.textContent = sourceText;
+  return parseCopyTestStorageTables(table.outerHTML)[0];
 };
 
 /** 读取顶层预览 colgroup 的角色与宽度表达式。 */
@@ -425,6 +450,112 @@ describe('TablePreview', () => {
     expect(mixedTable.workingHtml).not.toContain('Mark as Passed');
   });
 
+  it('shows a preview-only review note below Failed when source copy has more than three punctuation marks', () => {
+    const handlers = createHandlers();
+    const table = buildPunctuationWarningTable(
+      'Save, review; confirm: now!',
+      [
+        `<div ${COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE}="${COPY_TEST_RESULT_PASSED_GROUP_VALUE}">`,
+        '<strong>Passed:</strong><ul>',
+        `<li ${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="img-passed"`,
+        ` ${COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE}="img-passed:0:0">Screen01</li>`,
+        '</ul></div>',
+        `<div ${COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE}="${COPY_TEST_RESULT_FAILED_GROUP_VALUE}">`,
+        '<strong>Failed:</strong><ul>',
+        `<li ${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="img-failed"`,
+        ` ${COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE}="img-failed:0:0">`,
+        'Screen02<ul><li>Visible copy differs.</li></ul></li>',
+        '</ul></div>',
+      ].join('')
+    );
+    render(
+      <TablePreview
+        onEvidenceImageDelete={handlers.onDelete}
+        onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
+        onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
+        selectedColumnIndex={4}
+        selectedRowIndexes={[0]}
+        table={table}
+      />
+    );
+
+    const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
+    const previewDocument = parseFrameDocument(iframe);
+    const failedGroup = previewDocument.querySelector(
+      `[${COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE}="${COPY_TEST_RESULT_FAILED_GROUP_VALUE}"]`
+    );
+    const passedGroup = previewDocument.querySelector(
+      `[${COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE}="${COPY_TEST_RESULT_PASSED_GROUP_VALUE}"]`
+    );
+    const warning = failedGroup?.querySelector(PUNCTUATION_REVIEW_WARNING_SELECTOR);
+
+    expect(warning?.textContent).toBe(PUNCTUATION_REVIEW_WARNING_TEXT);
+    expect(warning?.getAttribute('role')).toBe('note');
+    expect(failedGroup?.lastElementChild).toBe(warning);
+    expect(passedGroup?.querySelector(PUNCTUATION_REVIEW_WARNING_SELECTOR)).toBeNull();
+    expect(table.workingHtml).not.toContain(PUNCTUATION_REVIEW_WARNING_TEXT);
+    expect(table.originalHtml).not.toContain(PUNCTUATION_REVIEW_WARNING_TEXT);
+  });
+
+  it('omits the review note for exactly three punctuation marks or when Result has no Failed', () => {
+    const handlers = createHandlers();
+    const failedWithThreePunctuation = buildPunctuationWarningTable(
+      'Save, review; confirm:',
+      [
+        '<strong>Failed:</strong><ul>',
+        `<li ${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="img-failed"`,
+        ` ${COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE}="img-failed:0:0">`,
+        'Screen01<ul><li>Visible copy differs.</li></ul></li>',
+        '</ul>',
+      ].join('')
+    );
+    const failedRender = render(
+      <TablePreview
+        onEvidenceImageDelete={handlers.onDelete}
+        onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
+        onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
+        selectedColumnIndex={4}
+        selectedRowIndexes={[0]}
+        table={failedWithThreePunctuation}
+      />
+    );
+    const failedIframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
+    expect(parseFrameDocument(failedIframe).querySelector(
+      PUNCTUATION_REVIEW_WARNING_SELECTOR
+    )).toBeNull();
+    failedRender.unmount();
+
+    const passedWithFourPunctuation = buildPunctuationWarningTable(
+      'Save, review; confirm: now!',
+      [
+        '<strong>Passed:</strong><ul>',
+        `<li ${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="img-passed"`,
+        ` ${COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE}="img-passed:0:0">Screen01</li>`,
+        '</ul>',
+      ].join('')
+    );
+    render(
+      <TablePreview
+        onEvidenceImageDelete={handlers.onDelete}
+        onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
+        onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={7}
+        selectedColumnIndex={4}
+        selectedRowIndexes={[0]}
+        table={passedWithFourPunctuation}
+      />
+    );
+    const passedIframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
+    expect(parseFrameDocument(passedIframe).querySelector(
+      PUNCTUATION_REVIEW_WARNING_SELECTOR
+    )).toBeNull();
+  });
+
   it('keeps legacy single-status Failed Result compatible', () => {
     const handlers = createHandlers();
     const failedTable = parseCopyTestStorageTables(
@@ -560,6 +691,18 @@ describe('TablePreview', () => {
 
   it('patches Result status both ways without reloading the iframe or losing scroll position', () => {
     const handlers = createHandlers();
+    /** 四个标点且只有 Passed 的初始预览表格。 */
+    const punctuatedPassedTable = buildPunctuationWarningTable(
+      'Save, review; confirm: now!',
+      [
+        '<strong>Passed:</strong><ul>',
+        `<li ${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="img-shared"`,
+        ` ${COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE}="img-shared:0:0">Screen01</li>`,
+        `<li ${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="img-shared"`,
+        ` ${COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE}="img-shared:0:1">Screen02</li>`,
+        '</ul>',
+      ].join('')
+    );
     const { rerender } = render(
       <TablePreview
         images={sharedImages}
@@ -570,7 +713,7 @@ describe('TablePreview', () => {
         previewRevision={7}
         selectedColumnIndex={4}
         selectedRowIndexes={[0]}
-        table={mergedTable}
+        table={punctuatedPassedTable}
       />
     );
     const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
@@ -583,9 +726,19 @@ describe('TablePreview', () => {
     fireEvent.load(iframe);
 
     /** 模拟父层完成单个 Screen 状态更新后传回的新 working table。 */
-    const failedTable = parseCopyTestStorageTables(
-      mergedTableHtml.replace('<strong>Passed:</strong>', '<strong>Failed:</strong>')
-    )[0];
+    const failedTable = buildPunctuationWarningTable(
+      'Save, review; confirm: now!',
+      [
+        '<strong>Failed:</strong><ul>',
+        `<li ${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="img-shared"`,
+        ` ${COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE}="img-shared:0:0">`,
+        'Screen01<ul><li>Issue A</li></ul></li>',
+        `<li ${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="img-shared"`,
+        ` ${COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE}="img-shared:0:1">`,
+        'Screen02<ul><li>Issue B</li></ul></li>',
+        '</ul>',
+      ].join('')
+    );
     rerender(
       <TablePreview
         images={sharedImages}
@@ -610,6 +763,9 @@ describe('TablePreview', () => {
     expect(updatedScrollRoot?.scrollTop).toBe(180);
     expect(updatedScrollRoot?.textContent).toContain('Failed:');
     expect(updatedScrollRoot?.textContent).toContain('Mark as Passed');
+    expect(updatedScrollRoot?.querySelector(
+      PUNCTUATION_REVIEW_WARNING_SELECTOR
+    )?.textContent).toBe(PUNCTUATION_REVIEW_WARNING_TEXT);
     expect(updatedScrollRoot?.querySelector<HTMLInputElement>(
       `[${SELECTION_CHECKBOX_ATTRIBUTE}]:not([${SELECTION_SELECT_ALL_ATTRIBUTE}])`
     )?.checked).toBe(true);
@@ -642,7 +798,7 @@ describe('TablePreview', () => {
         previewRevision={9}
         selectedColumnIndex={4}
         selectedRowIndexes={[0]}
-        table={mergedTable}
+        table={punctuatedPassedTable}
       />
     );
 
@@ -657,6 +813,9 @@ describe('TablePreview', () => {
     expect(restoredScrollRoot?.textContent).toContain('Passed:');
     expect(restoredScrollRoot?.textContent).toContain('Mark as Failed');
     expect(restoredScrollRoot?.textContent).not.toContain('Failed:');
+    expect(restoredScrollRoot?.querySelector(
+      PUNCTUATION_REVIEW_WARNING_SELECTOR
+    )).toBeNull();
     expect(iframe.contentDocument?.documentElement.getAttribute(
       PREVIEW_REVISION_ATTRIBUTE
     )).toBe('9');
@@ -664,6 +823,10 @@ describe('TablePreview', () => {
       'blob:preview-1'
     );
     expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(punctuatedPassedTable.workingHtml).not.toContain(
+      PUNCTUATION_REVIEW_WARNING_TEXT
+    );
+    expect(failedTable.workingHtml).not.toContain(PUNCTUATION_REVIEW_WARNING_TEXT);
     expect(postMessage).toHaveBeenLastCalledWith({
       disabled: false,
       previewRevision: 9,

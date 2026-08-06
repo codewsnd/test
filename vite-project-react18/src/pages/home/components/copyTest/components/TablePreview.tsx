@@ -95,6 +95,20 @@ const RESULT_STATUS_PASSED_ATTRIBUTE = 'data-copy-test-result-status-passed';
 const RESULT_STATUS_SOURCE_COLUMN_KEY_ATTRIBUTE =
   'data-copy-test-result-status-source-column-key';
 
+/** 仅在系统预览中显示的标点识别复核提示属性。 */
+const PUNCTUATION_REVIEW_WARNING_ATTRIBUTE =
+  'data-copy-test-punctuation-review-warning';
+
+/** 触发标点识别复核提示前允许出现的标点数量。 */
+const PUNCTUATION_REVIEW_THRESHOLD = 3;
+
+/** 标点较多且存在 Failed 时显示的简短英文提示。 */
+const PUNCTUATION_REVIEW_WARNING_TEXT =
+  'Punctuation recognition may be inaccurate. Please review.';
+
+/** 匹配单个 Unicode 标点字符，不把货币、数学符号或 Emoji 计入标点。 */
+const UNICODE_PUNCTUATION_PATTERN = /^\p{P}$/u;
+
 /** Result 当前状态使用的固定可见文本。 */
 const PASSED_RESULT_LABEL = 'Passed:';
 
@@ -165,6 +179,7 @@ const PREVIEW_RESERVED_RUNTIME_ATTRIBUTES: ReadonlySet<string> = new Set([
   PREVIEW_IMAGE_SRC_ATTRIBUTE,
   PREVIEW_STORAGE_IMAGE_ATTRIBUTE,
   LEGACY_RESULT_STATUS_BUTTON_ATTRIBUTE,
+  PUNCTUATION_REVIEW_WARNING_ATTRIBUTE,
   RESULT_STATUS_LINK_ATTRIBUTE,
   RESULT_STATUS_PASSED_ATTRIBUTE,
   RESULT_STATUS_ROW_INDEX_ATTRIBUTE,
@@ -409,6 +424,13 @@ const PREVIEW_DOCUMENT_STYLE = `
     color: #6b778c;
     cursor: not-allowed;
     text-decoration: none;
+  }
+
+  [${PUNCTUATION_REVIEW_WARNING_ATTRIBUTE}] {
+    margin: 8px 0 0;
+    color: #6b778c;
+    font-size: 12px;
+    line-height: 1.4;
   }
 
   ac\\:image,
@@ -1191,6 +1213,62 @@ const readPreviewScreenPassedState = (
   return value === COPY_TEST_RESULT_FAILED_GROUP_VALUE ? false : undefined;
 };
 
+/** 判断原始可见文案中的 Unicode 标点数量是否严格超过提示阈值。 */
+const hasMoreThanPunctuationReviewThreshold = (sourceText: string): boolean => {
+  /** 当前已识别的标点字符数量。 */
+  let punctuationCount = 0;
+  for (const character of sourceText) {
+    if (!UNICODE_PUNCTUATION_PATTERN.test(character)) {
+      continue;
+    }
+    punctuationCount += 1;
+    if (punctuationCount > PUNCTUATION_REVIEW_THRESHOLD) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/** 读取新分组或旧单状态结构中承载 Failed 信息的容器。 */
+const getPreviewFailedResultContainer = (resultRoot: Element): Element | null => {
+  /** 新结构中明确标记为 Failed 的直属状态分组。 */
+  const failedGroup = Array.from(resultRoot.children).find(child => {
+    return child.getAttribute(COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE)
+      === COPY_TEST_RESULT_FAILED_GROUP_VALUE;
+  });
+  if (failedGroup) {
+    return failedGroup;
+  }
+  return readPreviewLegacyResultPassedState(resultRoot) === false ? resultRoot : null;
+};
+
+/** 在 iframe 副本的 Failed 信息底部追加仅供系统预览的标点复核提示。 */
+const appendPunctuationReviewWarning = (
+  doc: Document,
+  resultRoot: Element,
+  sourceText: string
+): void => {
+  if (!hasMoreThanPunctuationReviewThreshold(sourceText)) {
+    return;
+  }
+
+  /** 当前 Result 中真正承载 Failed 信息的预览容器。 */
+  const failedContainer = getPreviewFailedResultContainer(resultRoot);
+  if (
+    !failedContainer
+    || failedContainer.querySelector(`[${PUNCTUATION_REVIEW_WARNING_ATTRIBUTE}]`)
+  ) {
+    return;
+  }
+
+  /** 仅追加到 iframe 文档、不进入 workingHtml 的提示节点。 */
+  const warning = doc.createElement('p');
+  warning.setAttribute(PUNCTUATION_REVIEW_WARNING_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
+  warning.setAttribute('role', 'note');
+  warning.textContent = PUNCTUATION_REVIEW_WARNING_TEXT;
+  failedContainer.appendChild(warning);
+};
+
 /** 创建一个只向父页面发送明确 Screen 目标状态的蓝色链接。 */
 const createResultStatusLink = (
   doc: Document,
@@ -1340,6 +1418,10 @@ const appendResultStatusLinks = (
       return;
     }
 
+    /** 当前原始 Comparison Column 单元格在安全预览副本中的可见文案。 */
+    const sourceText = model.rows[group.anchorRowIndex]
+      ?.slots[selectedColumnIndex]
+      ?.cell.text || '';
     getPreviewResultScreenItems(resultRoot).forEach(screenItem => {
       /** 按当前 Screen 自己所属分组读取状态。 */
       const currentPassed = readPreviewScreenPassedState(screenItem, resultRoot);
@@ -1354,6 +1436,7 @@ const appendResultStatusLinks = (
         currentPassed
       );
     });
+    appendPunctuationReviewWarning(doc, resultRoot, sourceText);
   });
 };
 
