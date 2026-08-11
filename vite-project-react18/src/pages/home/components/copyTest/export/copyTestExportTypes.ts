@@ -42,7 +42,7 @@ export interface CopyTestExportCellImage {
   fileName: string;
   /** 原始 Storage 声明的图片高度。 */
   height: number;
-  /** Screen01 等用户可见标签。 */
+  /** Screen01 (file name) 等用户可见标签。 */
   label: string;
   /** 原始 Storage 声明的图片宽度。 */
   width: number;

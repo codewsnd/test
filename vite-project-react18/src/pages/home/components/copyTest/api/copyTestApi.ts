@@ -37,7 +37,7 @@ const IMAGE_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i;
 const MOCK_VALIDATION_DELAY_MS = 300;
 
 /** 临时启用按调用轮次变化的 AI 校验结果；设为 false 后恢复真实 aiChat。 */
-export const COPY_TEST_AI_CHAT_MOCK_ENABLED = true;
+export const COPY_TEST_AI_CHAT_MOCK_ENABLED = false;
 
 /** Confluence storage 查询接口的返回结构。 */
 export interface CopyTestStorageResponse {
@@ -49,6 +49,8 @@ export interface CopyTestStorageResponse {
 export interface CopyTestImage {
   /** 图片文件名，也是 AI Evidence 返回时使用的稳定标识。 */
   fileName: string;
+  /** 用户选择图片时的原始文件名，用于界面展示。 */
+  originalFileName?: string;
   /** 图片内容；发送给 AI 时必须是 image data URL。 */
   base64: string;
 }

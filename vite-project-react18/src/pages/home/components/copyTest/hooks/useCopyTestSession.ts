@@ -141,8 +141,15 @@ const mergeCopyTestImageIdentities = (
   imageGroups.flat().forEach(image => {
     /** 同一附件文件名当前已经保存的图片身份。 */
     const existingImage = imageByFileName.get(image.fileName);
-    if (!existingImage || hasCopyTestImageContent(image)) {
+    if (!existingImage) {
       imageByFileName.set(image.fileName, image);
+      return;
+    }
+    if (hasCopyTestImageContent(image)) {
+      imageByFileName.set(image.fileName, {
+        ...image,
+        originalFileName: image.originalFileName || existingImage.originalFileName,
+      });
     }
   });
   return Array.from(imageByFileName.values());

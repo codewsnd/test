@@ -2,6 +2,7 @@
  * 文件作用：根据逐行 AI 图片命中关系，纯计算 Test Evidence 合并组与 Test Result 图片引用。
  */
 import type { CopyTestImage } from '../api/copyTestApi';
+import { getCopyTestImageDisplayName } from './copyTestImageUtils';
 
 /** Screen 标签固定前缀。 */
 const SCREEN_LABEL_PREFIX = 'Screen';
@@ -149,11 +150,15 @@ const appendSourceGroup = (
   sourceGroup.evidenceImages.forEach(image => group.imageFileNames.add(image.fileName));
 };
 
-/** 根据零起始下标生成 Screen01、Screen02 等展示标签。 */
-const createScreenLabel = (index: number): string => {
+/** 根据零起始下标和图片原始文件名生成 Screen 展示标签。 */
+const createScreenLabel = (image: CopyTestImage, index: number): string => {
   /** 转换为一开始的 Screen 序号。 */
   const screenNumber = String(index + 1).padStart(SCREEN_LABEL_NUMBER_WIDTH, '0');
-  return `${SCREEN_LABEL_PREFIX}${screenNumber}`;
+  /** 不带扩展名的用户可识别文件名。 */
+  const displayName = getCopyTestImageDisplayName(image);
+  /** 缺少有效文件名时仍保留可用的 Screen 序号。 */
+  const screenLabel = `${SCREEN_LABEL_PREFIX}${screenNumber}`;
+  return displayName ? `${screenLabel} (${displayName})` : screenLabel;
 };
 
 /** 构建 Evidence 组按上传顺序展示的 Screen 列表。 */
@@ -163,7 +168,7 @@ const createGroupScreens = (
 ): CopyTestEvidenceScreen[] => {
   return uploadedImages
     .filter(image => group.imageFileNames.has(image.fileName))
-    .map((image, index) => ({ image, label: createScreenLabel(index) }));
+    .map((image, index) => ({ image, label: createScreenLabel(image, index) }));
 };
 
 /** 构建单个来源原子组真正使用的 Result Screen 子集。 */

@@ -47,7 +47,7 @@ CopyTest 用于比较 Confluence 表格中的文案与页面截图，并生成�
 
 - **Passed**：截图支持当前文案。
 - **Failed**：文案缺失、不完整、不一致，或无法确认。
-- **Screen01、Screen02……**：当前结果对应的 Evidence 图片。
+- **Screen01 (文件名)、Screen02 (文件名)……**：当前结果对应的 Evidence 图片，文件名不包含扩展名。
 
 点击 Evidence 图片可以放大查看。
 

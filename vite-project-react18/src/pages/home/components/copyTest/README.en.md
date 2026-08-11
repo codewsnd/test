@@ -47,7 +47,7 @@ You can select up to 50 images at a time, with a maximum total size of 10 MB. Du
 
 - **Passed**: the screenshot supports the expected copy.
 - **Failed**: the copy is missing, incomplete, different, or cannot be confirmed.
-- **Screen01, Screen02…**: Evidence images related to the result.
+- **Screen01 (file name), Screen02 (file name)…**: Evidence images related to the result; file extensions are omitted.
 
 Click an Evidence image to open a larger preview.
 

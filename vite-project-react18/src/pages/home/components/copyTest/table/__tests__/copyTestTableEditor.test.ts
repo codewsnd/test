@@ -20,6 +20,7 @@ import {
 } from '../copyTestTableParser';
 import {
   COPY_TEST_EVIDENCE_CARD_ATTRIBUTE,
+  COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE,
   COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE,
@@ -225,6 +226,45 @@ describe('copyTestTableEditor', () => {
     expect(createdEmptyColumns.workingHtml).toContain('Test Evidence - Missing');
   });
 
+  it('在 Result 和 Evidence 中显示不带扩展名的原始图片文件名', () => {
+    const table = parseCopyTestStorageTables(
+      '<table><tr><th>Target</th></tr><tr><td>copy</td></tr></table>'
+    )[0];
+    const uploadedImage = {
+      base64: IMAGE_BASE64,
+      fileName: '0198f4e0-0000-7000-8000-000000000000.png',
+      originalFileName: 'This is just test.png',
+    };
+    const results = bindResultImages([{
+      evidenceImageFileNames: [uploadedImage.fileName],
+      languageIssues: [],
+      passed: true,
+      rowIndex: 0,
+    }], [uploadedImage]);
+    const validated = applyCopyTestValidationResults(
+      table,
+      results,
+      0,
+      'Target',
+      [uploadedImage]
+    );
+    const doc = parseHtml(validated.workingHtml);
+    const resultReference = doc.querySelector(`[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`);
+    const evidenceCard = doc.querySelector(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`);
+    const evidenceImage = doc.querySelector(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`);
+    const hydrated = hydrateCopyTestValidationSnapshot(validated, 0, 'Target');
+
+    expect(resultReference?.firstChild?.textContent).toBe('Screen01 (This is just test)');
+    expect(evidenceCard?.querySelector('strong')?.textContent)
+      .toBe('Screen01 (This is just test)');
+    expect(evidenceImage?.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE))
+      .toBe('This is just test.png');
+    expect(hydrated?.images[0]).toMatchObject({
+      fileName: uploadedImage.fileName,
+      originalFileName: uploadedImage.originalFileName,
+    });
+  });
+
   it('moves only the target Screen between status groups and keeps export content clean', () => {
     /** 单行双 Screen 失败结果用于覆盖三种分组创建和移动场景。 */
     const table = parseCopyTestStorageTables(
@@ -322,7 +362,7 @@ describe('copyTestTableEditor', () => {
       ],
     });
     expect(mixedResultCell?.text).toBe(
-      'Passed:\n• Screen01\nFailed:\n• Screen02\n• Visible copy differs.'
+      'Passed:\n• Screen01 (screen-a)\nFailed:\n• Screen02 (screen-b)\n• Visible copy differs.'
     );
     expect(mixedResultCell?.text).not.toContain('Set to');
     expect(confluenceStorage).not.toBeNull();
@@ -600,9 +640,9 @@ describe('copyTestTableEditor', () => {
     expect(resultCells.map(cell => Array.from(
       cell?.querySelectorAll(`[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`) || []
     ).map(reference => reference.firstChild?.textContent))).toEqual([
-      ['Screen01'],
-      ['Screen01'],
-      ['Screen01', 'Screen02'],
+      ['Screen01 (screen-a)'],
+      ['Screen01 (screen-a)'],
+      ['Screen01 (screen-a)', 'Screen02 (screen-b)'],
     ]);
     expect(validated.workingHtml).not.toContain(SCREEN_3.fileName);
   });
@@ -766,7 +806,7 @@ describe('copyTestTableEditor', () => {
     ]);
     expect(resultRoots).toHaveLength(1);
     expect(evidenceCards).toHaveLength(1);
-    expect(evidenceCards[0].querySelector('strong')?.textContent).toBe('Screen01');
+    expect(evidenceCards[0].querySelector('strong')?.textContent).toBe('Screen01 (screen-b)');
     expect(deleted.table.workingHtml).not.toContain(SCREEN_1.fileName);
     expect(deleted.table.workingHtml).toContain(SCREEN_2.fileName);
   });
@@ -844,10 +884,11 @@ describe('copyTestTableEditor', () => {
     expect(getResultImageIds(affectedResult)).toEqual([SCREEN_3.fileName]);
     expect(affectedResult.querySelector(
       `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="${SCREEN_3.fileName}"]`
-    )!.firstChild!.textContent).toBe('Screen01');
+    )!.firstChild!.textContent).toBe('Screen01 (screen-c)');
     expect(affectedEvidence.querySelector(
       `[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}="${SCREEN_3.fileName}"]`
-    )!.closest(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`)!.querySelector('strong')!.textContent).toBe('Screen01');
+    )!.closest(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`)!.querySelector('strong')!.textContent)
+      .toBe('Screen01 (screen-c)');
     expect(buildCopyTestRowGroups(deleted.table, 0).map(group => group.rowSpan)).toEqual([2, 1, 2, 1]);
   });
 
@@ -1006,7 +1047,7 @@ describe('copyTestTableEditor', () => {
     );
     expect(remainingEvidence.closest('td')!.getAttribute('rowspan')).toBeNull();
     expect(remainingEvidence.closest(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`)!
-      .querySelector('strong')!.textContent).toBe('Screen01');
+      .querySelector('strong')!.textContent).toBe('Screen01 (screen-b)');
     expect(deleted.table.workingHtml).not.toContain(SCREEN_1.fileName);
     expect(deleted.table.workingHtml).not.toContain(SCREEN_3.fileName);
     expect(deleted.validationResults!.map(result => result.evidenceImageFileNames)).toEqual([
@@ -1160,8 +1201,13 @@ describe('copyTestTableEditor', () => {
     const evidenceCards = Array.from(doc.querySelectorAll(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`));
     const resultReferences = Array.from(doc.querySelectorAll(`[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`));
 
-    expect(evidenceCards.map(card => card.querySelector('strong')?.textContent)).toEqual(['Screen01']);
-    expect(resultReferences.map(reference => reference.firstChild?.textContent)).toEqual(['Screen01', 'Screen01']);
+    expect(evidenceCards.map(card => card.querySelector('strong')?.textContent)).toEqual([
+      'Screen01 (screen-b)',
+    ]);
+    expect(resultReferences.map(reference => reference.firstChild?.textContent)).toEqual([
+      'Screen01 (screen-b)',
+      'Screen01 (screen-b)',
+    ]);
     expect(doc.querySelectorAll(
       `[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}="${firstImageId}"]`
     )).toHaveLength(0);
@@ -1234,7 +1280,9 @@ describe('copyTestTableEditor', () => {
       `[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}="${firstImageId}"]`
     )).toHaveLength(0);
     expect(Array.from(doc.querySelectorAll(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`))
-      .map(card => card.querySelector('strong')?.textContent)).toEqual(['Screen01']);
+      .map(card => card.querySelector('strong')?.textContent)).toEqual([
+        'Screen01 (screen-b)',
+      ]);
     expect(deleted.validationResults?.map(result => result.evidenceImageFileNames)).toEqual([
       [SCREEN_2.fileName],
     ]);

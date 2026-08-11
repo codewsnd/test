@@ -51,13 +51,13 @@ describe('copyTestEvidencePlanner', () => {
       SCREEN_2.fileName,
     ]);
     expect(plan[0].screenLabelByFileName).toEqual({
-      [SCREEN_1.fileName]: 'Screen01',
-      [SCREEN_2.fileName]: 'Screen02',
+      [SCREEN_1.fileName]: 'Screen01 (screen-01)',
+      [SCREEN_2.fileName]: 'Screen02 (screen-02)',
     });
     expect(plan[0].rowResults.map(result => result.screens.map(screen => screen.label))).toEqual([
-      ['Screen01'],
-      ['Screen01'],
-      ['Screen01', 'Screen02'],
+      ['Screen01 (screen-01)'],
+      ['Screen01 (screen-01)'],
+      ['Screen01 (screen-01)', 'Screen02 (screen-02)'],
     ]);
   });
 
@@ -72,8 +72,14 @@ describe('copyTestEvidencePlanner', () => {
     expect(plan).toHaveLength(1);
     expect(plan[0].rowSpan).toBe(4);
     expect(plan[0].sourceGroups.map(group => group.rowSpan)).toEqual([1, 2, 1]);
-    expect(plan[0].screens.map(screen => screen.label)).toEqual(['Screen01', 'Screen02']);
-    expect(plan[0].rowResults[1].screens.map(screen => screen.label)).toEqual(['Screen01', 'Screen02']);
+    expect(plan[0].screens.map(screen => screen.label)).toEqual([
+      'Screen01 (screen-01)',
+      'Screen02 (screen-02)',
+    ]);
+    expect(plan[0].rowResults[1].screens.map(screen => screen.label)).toEqual([
+      'Screen01 (screen-01)',
+      'Screen02 (screen-02)',
+    ]);
   });
 
   it('把空图片行作为强制边界且不跨边界合并相同图片', () => {
@@ -86,7 +92,10 @@ describe('copyTestEvidencePlanner', () => {
 
     expect(plan.map(group => group.anchorRowIndex)).toEqual([1, 3]);
     expect(plan.map(group => group.rowSpan)).toEqual([1, 1]);
-    expect(plan.map(group => group.screens[0].label)).toEqual(['Screen01', 'Screen01']);
+    expect(plan.map(group => group.screens[0].label)).toEqual([
+      'Screen01 (screen-01)',
+      'Screen01 (screen-01)',
+    ]);
   });
 
   it('不合并图片不相交、未选择、无结果或物理不连续的来源原子组', () => {
@@ -119,8 +128,27 @@ describe('copyTestEvidencePlanner', () => {
       SCREEN_1.fileName,
       SCREEN_2.fileName,
     ]);
-    expect(plan[0].rowResults[0].screens.map(screen => screen.label)).toEqual(['Screen01', 'Screen02']);
+    expect(plan[0].rowResults[0].screens.map(screen => screen.label)).toEqual([
+      'Screen01 (screen-01)',
+      'Screen02 (screen-02)',
+    ]);
     expect(plan[0].screenLabelByFileName).not.toHaveProperty(SCREEN_3.fileName);
     expect(plan[0].screenLabelByFileName).not.toHaveProperty(unknownImage.fileName);
+  });
+
+  it('优先使用用户原始文件名且不显示扩展名', () => {
+    const uploadedImage: CopyTestImage = {
+      base64: IMAGE_BASE64,
+      fileName: '0198f4e0-0000-7000-8000-000000000000.png',
+      originalFileName: 'This is just test.png',
+    };
+    const plan = planCopyTestEvidenceGroups([
+      sourceGroup(1, [uploadedImage]),
+    ], [uploadedImage]);
+
+    expect(plan[0].screens[0].label).toBe('Screen01 (This is just test)');
+    expect(plan[0].screenLabelByFileName).toEqual({
+      [uploadedImage.fileName]: 'Screen01 (This is just test)',
+    });
   });
 });

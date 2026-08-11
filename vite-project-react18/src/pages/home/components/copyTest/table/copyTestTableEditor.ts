@@ -50,7 +50,10 @@ import {
   type CopyTestEvidenceScreen,
   type CopyTestEvidenceSourceGroup,
 } from './copyTestEvidencePlanner';
-import { getCopyTestImageId } from './copyTestImageUtils';
+import {
+  getCopyTestImageDisplayFileName,
+  getCopyTestImageId,
+} from './copyTestImageUtils';
 
 /** 支持 CopyTest Evidence 图片的校验结果。 */
 export interface CopyTestValidationResultWithEvidence extends CopyTestValidationResult {
@@ -757,7 +760,10 @@ const createEvidenceImage = (doc: Document, screen: ScreenRef): Element => {
   imageElement.setAttribute('ac:height', String(COPY_TEST_EVIDENCE_IMAGE_HEIGHT));
   imageElement.setAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE, screen.imageId);
   imageElement.setAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE, screen.instanceId);
-  imageElement.setAttribute(COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE, screen.image.fileName);
+  imageElement.setAttribute(
+    COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE,
+    getCopyTestImageDisplayFileName(screen.image)
+  );
   attachment.setAttribute('ri:filename', screen.image.fileName);
   imageElement.appendChild(attachment);
   return imageElement;
@@ -1245,8 +1251,8 @@ const readResultScreenOrder = (
     return storedOrder;
   }
 
-  /** 旧结构 ScreenNN 标签中的一基序号。 */
-  const labelMatch = /^Screen(\d+)$/i.exec(label);
+  /** 旧结构 ScreenNN 标签中的一基序号，兼容后续的文件名。 */
+  const labelMatch = /^Screen(\d+)(?:\s|$)/i.exec(label);
   return labelMatch ? Math.max(0, Number(labelMatch[1]) - 1) : domIndex;
 };
 
@@ -1401,8 +1407,8 @@ const hydrateValidationImages = (
   table: CopyTestWorkingTable,
   evidenceColumnIndex: number
 ): CopyTestImage[] => {
-  /** 已按首次出现顺序恢复的图片文件名。 */
-  const fileNames = table.model.rows.slice(FIRST_DATA_ROW_INDEX).flatMap(row => {
+  /** 已按首次出现顺序恢复的轻量图片。 */
+  const images = table.model.rows.slice(FIRST_DATA_ROW_INDEX).flatMap(row => {
     /** 当前物理行直接拥有的 Evidence 单元格。 */
     const cell = row.slots[evidenceColumnIndex]?.owned
       ? row.slots[evidenceColumnIndex]?.cell.element
@@ -1413,10 +1419,22 @@ const hydrateValidationImages = (
     return Array.from(cell.querySelectorAll(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`)).flatMap(image => {
       /** Evidence 图片节点保存的稳定文件名。 */
       const fileName = image.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE)?.trim();
-      return fileName ? [fileName] : [];
+      if (!fileName) {
+        return [];
+      }
+      /** 新结构在可访问性文本中持久保存用户原始文件名。 */
+      const displayFileName = image.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE);
+      return [{
+        base64: '',
+        fileName,
+        originalFileName: displayFileName?.trim() && displayFileName !== fileName
+          ? displayFileName
+          : undefined,
+      }];
     });
   });
-  return Array.from(new Set(fileNames)).map(fileName => ({ base64: '', fileName }));
+  /** 同一图片多次引用时只保留首次出现的显示信息。 */
+  return Array.from(new Map(images.map(image => [image.fileName, image])).values());
 };
 
 /** 从新契约生成的 working DOM 只读恢复逐行校验快照。 */

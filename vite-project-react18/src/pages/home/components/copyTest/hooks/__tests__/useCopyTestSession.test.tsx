@@ -6,6 +6,7 @@ import {
   parseCopyTestStorageTables,
 } from '../../table/copyTestTableParser';
 import {
+  COPY_TEST_EVIDENCE_CARD_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE,
   COPY_TEST_GENERATED_CONTENT_ATTRIBUTE,
   COPY_TEST_GENERATED_RESULT_TYPE,
@@ -17,11 +18,23 @@ import {
 } from '../../table/tableConstants';
 import { useCopyTestSession } from '../useCopyTestSession';
 
-const image = { base64: 'data:image/png;base64,QUJD', fileName: 'screen-a.png' };
+const image = {
+  base64: 'data:image/png;base64,QUJD',
+  fileName: 'screen-a.png',
+  originalFileName: 'This is just test.png',
+};
 /** 连续删除回归中的未加载占位图片。 */
-const secondImage = { base64: 'data:image/png;base64,REVG', fileName: 'screen-b.png' };
+const secondImage = {
+  base64: 'data:image/png;base64,REVG',
+  fileName: 'screen-b.png',
+  originalFileName: 'Second upload.webp',
+};
 /** 连续删除回归中仍成功加载的真实图片。 */
-const thirdImage = { base64: 'data:image/png;base64,R0hJ', fileName: 'screen-c.png' };
+const thirdImage = {
+  base64: 'data:image/png;base64,R0hJ',
+  fileName: 'screen-c.png',
+  originalFileName: '第三批截图.PNG',
+};
 const storageHtml = [
   '<table>',
   '<tr><th>Reference</th><th>Target</th></tr>',
@@ -78,6 +91,20 @@ const getEvidenceImageIds = (document: Document): string[] => {
   return Array.from(document.querySelectorAll(
     `[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`
   )).map(item => item.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE) || '');
+};
+
+/** 读取 Evidence 卡片中完整的 Screen 展示标签。 */
+const getEvidenceScreenLabels = (document: Document): string[] => {
+  return Array.from(document.querySelectorAll(
+    `[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}] strong`
+  )).map(item => item.textContent || '');
+};
+
+/** 读取 Result 分组中完整的 Screen 展示标签。 */
+const getResultScreenLabels = (document: Document): string[] => {
+  return Array.from(document.querySelectorAll(
+    `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`
+  )).map(item => item.firstChild?.textContent || '');
 };
 
 /** 读取指定 Screen 当前 Result DOM 中的实例 ID。 */
@@ -215,6 +242,14 @@ describe('useCopyTestSession', () => {
       accumulatedDocument,
       COPY_TEST_RESULT_FAILED_GROUP_VALUE
     )).toEqual([secondImage.fileName]);
+    expect(getEvidenceScreenLabels(accumulatedDocument)).toEqual([
+      'Screen01 (This is just test)',
+      'Screen02 (Second upload)',
+    ]);
+    expect(getResultScreenLabels(accumulatedDocument)).toEqual([
+      'Screen01 (This is just test)',
+      'Screen02 (Second upload)',
+    ]);
     expect(accumulatedDocument.querySelector(
       `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="${secondImage.fileName}"]`
     )?.textContent).toContain('Second screenshot differs.');
@@ -252,6 +287,14 @@ describe('useCopyTestSession', () => {
       afterThirdBatchDocument,
       COPY_TEST_RESULT_FAILED_GROUP_VALUE
     )).toEqual([secondImage.fileName]);
+    expect(getEvidenceScreenLabels(afterThirdBatchDocument)).toEqual([
+      'Screen01 (Second upload)',
+      'Screen02 (第三批截图)',
+    ]);
+    expect(getResultScreenLabels(afterThirdBatchDocument)).toEqual([
+      'Screen02 (第三批截图)',
+      'Screen01 (Second upload)',
+    ]);
     expect(afterThirdBatchDocument.body.innerHTML).not.toContain(image.fileName);
     expect(result.current.getCurrentValidationImages()).toEqual([
       secondImage,
