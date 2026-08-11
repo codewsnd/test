@@ -86,6 +86,41 @@ describe('validationMock aiChat boundary', () => {
     });
   });
 
+  it('changes deterministic data across successive default factory calls', async () => {
+    const mockAiChat = createMockCopyTestAiChat({
+      now: () => new Date('2026-07-14T00:00:00.000Z'),
+    });
+    const request = buildRequest(
+      ['screen-a.png', 'screen-b.png'],
+      [{ expected: 'copy', rowIndex: 3 }]
+    );
+
+    const first = JSON.parse((await mockAiChat(request)).data?.content || '');
+    const second = JSON.parse((await mockAiChat(request)).data?.content || '');
+    const third = JSON.parse((await mockAiChat(request)).data?.content || '');
+
+    expect(first.results[0]).toEqual({
+      evidenceImageFileNames: ['screen-a.png'],
+      languageIssues: [],
+      passed: true,
+      rowIndex: 3,
+    });
+    expect(second.results[0]).toEqual({
+      evidenceImageFileNames: ['screen-b.png'],
+      languageIssues: [
+        'Mock validation round 2: Expected copy was not found in the uploaded screenshots.',
+      ],
+      passed: false,
+      rowIndex: 3,
+    });
+    expect(third.results[0]).toEqual({
+      evidenceImageFileNames: ['screen-a.png', 'screen-b.png'],
+      languageIssues: [],
+      passed: true,
+      rowIndex: 3,
+    });
+  });
+
   it('uses empty Evidence and an accurate boundary issue when no screenshots exist', () => {
     const response = buildMockCopyTestAiChatResponse(
       buildRequest([], [{ expected: 'copy', rowIndex: 7 }]),

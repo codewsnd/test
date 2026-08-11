@@ -18,7 +18,7 @@ CopyTest 用于将 Confluence 表格中的文案与 UI 截图进行比较，并�
 
 > **当前环境提示**
 >
-> 当前版本的 Validate 使用随机 Mock 数据，不会根据截图内容进行真实识别。Mock 仅用于测试页面操作、表格合并、图片删除和导出流程，结果不能作为正式验收结论。
+> 当前版本的 Validate 使用按调用轮次变化的 Mock 数据，不会根据截图内容进行真实识别。连续 Validate 会得到不同的状态、Evidence 组合和失败原因；Mock 仅用于测试页面操作、表格合并、图片删除和导出流程，结果不能作为正式验收结论。
 
 ## 2. 快速开始
 
@@ -194,4 +194,4 @@ Screen 编号只表示当前 Evidence 组中的显示顺序。
 - 未选择 Comparison Column 时，可以查看和导出完整表格，但不能上传截图或删除 Evidence。
 - 同一张图片重复上传时只保留一份。
 - Confluence 回写前请确认当前选择的 Table 和 Comparison Column 正确。
-- 当前 Validate 为随机 Mock，正式使用真实识别结果前需要切换到真实 AI 服务。
+- 当前 Validate 为按调用轮次变化的 Mock，正式使用真实识别结果前需要切换到真实 AI 服务。

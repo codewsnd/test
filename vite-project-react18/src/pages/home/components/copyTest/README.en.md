@@ -18,7 +18,7 @@ After reviewing the results, you can export them back to Confluence or download 
 
 > **Current environment notice**
 >
-> Validate currently uses random Mock data and does not inspect the real screenshot content. The Mock is intended only for testing page operations, merged cells, image deletion, and export. Do not use Mock results as formal test evidence.
+> Validate currently uses sequence-based Mock data and does not inspect the real screenshot content. Consecutive validations return different statuses, Evidence combinations, and failure reasons. The Mock is intended only for testing page operations, merged cells, image deletion, and export. Do not use Mock results as formal test evidence.
 
 ## 2. Quick start
 
@@ -194,4 +194,4 @@ After a successful export, import the page again to confirm that data, images, a
 - Without a Comparison Column, you can preview and export the complete table, but you cannot upload screenshots or delete Evidence.
 - Uploading the same image more than once keeps only one copy.
 - Before exporting to Confluence, confirm that the correct Table and Comparison Column are selected.
-- Validate currently uses random Mock results. Connect the real AI service before using validation results in production.
+- Validate currently uses sequence-based Mock results. Connect the real AI service before using validation results in production.

@@ -1,5 +1,5 @@
 /**
- * 文件作用：提供与 aiChat 完全同签名、同响应外层结构的 CopyTest 随机 Mock。
+ * 文件作用：提供与 aiChat 完全同签名、同响应外层结构的 CopyTest 轮次 Mock。
  */
 import {
   aiChat,
@@ -30,10 +30,12 @@ const RANDOM_FAILURE_REASONS = [
   'The expected copy is incomplete or truncated in the screenshot.',
 ] as const;
 
-/** 随机 Mock 可注入的确定性依赖。 */
+/** Mock 可注入的随机或轮次依赖。 */
 export interface CopyTestValidationMockOptions {
   /** 返回区间为 [0, 1) 的随机数函数。 */
   random?: () => number;
+  /** 从 0 开始的确定性 Mock 轮次；设置后不使用随机结果。 */
+  sequenceIndex?: number;
   /** 生成响应时间戳的当前时间函数。 */
   now?: () => Date;
 }
@@ -139,23 +141,111 @@ const buildRandomValidationResult = (
   };
 };
 
+/** 按轮次和行位置选择顺序稳定、内容会变化的真实 Evidence。 */
+const getSequencedImageFileNames = (
+  fileNames: string[],
+  sequenceIndex: number,
+  rowPosition: number
+): string[] => {
+  if (fileNames.length === 0) {
+    return [];
+  }
+  /** 当前轮次与行共同决定的 Evidence 组合变体。 */
+  const variantIndex = sequenceIndex + rowPosition;
+  /** 单行最多仍只引用两张图片，但连续轮次会从单图切换到多图。 */
+  const maximumImageCount = Math.min(fileNames.length, MAX_RANDOM_IMAGE_COUNT);
+  const imageCount = 1 + (
+    Math.floor(variantIndex / fileNames.length) % maximumImageCount
+  );
+  /** 轮转起点使相邻调用优先引用不同文件。 */
+  const startIndex = variantIndex % fileNames.length;
+  return Array.from({ length: imageCount }, (_, offset) => {
+    return fileNames[(startIndex + offset) % fileNames.length];
+  });
+};
+
+/** 为确定性失败轮次生成可在 UI 中区分的 Mock 问题。 */
+const buildSequencedLanguageIssues = (
+  passed: boolean,
+  evidenceImageFileNames: string[],
+  sequenceIndex: number,
+  rowPosition: number
+): string[] => {
+  if (passed) {
+    return [];
+  }
+  if (evidenceImageFileNames.length === 0) {
+    return [NO_SCREENSHOT_FAILURE_REASON];
+  }
+  const reasonIndex = (sequenceIndex + rowPosition) % RANDOM_FAILURE_REASONS.length;
+  return [
+    `Mock validation round ${sequenceIndex + 1}: ${RANDOM_FAILURE_REASONS[reasonIndex]}`,
+  ];
+};
+
+/** 为一个选中行生成随调用轮次变化的确定性结果。 */
+const buildSequencedValidationResult = (
+  row: CopyTestValidationRuntimeContext['selectedRows'][number],
+  rowPosition: number,
+  imageFileNames: string[],
+  sequenceIndex: number
+): CopyTestValidationResult => {
+  const evidenceImageFileNames = getSequencedImageFileNames(
+    imageFileNames,
+    sequenceIndex,
+    rowPosition
+  );
+  const passed = evidenceImageFileNames.length > 0
+    && (sequenceIndex + rowPosition) % 2 === 0;
+  return {
+    evidenceImageFileNames,
+    languageIssues: buildSequencedLanguageIssues(
+      passed,
+      evidenceImageFileNames,
+      sequenceIndex,
+      rowPosition
+    ),
+    passed,
+    rowIndex: row.rowIndex,
+  };
+};
+
+/** 使用随机注入或显式轮次构建严格的逐行结果。 */
+const buildMockValidationResults = (
+  runtimeContext: CopyTestValidationRuntimeContext,
+  imageFileNames: string[],
+  options: CopyTestValidationMockOptions
+): CopyTestValidationResult[] => {
+  const sequenceIndex = options.sequenceIndex;
+  if (sequenceIndex !== undefined) {
+    return runtimeContext.selectedRows.map((row, rowPosition) => {
+      return buildSequencedValidationResult(
+        row,
+        rowPosition,
+        imageFileNames,
+        sequenceIndex
+      );
+    });
+  }
+  const random = options.random || Math.random;
+  return runtimeContext.selectedRows.map(row => {
+    return buildRandomValidationResult(row, imageFileNames, random);
+  });
+};
+
 /** 根据 aiChat 请求构建可同步断言的完整 Mock 响应。 */
 export const buildMockCopyTestAiChatResponse = (
   request: AiChatRequest,
   options: CopyTestValidationMockOptions = {}
 ): ApiResponse<AiChatResponse> => {
-  /** 当前 Mock 调用使用的可注入随机数函数。 */
-  const random = options.random || Math.random;
   /** 当前 Mock 调用使用的可注入时间函数。 */
   const now = options.now || (() => new Date());
   /** 从 user 消息读取的 CopyTest 运行时上下文。 */
   const runtimeContext = readRuntimeContext(request);
   /** 按上传顺序读取且只允许模型引用的图片文件名。 */
   const imageFileNames = runtimeContext.uploadedScreenshots.map(image => image.fileName);
-  /** 与真实 AI 契约完全一致的逐行随机结果。 */
-  const results = runtimeContext.selectedRows.map(row => {
-    return buildRandomValidationResult(row, imageFileNames, random);
-  });
+  /** 与真实 AI 契约完全一致的逐行 Mock 结果。 */
+  const results = buildMockValidationResults(runtimeContext, imageFileNames, options);
   /** 写入 AiChatResponse.content 的严格根对象 JSON。 */
   const content = JSON.stringify({ results });
   return {
@@ -173,10 +263,20 @@ export const buildMockCopyTestAiChatResponse = (
 export const createMockCopyTestAiChat = (
   options: CopyTestValidationMockOptions = {}
 ): typeof aiChat => {
+  /** 每个 Mock 实例独立维护调用轮次，避免测试与页面实例互相污染。 */
+  let sequenceIndex = options.sequenceIndex ?? 0;
   return request => {
-    return Promise.resolve(buildMockCopyTestAiChatResponse(request, options));
+    if (options.random) {
+      return Promise.resolve(buildMockCopyTestAiChatResponse(request, options));
+    }
+    const response = buildMockCopyTestAiChatResponse(request, {
+      ...options,
+      sequenceIndex,
+    });
+    sequenceIndex += 1;
+    return Promise.resolve(response);
   };
 };
 
-/** CopyTest 默认使用的 aiChat 同签名随机 Mock。 */
+/** CopyTest 默认使用的 aiChat 同签名轮次 Mock。 */
 export const mockCopyTestAiChat: typeof aiChat = createMockCopyTestAiChat();

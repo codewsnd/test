@@ -13,6 +13,7 @@ const hoisted = vi.hoisted(() => ({
   requestLoading: false,
   storageApi: vi.fn(),
   uploadApi: vi.fn(),
+  uuid: vi.fn(),
   validationApi: vi.fn(),
 }));
 
@@ -33,7 +34,7 @@ vi.mock('ahooks', () => ({
 }));
 
 vi.mock('@/utils/fileUtils', () => ({ calculateFileMD5: (file: File) => `md5-${file.name}` }));
-vi.mock('uuid', () => ({ v7: () => 'uuid-value' }));
+vi.mock('uuid', () => ({ v7: hoisted.uuid }));
 vi.mock('../../api/copyTestApi', async importOriginal => {
   const actual = await importOriginal<typeof import('../../api/copyTestApi')>();
   return {
@@ -100,6 +101,7 @@ describe('useCopyTestController', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     hoisted.requestLoading = false;
+    hoisted.uuid.mockReturnValue('uuid-value');
     installBrowserMocks();
   });
 
@@ -175,6 +177,54 @@ describe('useCopyTestController', () => {
       result.current.handleMainClose();
     });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('appends a second uploaded screenshot to the existing validation result', async () => {
+    hoisted.storageApi.mockResolvedValue({ storage: storageHtml });
+    hoisted.attachmentsApi.mockResolvedValue({ images: [] });
+    hoisted.uuid
+      .mockReturnValueOnce('uuid-a')
+      .mockReturnValueOnce('uuid-b');
+    hoisted.validationApi
+      .mockResolvedValueOnce([{
+        evidenceImageFileNames: ['uuid-a.png'],
+        languageIssues: [],
+        passed: true,
+        rowIndex: 0,
+      }])
+      .mockResolvedValueOnce([{
+        evidenceImageFileNames: ['uuid-b.png'],
+        languageIssues: ['Second screenshot differs.'],
+        passed: false,
+        rowIndex: 0,
+      }]);
+    const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
+
+    act(() => {
+      result.current.handleConfluenceUrlChange('http://wiki');
+    });
+    await act(() => result.current.handleLoadTables());
+    act(() => {
+      result.current.handleComparisonColumnChange(1);
+    });
+    await act(() => result.current.handleFilesSelected([
+      new File(['first'], 'first.png', { type: 'image/png' }),
+    ]));
+    await act(() => result.current.handleValidateClick());
+    await act(() => result.current.handleFilesSelected([
+      new File(['second'], 'second.png', { type: 'image/png' }),
+    ]));
+    await act(() => result.current.handleValidateClick());
+
+    expect(hoisted.validationApi).toHaveBeenCalledTimes(2);
+    expect(hoisted.validationApi.mock.calls[1][0].map(
+      (uploadedImage: { fileName: string }) => uploadedImage.fileName
+    )).toEqual(['uuid-b.png']);
+    expect(result.current.tableState.selectedTable?.workingHtml).toContain('uuid-a.png');
+    expect(result.current.tableState.selectedTable?.workingHtml).toContain('uuid-b.png');
+    expect(result.current.tableState.getCurrentValidationImages().map(
+      uploadedImage => uploadedImage.fileName
+    )).toEqual(['uuid-a.png', 'uuid-b.png']);
   });
 
   it('locks Result status changes throughout Confluence export preparation', async () => {

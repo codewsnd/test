@@ -33,10 +33,10 @@ const INVALID_AI_CONTENT_PREFIX = 'AI validation returned invalid content';
 /** AI 请求接受的图片 data URL 格式。 */
 const IMAGE_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i;
 
-/** 随机 Mock 保持 loading 可感知的最短等待时间。 */
+/** 轮次 Mock 保持 loading 可感知的最短等待时间。 */
 const MOCK_VALIDATION_DELAY_MS = 300;
 
-/** 临时启用随机 AI 校验结果；设为 false 后恢复真实 aiChat。 */
+/** 临时启用按调用轮次变化的 AI 校验结果；设为 false 后恢复真实 aiChat。 */
 export const COPY_TEST_AI_CHAT_MOCK_ENABLED = true;
 
 /** Confluence storage 查询接口的返回结构。 */
@@ -61,7 +61,7 @@ export interface CopyTestRowInput {
   expected: string;
 }
 
-/** CopyTest AI 与随机 Mock 共用的逐行校验结果。 */
+/** CopyTest AI 与轮次 Mock 共用的逐行校验结果。 */
 export interface CopyTestValidationResult {
   /** 与请求行完全一致的逻辑行下标。 */
   rowIndex: number;
@@ -409,12 +409,12 @@ export const buildCopyTestValidationRequest = (
   };
 };
 
-/** 判断当前运行环境是否应该返回随机 Mock 校验结果。 */
+/** 判断当前运行环境是否应该返回轮次 Mock 校验结果。 */
 const shouldUseCopyTestAiChatMock = (): boolean => {
   return COPY_TEST_AI_CHAT_MOCK_ENABLED;
 };
 
-/** 在返回随机 Mock 前保留短暂且可感知的异步 loading。 */
+/** 在返回轮次 Mock 前保留短暂且可感知的异步 loading。 */
 const waitForMockValidation = (): Promise<void> => {
   return new Promise(resolve => {
     setTimeout(resolve, MOCK_VALIDATION_DELAY_MS);
