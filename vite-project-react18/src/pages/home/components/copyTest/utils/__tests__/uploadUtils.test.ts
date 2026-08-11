@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   appendUniqueImage,
   fileToMemoryImage,
@@ -27,6 +27,10 @@ const installFileReaderMock = (): void => {
 };
 
 describe('uploadUtils', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('validates files and converts unique memory images', async () => {
     installFileReaderMock();
     const pngFile = new File(['x'], 'screen.png', { type: 'image/png' });
@@ -50,7 +54,23 @@ describe('uploadUtils', () => {
     appendUniqueImage(uniqueImages, new Set(['1']), { base64: 'c', fileName: 'c.png', md5: '2', size: 1 });
     expect(uniqueImages.map(image => image.fileName)).toEqual(['a.png', 'c.png']);
     expect(await readFileAsBase64(pngFile)).toBe('data:image/png;base64,QUJD');
-    expect((await fileToMemoryImage(pngFile)).fileName).toBe('screen-uuid-value.png');
+    expect((await fileToMemoryImage(pngFile)).fileName).toBe('uuid-value.png');
     expect(await filesToMemoryImages([pngFile, pngFile])).toHaveLength(1);
+  });
+
+  it('uses an ASCII-only internal name for files whose original name contains Chinese', async () => {
+    installFileReaderMock();
+    const chineseFile = new File(['x'], '首页截图.png', { type: 'image/png' });
+    const unicodeExtensionFile = new File(['x'], '截图.图片', { type: 'image/png' });
+
+    const image = await fileToMemoryImage(chineseFile);
+    const imageWithoutSafeExtension = await fileToMemoryImage(unicodeExtensionFile);
+
+    expect(image).toEqual(expect.objectContaining({
+      fileName: 'uuid-value.png',
+      originalFileName: '首页截图.png',
+    }));
+    expect(image.fileName).toMatch(/^[\x20-\x7e]+$/);
+    expect(imageWithoutSafeExtension.fileName).toBe('uuid-value');
   });
 });

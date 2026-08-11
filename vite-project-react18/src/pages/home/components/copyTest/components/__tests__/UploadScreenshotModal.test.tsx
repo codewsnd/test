@@ -36,12 +36,19 @@ describe('UploadScreenshotModal', () => {
         open={true}
         preparingUpload={false}
         processing={false}
-        uploadImages={[{ base64: 'data:image/png;base64,QUJD', fileName: 'screen-a.png', md5: 'md5-a', size: 2048 }]}
+        uploadImages={[{
+          base64: 'data:image/png;base64,QUJD',
+          fileName: 'uuid-value.png',
+          md5: 'md5-a',
+          originalFileName: '首页截图.png',
+          size: 2048,
+        }]}
         uploadTotalSize={2048}
       />
     );
     fireEvent.click(screen.getByText('Validate'));
-    fireEvent.click(screen.getByLabelText('Delete screen-a.png'));
+    expect(screen.getByText('首页截图.png')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Delete 首页截图.png'));
     fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, {
       target: { files: [new File(['x'], 'new.png', { type: 'image/png' })] },
     });

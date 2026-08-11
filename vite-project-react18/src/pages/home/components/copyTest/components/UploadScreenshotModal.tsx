@@ -77,10 +77,12 @@ const UploadImageRow: React.FC<UploadImageRowProps> = ({
   image,
   onRemoveImage,
 }) => {
+  /** 上传列表展示原始文件名，内部 AI/附件标识保持 ASCII-safe。 */
+  const displayName = image.originalFileName || image.fileName;
   return (
     <div className="flex items-center gap-3 rounded border border-gray-200 px-3 py-2">
       <img
-        alt={image.fileName}
+        alt={displayName}
         src={image.base64}
         className="shrink-0 rounded border border-gray-200 object-cover"
         style={{
@@ -89,11 +91,11 @@ const UploadImageRow: React.FC<UploadImageRowProps> = ({
         }}
       />
       <div className="min-w-0 flex-1">
-        <Text className="block truncate">{image.fileName}</Text>
+        <Text className="block truncate">{displayName}</Text>
         <Text type={TEXT_TYPE_SECONDARY}>{formatFileSize(image.size)}</Text>
       </div>
       <Button
-        aria-label={`Delete ${image.fileName}`}
+        aria-label={`Delete ${displayName}`}
         disabled={disabled}
         icon={<DeleteOutlined />}
         onClick={() => onRemoveImage(image.md5)}

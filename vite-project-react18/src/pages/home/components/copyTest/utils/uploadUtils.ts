@@ -10,9 +10,6 @@ import {
 } from '../constants';
 import type { CopyTestMemoryImage } from '../types';
 
-/** 从文件名末尾提取扩展名的匹配规则。 */
-const FILE_EXTENSION_PATTERN = /(\.[^./\\]+)$/;
-
 /** 将浏览器文件读取为 base64 data url。 */
 export const readFileAsBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -81,17 +78,13 @@ export const getImageLimitError = (images: Array<{ size: number }>): string | nu
   return null;
 };
 
-/** 在保留原扩展名的前提下为附件名追加 UUID。 */
+/** 生成只包含 UUID 和白名单图片扩展名的内部附件名。 */
 const buildUuidFileName = (fileName: string): string => {
   /** 当前附件使用的随机 UUID。 */
   const uuid = uuidv7();
-
-  /** 原文件名末尾的扩展名；无扩展名时为空。 */
-  const extension = fileName.match(FILE_EXTENSION_PATTERN)?.[1] || '';
-
-  /** 移除扩展名后的原始文件名主体。 */
-  const baseName = extension ? fileName.slice(0, -extension.length) : fileName;
-  return `${baseName}-${uuid}${extension}`;
+  /** 白名单内的原始图片扩展名；MIME-only 图片可能没有扩展名。 */
+  const extension = fileName.match(IMAGE_FILE_NAME_PATTERN)?.[0].toLowerCase() || '';
+  return `${uuid}${extension}`;
 };
 
 /** 将单个文件转换为内存图片对象。 */
@@ -103,6 +96,7 @@ export const fileToMemoryImage = async (file: File): Promise<CopyTestMemoryImage
   ]);
   return {
     fileName: buildUuidFileName(file.name),
+    originalFileName: file.name,
     base64,
     md5,
     size: file.size,

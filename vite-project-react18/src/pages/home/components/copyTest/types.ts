@@ -28,6 +28,8 @@ export type CopyTestTableEntry = CopyTestWorkingTable;
 
 /** 仅保存在浏览器内存中的截图信息。 */
 export interface CopyTestMemoryImage extends CopyTestImage {
+  /** 用户选择文件时的原始名称，仅用于上传列表展示。 */
+  originalFileName?: string;
   /** 图片内容的 MD5，用于本次上传列表去重。 */
   md5: string;
   /** 图片原始文件大小，单位为字节。 */

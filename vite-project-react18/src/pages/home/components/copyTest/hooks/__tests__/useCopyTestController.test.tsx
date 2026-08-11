@@ -107,7 +107,7 @@ describe('useCopyTestController', () => {
     hoisted.storageApi.mockResolvedValue({ storage: storageHtml });
     hoisted.attachmentsApi.mockResolvedValue({ images: [] });
     hoisted.validationApi.mockResolvedValue([{
-      evidenceImageFileNames: ['screen-uuid-value.png'],
+      evidenceImageFileNames: ['uuid-value.png'],
       languageIssues: [],
       passed: true,
       rowIndex: 0,
@@ -133,13 +133,19 @@ describe('useCopyTestController', () => {
       result.current.handleChooseImages();
     });
     expect(result.current.uploadModalOpen).toBe(true);
-    await act(() => result.current.handleFilesSelected([new File(['abc'], 'screen.png', { type: 'image/png' })]));
+    await act(() => result.current.handleFilesSelected([
+      new File(['abc'], '首页截图.png', { type: 'image/png' }),
+    ]));
     await act(() => result.current.handleValidateClick());
     expect(hoisted.validationApi).toHaveBeenCalledTimes(1);
+    expect(hoisted.validationApi.mock.calls[0][0][0]).toEqual(expect.objectContaining({
+      fileName: 'uuid-value.png',
+      originalFileName: '首页截图.png',
+    }));
     act(() => {
       result.current.handleResultStatusChange({
-        imageId: 'screen-uuid-value.png',
-        instanceId: '1:Target:1:screen-uuid-value.png',
+        imageId: 'uuid-value.png',
+        instanceId: '1:Target:1:uuid-value.png',
         passed: false,
         previewRevision: result.current.tableState.revision,
         rowIndex: 0,
@@ -163,7 +169,7 @@ describe('useCopyTestController', () => {
       result.current.handleCancelEvidenceImageDelete();
       result.current.handleEvidenceImagePreview({ alt: 'screen', imageId: 'id', src: 'src' });
       result.current.handleClosePreviewImage();
-      result.current.handleRemoveUploadImage('md5-screen.png');
+      result.current.handleRemoveUploadImage('md5-首页截图.png');
       result.current.handleCloseUploadModal();
       result.current.handleTableChange(0);
       result.current.handleMainClose();
