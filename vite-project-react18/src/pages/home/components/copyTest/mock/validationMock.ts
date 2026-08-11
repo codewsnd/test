@@ -19,6 +19,9 @@ const RANDOM_PASS_RATE = 0.65;
 /** 单行随机 Evidence 最多引用的图片数量。 */
 const MAX_RANDOM_IMAGE_COUNT = 2;
 
+/** 默认轮次 Mock 的可复现时间戳起点。 */
+const MOCK_TIMESTAMP_EPOCH_MS = Date.parse('2026-01-01T00:00:00.000Z');
+
 /** 没有上传截图时返回的真实边界失败原因。 */
 const NO_SCREENSHOT_FAILURE_REASON = 'No uploaded screenshot is available for validation.';
 
@@ -134,10 +137,10 @@ const buildRandomValidationResult = (
   /** 只有存在截图证据时才允许随机生成通过结果。 */
   const passed = evidenceImageFileNames.length > 0 && random() < RANDOM_PASS_RATE;
   return {
+    rowIndex: row.rowIndex,
+    passed,
     evidenceImageFileNames,
     languageIssues: buildMockLanguageIssues(passed, evidenceImageFileNames, random),
-    passed,
-    rowIndex: row.rowIndex,
   };
 };
 
@@ -198,6 +201,8 @@ const buildSequencedValidationResult = (
   const passed = evidenceImageFileNames.length > 0
     && (sequenceIndex + rowPosition) % 2 === 0;
   return {
+    rowIndex: row.rowIndex,
+    passed,
     evidenceImageFileNames,
     languageIssues: buildSequencedLanguageIssues(
       passed,
@@ -205,8 +210,6 @@ const buildSequencedValidationResult = (
       sequenceIndex,
       rowPosition
     ),
-    passed,
-    rowIndex: row.rowIndex,
   };
 };
 
@@ -233,17 +236,30 @@ const buildMockValidationResults = (
   });
 };
 
+/** 按轮次生成不依赖真实时钟的 Mock 时间。 */
+const getSequencedMockDate = (sequenceIndex: number): Date => {
+  return new Date(MOCK_TIMESTAMP_EPOCH_MS + sequenceIndex);
+};
+
 /** 根据 aiChat 请求构建可同步断言的完整 Mock 响应。 */
 export const buildMockCopyTestAiChatResponse = (
   request: AiChatRequest,
   options: CopyTestValidationMockOptions = {}
 ): ApiResponse<AiChatResponse> => {
+  /** 显式轮次同时控制结果和默认时间，保证完整响应可复现。 */
+  const sequenceIndex = options.sequenceIndex;
   /** 当前 Mock 调用使用的可注入时间函数。 */
-  const now = options.now || (() => new Date());
+  const now = options.now || (() => {
+    return sequenceIndex === undefined
+      ? new Date()
+      : getSequencedMockDate(sequenceIndex);
+  });
   /** 从 user 消息读取的 CopyTest 运行时上下文。 */
   const runtimeContext = readRuntimeContext(request);
-  /** 按上传顺序读取且只允许模型引用的图片文件名。 */
-  const imageFileNames = runtimeContext.uploadedScreenshots.map(image => image.fileName);
+  /** 按本轮上传顺序读取唯一文件名，避免生成重复 Evidence。 */
+  const imageFileNames = [...new Set(
+    runtimeContext.uploadedScreenshots.map(image => image.fileName)
+  )];
   /** 与真实 AI 契约完全一致的逐行 Mock 结果。 */
   const results = buildMockValidationResults(runtimeContext, imageFileNames, options);
   /** 写入 AiChatResponse.content 的严格根对象 JSON。 */
@@ -278,5 +294,15 @@ export const createMockCopyTestAiChat = (
   };
 };
 
+/** 默认单例当前委托的独立轮次 Mock。 */
+let defaultMockCopyTestAiChat = createMockCopyTestAiChat();
+
+/** 将默认 CopyTest Mock 重置到首轮，供新页面会话和测试隔离使用。 */
+export const resetCopyTestValidationMockSequence = (): void => {
+  defaultMockCopyTestAiChat = createMockCopyTestAiChat();
+};
+
 /** CopyTest 默认使用的 aiChat 同签名轮次 Mock。 */
-export const mockCopyTestAiChat: typeof aiChat = createMockCopyTestAiChat();
+export const mockCopyTestAiChat: typeof aiChat = request => {
+  return defaultMockCopyTestAiChat(request);
+};

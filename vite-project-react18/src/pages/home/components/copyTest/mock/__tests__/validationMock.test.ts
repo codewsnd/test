@@ -1,10 +1,11 @@
 import { aiChat, type AiChatRequest } from '@/api';
-import { describe, expect, expectTypeOf, it, vi } from 'vitest';
+import { beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { buildCopyTestValidationPrompt } from '../../prompt/copyTestValidationPrompt';
 import {
   buildMockCopyTestAiChatResponse,
   createMockCopyTestAiChat,
   mockCopyTestAiChat,
+  resetCopyTestValidationMockSequence,
 } from '../validationMock';
 
 const buildRequest = (
@@ -26,6 +27,10 @@ const buildRequest = (
 });
 
 describe('validationMock aiChat boundary', () => {
+  beforeEach(() => {
+    resetCopyTestValidationMockSequence();
+  });
+
   it('has the exact aiChat signature and returns its complete response envelope', () => {
     expectTypeOf(mockCopyTestAiChat).toEqualTypeOf(aiChat);
     expectTypeOf(createMockCopyTestAiChat({ random: () => 0.4 })).toEqualTypeOf(aiChat);
@@ -86,7 +91,7 @@ describe('validationMock aiChat boundary', () => {
     });
   });
 
-  it('changes deterministic data across successive default factory calls', async () => {
+  it('changes deterministic data across four successive default factory calls', async () => {
     const mockAiChat = createMockCopyTestAiChat({
       now: () => new Date('2026-07-14T00:00:00.000Z'),
     });
@@ -98,6 +103,7 @@ describe('validationMock aiChat boundary', () => {
     const first = JSON.parse((await mockAiChat(request)).data?.content || '');
     const second = JSON.parse((await mockAiChat(request)).data?.content || '');
     const third = JSON.parse((await mockAiChat(request)).data?.content || '');
+    const fourth = JSON.parse((await mockAiChat(request)).data?.content || '');
 
     expect(first.results[0]).toEqual({
       evidenceImageFileNames: ['screen-a.png'],
@@ -119,6 +125,108 @@ describe('validationMock aiChat boundary', () => {
       passed: true,
       rowIndex: 3,
     });
+    expect(fourth.results[0]).toEqual({
+      evidenceImageFileNames: ['screen-b.png', 'screen-a.png'],
+      languageIssues: [
+        'Mock validation round 4: The expected copy is incomplete or truncated in the screenshot.',
+      ],
+      passed: false,
+      rowIndex: 3,
+    });
+    expect(new Set([first, second, third, fourth].map(value => {
+      return JSON.stringify(value);
+    })).size).toBe(4);
+  });
+
+  it('keeps accumulated rounds request-scoped and resets the default sequence', async () => {
+    const requests = [
+      buildRequest(['round-1.png'], [{ expected: 'one', rowIndex: 10 }]),
+      buildRequest(
+        ['round-1.png', 'round-2.png'],
+        [{ expected: 'two', rowIndex: 20 }]
+      ),
+      buildRequest(
+        ['round-1.png', 'round-2.png', 'round-3.png'],
+        [
+          { expected: 'three', rowIndex: 30 },
+          { expected: 'three-b', rowIndex: 31 },
+        ]
+      ),
+      buildRequest(['round-4.png'], [{ expected: 'four', rowIndex: 40 }]),
+    ];
+
+    const responses = [];
+    for (const request of requests) {
+      responses.push(await mockCopyTestAiChat(request));
+    }
+    const contents = responses.map(response => response.data?.content || '');
+    const payloads = contents.map(content => JSON.parse(content));
+
+    expect(payloads).toEqual([
+      {
+        results: [{
+          evidenceImageFileNames: ['round-1.png'],
+          languageIssues: [],
+          passed: true,
+          rowIndex: 10,
+        }],
+      },
+      {
+        results: [{
+          evidenceImageFileNames: ['round-2.png'],
+          languageIssues: [
+            'Mock validation round 2: Expected copy was not found in the uploaded screenshots.',
+          ],
+          passed: false,
+          rowIndex: 20,
+        }],
+      },
+      {
+        results: [
+          {
+            evidenceImageFileNames: ['round-3.png'],
+            languageIssues: [],
+            passed: true,
+            rowIndex: 30,
+          },
+          {
+            evidenceImageFileNames: ['round-1.png', 'round-2.png'],
+            languageIssues: [
+              'Mock validation round 3: The expected copy is incomplete or truncated in the screenshot.',
+            ],
+            passed: false,
+            rowIndex: 31,
+          },
+        ],
+      },
+      {
+        results: [{
+          evidenceImageFileNames: ['round-4.png'],
+          languageIssues: [
+            'Mock validation round 4: The expected copy is incomplete or truncated in the screenshot.',
+          ],
+          passed: false,
+          rowIndex: 40,
+        }],
+      },
+    ]);
+    for (const payload of payloads) {
+      expect(Object.keys(payload)).toEqual(['results']);
+      for (const result of payload.results) {
+        expect(Object.keys(result)).toEqual([
+          'rowIndex',
+          'passed',
+          'evidenceImageFileNames',
+          'languageIssues',
+        ]);
+      }
+    }
+    expect(new Set(contents).size).toBe(4);
+
+    resetCopyTestValidationMockSequence();
+    const resetResponse = await mockCopyTestAiChat(requests[0]);
+
+    expect(resetResponse).toEqual(responses[0]);
   });
 
   it('uses empty Evidence and an accurate boundary issue when no screenshots exist', () => {
