@@ -148,23 +148,28 @@ const buildRandomValidationResult = (
 const getSequencedImageFileNames = (
   fileNames: string[],
   sequenceIndex: number,
-  rowPosition: number
+  rowPosition: number,
+  rowCount: number
 ): string[] => {
   if (fileNames.length === 0) {
     return [];
   }
-  /** 当前轮次与行共同决定的 Evidence 组合变体。 */
-  const variantIndex = sequenceIndex + rowPosition;
-  /** 单行最多仍只引用两张图片，但连续轮次会从单图切换到多图。 */
-  const maximumImageCount = Math.min(fileNames.length, MAX_RANDOM_IMAGE_COUNT);
-  const imageCount = 1 + (
-    Math.floor(variantIndex / fileNames.length) % maximumImageCount
+  /** 每行先分配一张不同图片，当前轮次变化时同步轮转起点。 */
+  const primaryIndex = (sequenceIndex + rowPosition) % fileNames.length;
+  /** 首轮分配后仍可被第二张 Evidence 覆盖的唯一图片数量。 */
+  const primaryImageCount = Math.min(fileNames.length, rowCount);
+  const additionalImageCount = Math.min(
+    fileNames.length - primaryImageCount,
+    rowCount
   );
-  /** 轮转起点使相邻调用优先引用不同文件。 */
-  const startIndex = variantIndex % fileNames.length;
-  return Array.from({ length: imageCount }, (_, offset) => {
-    return fileNames[(startIndex + offset) % fileNames.length];
-  });
+  if (rowPosition >= additionalImageCount) {
+    return [fileNames[primaryIndex]];
+  }
+  /** 第二张图片延续轮转序列，避免与当前行第一张图片重复。 */
+  const secondaryIndex = (
+    sequenceIndex + primaryImageCount + rowPosition
+  ) % fileNames.length;
+  return [fileNames[primaryIndex], fileNames[secondaryIndex]];
 };
 
 /** 为确定性失败轮次生成可在 UI 中区分的 Mock 问题。 */
@@ -177,29 +182,53 @@ const buildSequencedLanguageIssues = (
   if (passed) {
     return [];
   }
-  if (evidenceImageFileNames.length === 0) {
-    return [NO_SCREENSHOT_FAILURE_REASON];
-  }
-  const reasonIndex = (sequenceIndex + rowPosition) % RANDOM_FAILURE_REASONS.length;
+  const reasonIndex = (
+    sequenceIndex + rowPosition
+  ) % RANDOM_FAILURE_REASONS.length;
+  const reason = evidenceImageFileNames.length === 0
+    ? NO_SCREENSHOT_FAILURE_REASON
+    : RANDOM_FAILURE_REASONS[reasonIndex];
   return [
-    `Mock validation round ${sequenceIndex + 1}: ${RANDOM_FAILURE_REASONS[reasonIndex]}`,
+    `Mock validation round ${sequenceIndex + 1}: ${reason}`,
   ];
+};
+
+/** 确定性轮次至少保留一个失败行，使每次响应可由轮次问题稳定区分。 */
+const shouldSequencedResultPass = (
+  hasEvidence: boolean,
+  rowCount: number,
+  sequenceIndex: number,
+  rowPosition: number
+): boolean => {
+  if (!hasEvidence) {
+    return false;
+  }
+  if (rowCount === 1) {
+    return sequenceIndex === 0;
+  }
+  return (sequenceIndex + rowPosition) % 2 === 0;
 };
 
 /** 为一个选中行生成随调用轮次变化的确定性结果。 */
 const buildSequencedValidationResult = (
   row: CopyTestValidationRuntimeContext['selectedRows'][number],
   rowPosition: number,
+  rowCount: number,
   imageFileNames: string[],
   sequenceIndex: number
 ): CopyTestValidationResult => {
   const evidenceImageFileNames = getSequencedImageFileNames(
     imageFileNames,
     sequenceIndex,
+    rowPosition,
+    rowCount
+  );
+  const passed = shouldSequencedResultPass(
+    evidenceImageFileNames.length > 0,
+    rowCount,
+    sequenceIndex,
     rowPosition
   );
-  const passed = evidenceImageFileNames.length > 0
-    && (sequenceIndex + rowPosition) % 2 === 0;
   return {
     rowIndex: row.rowIndex,
     passed,
@@ -221,10 +250,12 @@ const buildMockValidationResults = (
 ): CopyTestValidationResult[] => {
   const sequenceIndex = options.sequenceIndex;
   if (sequenceIndex !== undefined) {
+    const rowCount = runtimeContext.selectedRows.length;
     return runtimeContext.selectedRows.map((row, rowPosition) => {
       return buildSequencedValidationResult(
         row,
         rowPosition,
+        rowCount,
         imageFileNames,
         sequenceIndex
       );

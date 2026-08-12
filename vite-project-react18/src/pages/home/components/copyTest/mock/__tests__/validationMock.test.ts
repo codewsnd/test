@@ -106,13 +106,13 @@ describe('validationMock aiChat boundary', () => {
     const fourth = JSON.parse((await mockAiChat(request)).data?.content || '');
 
     expect(first.results[0]).toEqual({
-      evidenceImageFileNames: ['screen-a.png'],
+      evidenceImageFileNames: ['screen-a.png', 'screen-b.png'],
       languageIssues: [],
       passed: true,
       rowIndex: 3,
     });
     expect(second.results[0]).toEqual({
-      evidenceImageFileNames: ['screen-b.png'],
+      evidenceImageFileNames: ['screen-b.png', 'screen-a.png'],
       languageIssues: [
         'Mock validation round 2: Expected copy was not found in the uploaded screenshots.',
       ],
@@ -121,8 +121,10 @@ describe('validationMock aiChat boundary', () => {
     });
     expect(third.results[0]).toEqual({
       evidenceImageFileNames: ['screen-a.png', 'screen-b.png'],
-      languageIssues: [],
-      passed: true,
+      languageIssues: [
+        'Mock validation round 3: Screenshot contains related text, but the visible wording is different.',
+      ],
+      passed: false,
       rowIndex: 3,
     });
     expect(fourth.results[0]).toEqual({
@@ -138,15 +140,15 @@ describe('validationMock aiChat boundary', () => {
     })).size).toBe(4);
   });
 
-  it('keeps accumulated rounds request-scoped and resets the default sequence', async () => {
+  it('keeps each round request-scoped and resets the default sequence', async () => {
     const requests = [
       buildRequest(['round-1.png'], [{ expected: 'one', rowIndex: 10 }]),
       buildRequest(
-        ['round-1.png', 'round-2.png'],
+        ['round-2-a.png', 'round-2-b.png'],
         [{ expected: 'two', rowIndex: 20 }]
       ),
       buildRequest(
-        ['round-1.png', 'round-2.png', 'round-3.png'],
+        ['round-3-a.png', 'round-3-b.png', 'round-3-c.png'],
         [
           { expected: 'three', rowIndex: 30 },
           { expected: 'three-b', rowIndex: 31 },
@@ -173,7 +175,7 @@ describe('validationMock aiChat boundary', () => {
       },
       {
         results: [{
-          evidenceImageFileNames: ['round-2.png'],
+          evidenceImageFileNames: ['round-2-b.png', 'round-2-a.png'],
           languageIssues: [
             'Mock validation round 2: Expected copy was not found in the uploaded screenshots.',
           ],
@@ -184,13 +186,13 @@ describe('validationMock aiChat boundary', () => {
       {
         results: [
           {
-            evidenceImageFileNames: ['round-3.png'],
+            evidenceImageFileNames: ['round-3-c.png', 'round-3-b.png'],
             languageIssues: [],
             passed: true,
             rowIndex: 30,
           },
           {
-            evidenceImageFileNames: ['round-1.png', 'round-2.png'],
+            evidenceImageFileNames: ['round-3-a.png'],
             languageIssues: [
               'Mock validation round 3: The expected copy is incomplete or truncated in the screenshot.',
             ],
@@ -227,6 +229,33 @@ describe('validationMock aiChat boundary', () => {
     const resetResponse = await mockCopyTestAiChat(requests[0]);
 
     expect(resetResponse).toEqual(responses[0]);
+  });
+
+  it('covers as many current-round images as the row Evidence capacity allows', () => {
+    const response = buildMockCopyTestAiChatResponse(
+      buildRequest(
+        ['screen-a.png', 'screen-b.png', 'screen-c.png', 'screen-d.png'],
+        [
+          { expected: 'first', rowIndex: 0 },
+          { expected: 'second', rowIndex: 1 },
+        ]
+      ),
+      { sequenceIndex: 0 }
+    );
+    const payload = JSON.parse(response.data?.content || '');
+    const evidenceFileNames = payload.results.flatMap(
+      (result: { evidenceImageFileNames: string[] }) => {
+        return result.evidenceImageFileNames;
+      }
+    );
+
+    expect(evidenceFileNames).toEqual([
+      'screen-a.png',
+      'screen-c.png',
+      'screen-b.png',
+      'screen-d.png',
+    ]);
+    expect(new Set(evidenceFileNames).size).toBe(4);
   });
 
   it('uses empty Evidence and an accurate boundary issue when no screenshots exist', () => {
