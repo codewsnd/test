@@ -27,7 +27,13 @@ export type CopyTestSessionAction =
     /** 清空当前导入页面及其全部本地工作状态。 */
     type: 'RESET';
   }
-  | { storageHtml: string; tables: CopyTestTableEntry[]; type: 'LOADED' }
+  | {
+    /** 导入期间迁移且等待用户明确回写的历史图片标签 Pair。 */
+    pendingExportPairKeys?: string[];
+    storageHtml: string;
+    tables: CopyTestTableEntry[];
+    type: 'LOADED';
+  }
   | { tableIndex: number; type: 'TABLE_SELECTED' }
   | {
     columnIndex?: number;
@@ -135,7 +141,7 @@ export const copyTestSessionReducer = (
     case 'LOADED':
       return {
         originalStorageHtml: action.storageHtml,
-        pendingExportPairKeys: [],
+        pendingExportPairKeys: [...(action.pendingExportPairKeys || [])],
         revision: state.revision + 1,
         selectedColumnIndex: undefined,
         selectedRowIndexes: [],

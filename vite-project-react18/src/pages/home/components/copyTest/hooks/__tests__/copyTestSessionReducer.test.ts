@@ -20,6 +20,7 @@ describe('copyTestSessionReducer', () => {
   it('loads tables, selects the first table, and clears column state when switching tables', () => {
     const tables = [createTable(2), createTable(5)];
     const loaded = copyTestSessionReducer(copyTestSessionInitialState, {
+      pendingExportPairKeys: ['2:0:Target'],
       storageHtml: 'storage-v1',
       tables,
       type: 'LOADED',
@@ -36,6 +37,7 @@ describe('copyTestSessionReducer', () => {
 
     expect(loaded).toMatchObject({
       originalStorageHtml: 'storage-v1',
+      pendingExportPairKeys: ['2:0:Target'],
       revision: 1,
       selectedTableIndex: 2,
       tables,
@@ -98,7 +100,7 @@ describe('copyTestSessionReducer', () => {
     expect(originalTable.workingHtml).toBe('table-0');
   });
 
-  it('clears only the successfully exported Pair and resets all pending keys on import', () => {
+  it('clears only the exported Pair and replaces pending keys on a new import', () => {
     const loaded = copyTestSessionReducer(copyTestSessionInitialState, {
       storageHtml: 'storage-v1',
       tables: [createTable(0)],

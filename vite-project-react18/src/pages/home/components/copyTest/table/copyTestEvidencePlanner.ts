@@ -4,12 +4,6 @@
 import type { CopyTestImage } from '../api/copyTestApi';
 import { getCopyTestImageDisplayName } from './copyTestImageUtils';
 
-/** Screen 标签固定前缀。 */
-const SCREEN_LABEL_PREFIX = 'Screen';
-
-/** Screen 标签数字部分的最小位数。 */
-const SCREEN_LABEL_NUMBER_WIDTH = 2;
-
 /** Evidence Planner 接收的不可拆分来源原子组。 */
 export interface CopyTestEvidenceSourceGroup {
   /** 来源单元格在物理数据行中的锚点下标。 */
@@ -28,7 +22,7 @@ export interface CopyTestEvidenceSourceGroup {
 export interface CopyTestEvidenceScreen {
   /** 当前 Screen 对应的上传图片。 */
   image: CopyTestImage;
-  /** 当前 Evidence 组内稳定且连续的 Screen 标签。 */
+  /** 优先使用原始文件名主体，缺失时回退到附件名主体。 */
   label: string;
 }
 
@@ -150,15 +144,9 @@ const appendSourceGroup = (
   sourceGroup.evidenceImages.forEach(image => group.imageFileNames.add(image.fileName));
 };
 
-/** 根据零起始下标和图片原始文件名生成 Screen 展示标签。 */
-const createScreenLabel = (image: CopyTestImage, index: number): string => {
-  /** 转换为一开始的 Screen 序号。 */
-  const screenNumber = String(index + 1).padStart(SCREEN_LABEL_NUMBER_WIDTH, '0');
-  /** 不带扩展名的用户可识别文件名。 */
-  const displayName = getCopyTestImageDisplayName(image);
-  /** 缺少有效文件名时仍保留可用的 Screen 序号。 */
-  const screenLabel = `${SCREEN_LABEL_PREFIX}${screenNumber}`;
-  return displayName ? `${screenLabel} (${displayName})` : screenLabel;
+/** 根据图片原始文件名生成用户可识别的展示标签。 */
+const createImageLabel = (image: CopyTestImage): string => {
+  return getCopyTestImageDisplayName(image);
 };
 
 /** 构建 Evidence 组按上传顺序展示的 Screen 列表。 */
@@ -168,7 +156,7 @@ const createGroupScreens = (
 ): CopyTestEvidenceScreen[] => {
   return uploadedImages
     .filter(image => group.imageFileNames.has(image.fileName))
-    .map((image, index) => ({ image, label: createScreenLabel(image, index) }));
+    .map(image => ({ image, label: createImageLabel(image) }));
 };
 
 /** 构建单个来源原子组真正使用的 Result Screen 子集。 */

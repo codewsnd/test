@@ -19,6 +19,8 @@ import type {
   CopyTestExportRow,
   CopyTestExportTableModel,
 } from './copyTestExportTypes';
+import { COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE } from '../table/tableConstants';
+import { getCopyTestStoredImageDisplayName } from '../table/copyTestImageUtils';
 
 /** 构建模型时发现无有效表格使用的错误文案。 */
 const COPY_TEST_EXPORT_INVALID_TABLE_ERROR = 'No valid table found for export';
@@ -130,7 +132,7 @@ const getStorageImageFileName = (imageElement: Element): string => {
   return attachment?.getAttribute('ri:filename')?.trim() || '';
 };
 
-/** 读取 Evidence 图片所在卡片的 Screen 标签。 */
+/** 读取 Evidence 图片所在卡片的显式标签。 */
 const getStorageImageLabel = (imageElement: Element, fallback: string): string => {
   /** 当前图片所属的 Evidence 卡片。 */
   const card = imageElement.closest(`[${COPY_TEST_EXPORT_EVIDENCE_CARD_ATTRIBUTE}]`);
@@ -141,7 +143,6 @@ const getStorageImageLabel = (imageElement: Element, fallback: string): string =
 const buildCellImage = (
   imageElement: Element,
   imageDataByFileName: Map<string, string>,
-  imageIndex: number,
   missingImageFileNames: Set<string>
 ): CopyTestExportCellImage | null => {
   /** 当前 Confluence 图片引用的规范附件文件名。 */
@@ -162,7 +163,13 @@ const buildCellImage = (
       imageElement.getAttribute('ac:height'),
       COPY_TEST_EXPORT_IMAGE_DEFAULT_HEIGHT
     ),
-    label: getStorageImageLabel(imageElement, `Screen${String(imageIndex + 1).padStart(2, '0')}`),
+    label: getStorageImageLabel(
+      imageElement,
+      getCopyTestStoredImageDisplayName({
+        attachmentFileName: fileName,
+        displayFileName: imageElement.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE),
+      })
+    ),
     width: readPositiveSize(
       imageElement.getAttribute('ac:width'),
       COPY_TEST_EXPORT_IMAGE_DEFAULT_WIDTH
@@ -180,12 +187,11 @@ const getCellImages = (
   const imageElements = Array.from(cell.querySelectorAll('*')).filter(element => {
     return element.tagName.toLowerCase() === 'ac:image' && isOwnedByCell(element, cell);
   });
-  return imageElements.flatMap((element, imageIndex) => {
+  return imageElements.flatMap(element => {
     /** 当前 Confluence 图片转换后的中立模型。 */
     const image = buildCellImage(
       element,
       imageDataByFileName,
-      imageIndex,
       missingImageFileNames
     );
     return image ? [image] : [];

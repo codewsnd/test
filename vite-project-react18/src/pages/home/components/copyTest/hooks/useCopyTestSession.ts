@@ -31,6 +31,7 @@ import {
   type CopyTestColumnContext,
 } from '../table/copyTestTableParser';
 import { getConfluenceStorageTableImageFileNames } from '../table/copyTestTableImages';
+import { migrateCopyTestImageLabelsWithDetails } from '../table/copyTestImageLabelMigration';
 import {
   copyTestSessionInitialState,
   copyTestSessionReducer,
@@ -328,6 +329,28 @@ const buildCurrentPreviewImages = (
   });
 };
 
+/** 导入表格完成历史标签迁移后的 working 值和待回写 Pair。 */
+interface MigratedLoadedTable {
+  /** 保持原始快照、只更新 working 标签的表格。 */
+  table: CopyTestTableEntry;
+  /** 用户选择对应 Comparison Column 后可明确回写的 Pair 键。 */
+  pendingExportPairKeys: string[];
+}
+
+/** 将导入表格中的历史 Screen 标签迁移为文件名，并保持原始快照不变。 */
+const migrateLoadedTableImageLabels = (table: CopyTestTableEntry): MigratedLoadedTable => {
+  /** 只改写 working 副本中的严格受管 Result/Evidence 标签。 */
+  const migration = migrateCopyTestImageLabelsWithDetails(table.workingHtml);
+  return {
+    pendingExportPairKeys: migration.sourceColumnKeys.map(sourceColumnKey => {
+      return buildPendingExportPairKey(table.index, sourceColumnKey);
+    }),
+    table: migration.html === table.workingHtml
+      ? table
+      : refreshWorkingTable(table, migration.html),
+  };
+};
+
 /** 生成当前列快照 key。 */
 const buildSnapshotKey = (
   tableIndex: number,
@@ -431,10 +454,20 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     nextStorageHtml: string,
     previewImages: CopyTestImage[] = []
   ): number => {
-    /** 新 storage 中解析出的全部有效工作表格。 */
-    const nextTables = parseCopyTestStorageTables(nextStorageHtml);
+    /** 新 storage 中解析并完成历史图片标签迁移的全部有效工作表格。 */
+    const migratedTables = parseCopyTestStorageTables(nextStorageHtml)
+      .map(migrateLoadedTableImageLabels);
+    /** 只包含 working 标签迁移、原始快照仍未变化的表格集合。 */
+    const nextTables = migratedTables.map(item => item.table);
+    /** 所有历史标签变更所属的待回写 Pair 键。 */
+    const pendingExportPairKeys = migratedTables.flatMap(item => item.pendingExportPairKeys);
     importedPreviewImagesRef.current = [...previewImages];
-    dispatch({ storageHtml: nextStorageHtml, tables: nextTables, type: 'LOADED' });
+    dispatch({
+      pendingExportPairKeys,
+      storageHtml: nextStorageHtml,
+      tables: nextTables,
+      type: 'LOADED',
+    });
     resetValidationSnapshots();
     return nextTables.length;
   };

@@ -243,12 +243,12 @@ describe('useCopyTestSession', () => {
       COPY_TEST_RESULT_FAILED_GROUP_VALUE
     )).toEqual([secondImage.fileName]);
     expect(getEvidenceScreenLabels(accumulatedDocument)).toEqual([
-      'Screen01 (This is just test)',
-      'Screen02 (Second upload)',
+      'This is just test',
+      'Second upload',
     ]);
     expect(getResultScreenLabels(accumulatedDocument)).toEqual([
-      'Screen01 (This is just test)',
-      'Screen02 (Second upload)',
+      'This is just test',
+      'Second upload',
     ]);
     expect(accumulatedDocument.querySelector(
       `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="${secondImage.fileName}"]`
@@ -288,12 +288,12 @@ describe('useCopyTestSession', () => {
       COPY_TEST_RESULT_FAILED_GROUP_VALUE
     )).toEqual([secondImage.fileName]);
     expect(getEvidenceScreenLabels(afterThirdBatchDocument)).toEqual([
-      'Screen01 (Second upload)',
-      'Screen02 (第三批截图)',
+      'Second upload',
+      '第三批截图',
     ]);
     expect(getResultScreenLabels(afterThirdBatchDocument)).toEqual([
-      'Screen02 (第三批截图)',
-      'Screen01 (Second upload)',
+      '第三批截图',
+      'Second upload',
     ]);
     expect(afterThirdBatchDocument.body.innerHTML).not.toContain(image.fileName);
     expect(result.current.getCurrentValidationImages()).toEqual([
@@ -632,6 +632,37 @@ describe('useCopyTestSession', () => {
       result.current.resetValidationSnapshots();
     });
     expect(result.current.getCurrentPreviewImages()).toEqual([importedImage]);
+  });
+
+  it('立即迁移已导入 Result 和 Evidence 的历史 Screen 标签', () => {
+    /** 使用纯 UUID 内部附件名和完整原始文件名 metadata 的历史 storage。 */
+    const uuidFileName = '0198f4e0-0000-7000-8000-000000000000.png';
+    const historicalStorage = [
+      '<table><tr><th>Target</th>',
+      '<th data-copy-test-column-type="result" data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target" data-copy-test-schema="2">Test Result - Target</th>',
+      '<th data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target" data-copy-test-schema="2">Test Evidence - Target</th></tr>',
+      '<tr><td>Copy</td>',
+      '<td data-copy-test-column-type="result" data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target" data-copy-test-schema="2">',
+      `<ul><li data-copy-test-result-image-id="${uuidFileName}">Screen01 (旧标签)</li></ul></td>`,
+      '<td data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target" data-copy-test-schema="2">',
+      `<div data-copy-test-evidence-card="true"><strong>Screen01 (旧标签)</strong><br />`,
+      `<ac:image data-copy-test-evidence-image-id="${uuidFileName}" data-copy-test-evidence-image-alt="首页截图.png">`,
+      `<ri:attachment ri:filename="${uuidFileName}" /></ac:image></div></td></tr></table>`,
+    ].join('');
+    const { result } = renderHook(() => useCopyTestSession());
+
+    act(() => {
+      result.current.applyLoadedStorage(historicalStorage);
+    });
+
+    expect(result.current.selectedTable?.workingHtml).toContain('首页截图');
+    expect(result.current.selectedTable?.workingHtml).not.toContain('Screen01');
+    expect(result.current.selectedTable?.workingHtml).toContain(`ri:filename="${uuidFileName}"`);
+    expect(result.current.originalStorageHtml).toBe(historicalStorage);
+    act(() => {
+      result.current.handleComparisonColumnChange(0);
+    });
+    expect(result.current.selectedColumnHasExportableContent).toBe(true);
   });
 
   it('resets imported tables, selections, and image identities as one session', () => {

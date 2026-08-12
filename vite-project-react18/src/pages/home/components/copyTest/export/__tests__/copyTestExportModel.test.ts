@@ -88,4 +88,35 @@ describe('buildCopyTestExportTableModel', () => {
     expect(model.rows[0].cells[0].images).toEqual([]);
     expect(model.missingImageFileNames).toEqual([]);
   });
+
+  it('falls back to the attachment filename stem when an Evidence label is missing', () => {
+    /** 不含 strong 标签、需要从附件名生成显示名称的 Evidence 表格。 */
+    const tableHtml = [
+      '<table><tr><td data-copy-test-column-type="evidence">',
+      '<div data-copy-test-evidence-card="true">',
+      '<ac:image><ri:attachment ri:filename="captures/This is test.final.PNG" /></ac:image>',
+      '</div>',
+      '<div data-copy-test-evidence-card="true">',
+      '<ac:image><ri:attachment ri:filename="019c1234-5678-7abc-8def-0123456789ab.jpg" /></ac:image>',
+      '</div>',
+      '<div data-copy-test-evidence-card="true">',
+      '<ac:image data-copy-test-evidence-image-alt="首页.最终版.PNG">',
+      '<ri:attachment ri:filename="019c1234-5679-7abc-8def-0123456789ab.png" /></ac:image>',
+      '</div>',
+      '<div data-copy-test-evidence-card="true">',
+      '<ac:image><ri:attachment ri:filename="旧版首页-019c1234-5670-7abc-8def-0123456789ab.jpg" /></ac:image>',
+      '</div>',
+      '</td></tr></table>',
+    ].join('');
+
+    /** 从缺失显式标签的 Evidence 构建出的中立模型。 */
+    const model = buildCopyTestExportTableModel(tableHtml, []);
+
+    expect(model.rows[0].cells[0].images.map(image => image.label)).toEqual([
+      'This is test.final',
+      '019c1234-5678-7abc-8def-0123456789ab',
+      '首页.最终版',
+      '旧版首页',
+    ]);
+  });
 });
