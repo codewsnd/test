@@ -1,6 +1,7 @@
 /**
- * 文件作用：把历史 CopyTest Result/Evidence 的 Screen 标签迁移为图片文件名。
+ * 文件作用：把已导入 CopyTest 表格中的历史 Screen 标签迁移为真实图片文件名。
  */
+import { getCopyTestStoredImageDisplayName } from './copyTestImageUtils';
 import {
   COPY_TEST_EVIDENCE_CARD_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE,
@@ -14,224 +15,267 @@ import {
   COPY_TEST_SCHEMA_ATTRIBUTE,
   COPY_TEST_SCHEMA_VERSION,
 } from './tableConstants';
-import { getCopyTestStoredImageDisplayName } from './copyTestImageUtils';
 import { parseHtml, toConfluenceStorageHtml } from './tableModel';
 
-/** 迁移过程中识别出的严格 CopyTest 受管单元格。 */
-interface ManagedCell {
-  /** 当前 Result/Evidence 单元格。 */
-  cell: HTMLTableCellElement;
-  /** 单元格所属 Comparison Column 的稳定键。 */
-  sourceColumnKey: string;
-}
-
-/** 历史图片标签迁移后的 working HTML 和发生变化的 Pair。 */
+/** CopyTest 标签迁移后的 working HTML 和受影响来源列。 */
 export interface CopyTestImageLabelMigrationResult {
-  /** 完成幂等标签迁移后的单表 HTML。 */
+  /** 完成历史标签迁移后的单表 HTML；没有变化时原样返回输入。 */
   html: string;
-  /** 至少一个 Result/Evidence 标签发生变化的来源列键。 */
+  /** 实际发生标签变化的来源列 ownership key。 */
   sourceColumnKeys: string[];
 }
 
-/** 使用 source key 和内部图片 ID 生成不会跨 Pair 冲突的标签索引键。 */
-const getImageLabelKey = (sourceColumnKey: string, imageId: string): string => {
-  return `${sourceColumnKey}\u0000${imageId}`;
+/** 当前迁移允许处理的严格生成列类型。 */
+type CopyTestManagedColumnType =
+  | typeof COPY_TEST_GENERATED_EVIDENCE_TYPE
+  | typeof COPY_TEST_GENERATED_RESULT_TYPE;
+
+/** 已通过 schema、owner 和来源列校验的生成单元格。 */
+interface CopyTestManagedCell {
+  /** 当前 Result 或 Evidence 单元格。 */
+  cell: HTMLTableCellElement;
+  /** 当前生成单元格所属来源列的稳定 key。 */
+  sourceColumnKey: string;
+  /** 当前生成单元格的业务类型。 */
+  type: CopyTestManagedColumnType;
+}
+
+/** 单张历史 Evidence 图片恢复出的展示标签。 */
+interface CopyTestStoredImageLabel {
+  /** Evidence 和 Result 共同使用的稳定图片 ID。 */
+  imageId: string;
+  /** 去掉路径和扩展名后的用户可识别标签。 */
+  label: string;
+  /** Evidence 卡片中保存可见标签的 strong 节点。 */
+  labelElement?: Element;
+}
+
+/** 按来源列和图片 ID 保存的历史标签索引。 */
+type CopyTestStoredImageLabelMap = Map<string, Map<string, string>>;
+
+/** 判断生成列类型是否属于当前迁移支持的 Result/Evidence。 */
+const isManagedColumnType = (value: string | null): value is CopyTestManagedColumnType => {
+  return value === COPY_TEST_GENERATED_RESULT_TYPE
+    || value === COPY_TEST_GENERATED_EVIDENCE_TYPE;
 };
 
-/** 判断元素是否由指定顶层单元格直接拥有。 */
-const isOwnedByCell = (element: Element, cell: HTMLTableCellElement): boolean => {
-  return element.closest('th,td') === cell;
-};
-
-/** 读取严格属于当前 CopyTest schema 的指定类型单元格。 */
-const getManagedCells = (
-  table: HTMLTableElement,
-  type: typeof COPY_TEST_GENERATED_RESULT_TYPE | typeof COPY_TEST_GENERATED_EVIDENCE_TYPE
-): ManagedCell[] => {
-  return Array.from(table.querySelectorAll<HTMLTableCellElement>('th,td')).flatMap(cell => {
-    /** 当前单元格声明的来源列键。 */
-    const sourceColumnKey = cell.getAttribute(
-      COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE
-    )?.trim() || '';
-    /** 完整 ownership 防止修改业务列或嵌套表格。 */
-    const isManaged = cell.closest('table') === table
-      && sourceColumnKey !== ''
-      && cell.getAttribute(COPY_TEST_SCHEMA_ATTRIBUTE) === COPY_TEST_SCHEMA_VERSION
-      && cell.getAttribute(COPY_TEST_OWNER_ID_ATTRIBUTE) === sourceColumnKey
-      && cell.getAttribute(COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE) === type;
-    return isManaged ? [{ cell, sourceColumnKey }] : [];
-  });
-};
-
-/** 读取 ac:image 的直属 ri:attachment 文件名。 */
-const getAttachmentFileName = (image: Element): string => {
-  /** 当前 Confluence 图片的直属附件引用。 */
-  const attachment = Array.from(image.children).find(child => {
-    return child.tagName.toLowerCase() === 'ri:attachment';
-  });
-  return attachment?.getAttribute('ri:filename')?.trim() || '';
-};
-
-/** 读取 Evidence 图片所在受管卡片。 */
-const getEvidenceCard = (
-  image: Element,
-  cell: HTMLTableCellElement
-): HTMLElement | null => {
-  /** 当前图片向上最近的 Evidence 卡片。 */
-  const card = image.closest<HTMLElement>(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`);
-  return card && isOwnedByCell(card, cell) ? card : null;
-};
-
-/** 读取 Evidence 卡片的直属可见标签。 */
-const getCardLabel = (card: HTMLElement | null): HTMLElement | null => {
-  if (!card) {
+/** 读取单元格的严格 CopyTest ownership；不认领旧版或不完整 metadata。 */
+const readManagedCell = (
+  cell: HTMLTableCellElement,
+  table: HTMLTableElement
+): CopyTestManagedCell | null => {
+  if (cell.closest('table') !== table) {
     return null;
   }
-  return Array.from(card.children).find(child => {
-    return child.tagName.toLowerCase() === 'strong';
-  }) as HTMLElement | undefined || null;
+
+  /** 当前单元格声明的 Result/Evidence 类型。 */
+  const type = cell.getAttribute(COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE);
+  /** 当前单元格声明的来源列 key。 */
+  const sourceColumnKey = cell.getAttribute(COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE);
+  if (
+    !isManagedColumnType(type)
+    || !sourceColumnKey
+    || cell.getAttribute(COPY_TEST_OWNER_ID_ATTRIBUTE) !== sourceColumnKey
+    || cell.getAttribute(COPY_TEST_SCHEMA_ATTRIBUTE) !== COPY_TEST_SCHEMA_VERSION
+  ) {
+    return null;
+  }
+
+  return { cell, sourceColumnKey, type };
 };
 
-/** 读取 Result 条目中位于嵌套问题列表之前的直属标签文本节点。 */
-const getResultLabelNode = (reference: HTMLElement): ChildNode | undefined => {
-  return Array.from(reference.childNodes).find(node => {
-    return node.nodeType === Node.TEXT_NODE && node.textContent?.trim();
+/** 按 DOM 顺序读取当前顶层表格的严格受管单元格。 */
+const getManagedCells = (table: HTMLTableElement): CopyTestManagedCell[] => {
+  return Array.from(table.querySelectorAll<HTMLTableCellElement>('th,td')).flatMap(cell => {
+    /** 当前 DOM 单元格通过严格 ownership 校验后的结果。 */
+    const managedCell = readManagedCell(cell, table);
+    return managedCell ? [managedCell] : [];
   });
 };
 
-/** 确保受管 Evidence 卡片包含可见文件名标签。 */
-const ensureCardLabel = (
-  card: HTMLElement | null,
-  image: Element
-): HTMLElement | null => {
-  /** 已有标签只需复用，避免重排历史卡片。 */
-  const existingLabel = getCardLabel(card);
-  if (existingLabel || !card) {
-    return existingLabel;
-  }
-
-  /** 缺失标签时在图片之前补齐与当前结构一致的 strong + br。 */
-  const label = image.ownerDocument.createElement('strong');
-  const lineBreak = image.ownerDocument.createElement('br');
-  card.insertBefore(label, image);
-  card.insertBefore(lineBreak, image);
-  return label;
+/** 查找指定元素中由它直接拥有的标签子元素。 */
+const findDirectChildByTagName = (element: Element, tagName: string): Element | undefined => {
+  return Array.from(element.children).find(child => child.tagName.toLowerCase() === tagName);
 };
 
-/** 设置可见标签，并返回内容是否发生变化。 */
-const setLabelText = (label: HTMLElement | null, displayName: string): boolean => {
-  if (!label || !displayName || label.textContent === displayName) {
+/** 读取 ac:image 直属 ri:attachment 中的规范附件文件名。 */
+const getAttachmentFileName = (imageElement: Element): string => {
+  return findDirectChildByTagName(imageElement, 'ri:attachment')
+    ?.getAttribute('ri:filename')
+    ?.trim() || '';
+};
+
+/** 读取 Evidence 卡片中的稳定图片身份和目标展示标签。 */
+const readStoredImageLabel = (card: Element): CopyTestStoredImageLabel | null => {
+  /** 当前卡片所在的严格受管单元格。 */
+  const ownerCell = card.closest('th,td');
+  /** 当前卡片唯一且仍由同一单元格拥有的 ac:image 候选。 */
+  const imageCandidates = Array.from(
+    card.querySelectorAll(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`)
+  ).filter(element => {
+    return element.tagName.toLowerCase() === 'ac:image'
+      && element.closest(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`) === card
+      && element.closest('th,td') === ownerCell;
+  });
+  if (!ownerCell || imageCandidates.length !== 1) {
+    return null;
+  }
+
+  /** 已排除缺失或歧义结构的唯一 Evidence 图片。 */
+  const imageElement = imageCandidates[0];
+  /** Result 与 Evidence 之间共享的内部图片 ID。 */
+  const imageId = imageElement
+    .getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE)
+    ?.trim() || '';
+  /** Confluence 附件引用中的内部文件名。 */
+  const attachmentFileName = getAttachmentFileName(imageElement);
+  if (!imageId || !attachmentFileName) {
+    return null;
+  }
+
+  /** Evidence 卡片直接拥有的历史可见标签节点。 */
+  const labelElement = findDirectChildByTagName(card, 'strong');
+  return {
+    imageId,
+    label: getCopyTestStoredImageDisplayName({
+      attachmentFileName,
+      displayFileName: imageElement.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE),
+      existingLabel: labelElement?.textContent,
+    }),
+    labelElement,
+  };
+};
+
+/** 读取当前单元格直接拥有的 Evidence 卡片。 */
+const getOwnedEvidenceCards = (cell: HTMLTableCellElement): Element[] => {
+  return Array.from(cell.querySelectorAll(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`))
+    .filter(card => card.closest('th,td') === cell);
+};
+
+/** 为单个来源列登记第一份稳定图片标签。 */
+const registerStoredImageLabel = (
+  labelsBySourceColumn: CopyTestStoredImageLabelMap,
+  sourceColumnKey: string,
+  image: CopyTestStoredImageLabel
+): void => {
+  /** 当前来源列已经登记的图片标签。 */
+  const labelsByImageId = labelsBySourceColumn.get(sourceColumnKey) || new Map<string, string>();
+  if (!labelsByImageId.has(image.imageId)) {
+    labelsByImageId.set(image.imageId, image.label);
+  }
+  labelsBySourceColumn.set(sourceColumnKey, labelsByImageId);
+};
+
+/** 在修改 DOM 前构建来源列隔离的 Evidence 标签索引。 */
+const buildStoredImageLabelMap = (cells: CopyTestManagedCell[]): CopyTestStoredImageLabelMap => {
+  /** 防止相同图片 ID 在不同 Comparison Column 之间串用标签。 */
+  const labelsBySourceColumn: CopyTestStoredImageLabelMap = new Map();
+  cells
+    .filter(item => item.type === COPY_TEST_GENERATED_EVIDENCE_TYPE)
+    .forEach(item => {
+      getOwnedEvidenceCards(item.cell).forEach(card => {
+        /** 当前 Evidence 卡片恢复出的图片身份和展示标签。 */
+        const image = readStoredImageLabel(card);
+        if (image) {
+          registerStoredImageLabel(labelsBySourceColumn, item.sourceColumnKey, image);
+        }
+      });
+    });
+  return labelsBySourceColumn;
+};
+
+/** 替换元素直接拥有的第一个非空文本节点，并保留嵌套问题列表。 */
+const replaceVisibleLabel = (element: Element, label: string): boolean => {
+  /** 位于嵌套列表或其他子元素之前的可见标签文本节点。 */
+  const labelNode = Array.from(element.childNodes).find(node => {
+    return node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim());
+  });
+  if (!labelNode || labelNode.textContent?.trim() === label) {
     return false;
   }
-  label.textContent = displayName;
+
+  labelNode.textContent = label;
   return true;
 };
 
-/** 迁移 Evidence 标签并构建供 Result 复用的展示名称索引。 */
-const migrateEvidenceLabels = (
-  table: HTMLTableElement,
-  imageLabels: Map<string, string>,
-  changedSourceColumnKeys: Set<string>
-): boolean => {
-  /** 当前表格是否修改过至少一个可见标签。 */
+/** 迁移一个 Evidence 单元格中的历史卡片标签。 */
+const migrateEvidenceCell = (item: CopyTestManagedCell): boolean => {
+  /** 当前单元格内是否至少迁移了一张图片标签。 */
   let changed = false;
-  getManagedCells(table, COPY_TEST_GENERATED_EVIDENCE_TYPE).forEach(({ cell, sourceColumnKey }) => {
-    Array.from(cell.querySelectorAll(`[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`))
-      .filter(image => isOwnedByCell(image, cell))
-      .forEach(image => {
-        /** 内部图片 ID 和附件名在当前 schema 中通常相同。 */
-        const imageId = image.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE)?.trim() || '';
-        const attachmentFileName = getAttachmentFileName(image) || imageId;
-        if (!imageId || !attachmentFileName) {
-          return;
-        }
-
-        /** 旧卡片标签用于在 metadata 缺失时恢复已经展示过的原名。 */
-        const card = getEvidenceCard(image, cell);
-        const label = ensureCardLabel(card, image);
-        const displayName = getCopyTestStoredImageDisplayName({
-          attachmentFileName,
-          displayFileName: image.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE),
-          existingLabel: label?.textContent,
-        });
-        imageLabels.set(getImageLabelKey(sourceColumnKey, imageId), displayName);
-        const labelChanged = setLabelText(label, displayName);
-        if (labelChanged) {
-          changedSourceColumnKeys.add(sourceColumnKey);
-        }
-        changed = labelChanged || changed;
-      });
+  getOwnedEvidenceCards(item.cell).forEach(card => {
+    /** 当前卡片恢复出的图片身份、目标标签和可见节点。 */
+    const image = readStoredImageLabel(card);
+    if (image?.labelElement && replaceVisibleLabel(image.labelElement, image.label)) {
+      changed = true;
+    }
   });
   return changed;
 };
 
-/** 迁移 Result 中与 Evidence 图片 ID 对应的可见标签。 */
-const migrateResultLabels = (
-  table: HTMLTableElement,
-  imageLabels: Map<string, string>,
-  changedSourceColumnKeys: Set<string>
+/** 迁移一个 Result 单元格中的历史图片引用标签。 */
+const migrateResultCell = (
+  item: CopyTestManagedCell,
+  labelsBySourceColumn: CopyTestStoredImageLabelMap
 ): boolean => {
-  /** 当前表格是否修改过至少一个 Result 标签。 */
+  /** 当前 Result 来源列对应的 Evidence 图片标签。 */
+  const labelsByImageId = labelsBySourceColumn.get(item.sourceColumnKey);
+  if (!labelsByImageId) {
+    return false;
+  }
+
+  /** 当前单元格内是否至少迁移了一条 Result 图片引用。 */
   let changed = false;
-  getManagedCells(table, COPY_TEST_GENERATED_RESULT_TYPE).forEach(({ cell, sourceColumnKey }) => {
-    Array.from(cell.querySelectorAll<HTMLElement>(`[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`))
-      .filter(reference => isOwnedByCell(reference, cell))
-      .forEach(reference => {
-        /** Result 仅通过内部图片 ID 与同 Pair Evidence 建立关系。 */
-        const imageId = reference.getAttribute(COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE)?.trim() || '';
-        /** Result 标签是嵌套错误列表之前的直属文本节点。 */
-        const labelNode = getResultLabelNode(reference);
-        const displayName = imageLabels.get(getImageLabelKey(sourceColumnKey, imageId))
-          || getCopyTestStoredImageDisplayName({
-            attachmentFileName: imageId,
-            existingLabel: labelNode?.textContent,
-          });
-        if (labelNode && displayName && labelNode.textContent !== displayName) {
-          labelNode.textContent = displayName;
-          changedSourceColumnKeys.add(sourceColumnKey);
-          changed = true;
-        }
-      });
-  });
+  Array.from(item.cell.querySelectorAll(`[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`))
+    .filter(reference => reference.closest('th,td') === item.cell)
+    .forEach(reference => {
+      /** 当前 Result 引用的内部图片 ID。 */
+      const imageId = reference.getAttribute(COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE)?.trim() || '';
+      /** 同一来源列 Evidence 中恢复出的目标标签。 */
+      const label = labelsByImageId.get(imageId);
+      if (label && replaceVisibleLabel(reference, label)) {
+        changed = true;
+      }
+    });
   return changed;
 };
 
-/** 幂等迁移单张 working table，并报告需要回写的来源 Pair。 */
+/** 迁移单个严格受管单元格并返回是否发生变化。 */
+const migrateManagedCell = (
+  item: CopyTestManagedCell,
+  labelsBySourceColumn: CopyTestStoredImageLabelMap
+): boolean => {
+  return item.type === COPY_TEST_GENERATED_EVIDENCE_TYPE
+    ? migrateEvidenceCell(item)
+    : migrateResultCell(item, labelsBySourceColumn);
+};
+
+/** 将历史 ScreenNN 标签迁移为文件名，并返回需要回写的来源列 key。 */
 export const migrateCopyTestImageLabelsWithDetails = (
   tableHtml: string
 ): CopyTestImageLabelMigrationResult => {
-  /** 只处理调用方提供的第一张顶层 working table。 */
-  const doc = parseHtml(tableHtml);
-  const table = Array.from(doc.querySelectorAll<HTMLTableElement>('table')).find(candidate => {
-    return !candidate.parentElement?.closest('table');
-  });
+  /** 当前 working HTML 中唯一需要迁移的顶层表格。 */
+  const table = parseHtml(tableHtml).querySelector<HTMLTableElement>('table');
   if (!table) {
     return { html: tableHtml, sourceColumnKeys: [] };
   }
 
-  /** Evidence 和 Result 之间按 Pair + image ID 共享的展示名称。 */
-  const imageLabels = new Map<string, string>();
-  /** 标签发生变化且允许用户明确回写的来源 Pair。 */
+  /** 当前表格全部严格受管 Result/Evidence 单元格。 */
+  const managedCells = getManagedCells(table);
+  /** 修改 Result 前预先恢复的来源列级图片标签。 */
+  const labelsBySourceColumn = buildStoredImageLabelMap(managedCells);
+  /** 实际发生迁移的来源列，按表格中首次变化顺序去重。 */
   const changedSourceColumnKeys = new Set<string>();
-  const evidenceChanged = migrateEvidenceLabels(
-    table,
-    imageLabels,
-    changedSourceColumnKeys
-  );
-  const resultChanged = migrateResultLabels(
-    table,
-    imageLabels,
-    changedSourceColumnKeys
-  );
+  managedCells.forEach(item => {
+    if (migrateManagedCell(item, labelsBySourceColumn)) {
+      changedSourceColumnKeys.add(item.sourceColumnKey);
+    }
+  });
+
+  if (changedSourceColumnKeys.size === 0) {
+    return { html: tableHtml, sourceColumnKeys: [] };
+  }
   return {
-    html: evidenceChanged || resultChanged
-      ? toConfluenceStorageHtml(table.outerHTML)
-      : tableHtml,
+    html: toConfluenceStorageHtml(table.outerHTML),
     sourceColumnKeys: Array.from(changedSourceColumnKeys),
   };
-};
-
-/** 只读取完成历史图片标签迁移后的 HTML。 */
-export const migrateCopyTestImageLabels = (tableHtml: string): string => {
-  return migrateCopyTestImageLabelsWithDetails(tableHtml).html;
 };
