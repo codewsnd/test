@@ -148,11 +148,9 @@ describe('copyTestValidationPrompt strict contract', () => {
     );
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/complete coherent copy unit/i);
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/Never carve a matching substring/i);
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(/Latin letters and decimal digits only/i);
     expect(COMPACT_SYSTEM_PROMPT).toMatch(
-      /Unicode compatibility representations of letters and digits/i
-    );
-    expect(COMPACT_SYSTEM_PROMPT).toMatch(
-      /do not compatibility-normalize punctuation or whitespace/i
+      /compatibility presentation variants such as full-width forms/i
     );
     expect(COMPACT_SYSTEM_PROMPT).toMatch(
       /Map only "\/", "／", "⁄", and "∕" to "\/"/i
@@ -166,8 +164,48 @@ describe('copyTestValidationPrompt strict contract', () => {
     ]);
   });
 
+  it('never treats Simplified and Traditional Chinese as equivalent', () => {
+    const input = readDecisionExampleInput('D08');
+    const result = readDecisionExampleOutput('D08').results[0];
+
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /Chinese-script fidelity is a literal character requirement/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /Simplified and Traditional Chinese are not interchangeable/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /Never convert Simplified Chinese to Traditional Chinese or Traditional Chinese to Simplified Chinese/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /translations, regional word choices, synonyms, and paraphrases are substitutions/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /One differing Han character or Chinese word makes that row-image pair a mismatch/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /Do not fail identical literal strings merely because/i
+    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(
+      /never applies to Han characters, Chinese words, punctuation, or whitespace/i
+    );
+    expect(input).toEqual({
+      expectedText: '输入您的信息',
+      rowIndex: 0,
+      visualEvidence: [
+        { fileName: 'traditional.png', fullCopyUnit: '輸入您的資料' },
+      ],
+    });
+    expect(result).toEqual({
+      evidenceImageFileNames: ['traditional.png'],
+      languageIssues: ["Use '输' instead of '輸', and '信息' instead of '資料'."],
+      passed: false,
+      rowIndex: 0,
+    });
+  });
+
   it('returns human-friendly deltas without filenames or complete copy', () => {
-    const failedExampleIds = ['D02', 'D03', 'D05', 'D06', 'D07'];
+    const failedExampleIds = ['D02', 'D03', 'D05', 'D06', 'D07', 'D08'];
 
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/languageIssues contains exactly one concise/i);
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/natural, plain English for a product user/i);
@@ -203,7 +241,7 @@ describe('copyTestValidationPrompt strict contract', () => {
     });
   });
 
-  it('uses seven measured examples with the exact response contract', () => {
+  it('uses eight measured examples with the exact response contract', () => {
     const exampleBlocks = DECISION_EXAMPLES
       .split('\n## ')
       .slice(1)
@@ -212,7 +250,16 @@ describe('copyTestValidationPrompt strict contract', () => {
       block => block.match(/^## (D\d{2}) —/)?.[1]
     );
 
-    expect(exampleIds).toEqual(['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07']);
+    expect(exampleIds).toEqual([
+      'D01',
+      'D02',
+      'D03',
+      'D04',
+      'D05',
+      'D06',
+      'D07',
+      'D08',
+    ]);
     exampleBlocks.forEach(block => {
       const inputLine = block.split('\n').find(line => line.startsWith('Input: '));
       const outputLine = block.split('\n').find(line => line.startsWith('Output: '));
