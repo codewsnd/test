@@ -66,11 +66,17 @@ export const getRequiredExportStorage = (
     return null;
   }
 
+  if (tableState.selectedRowIndexes.length === 0) {
+    message.warning('Please select at least one row');
+    return null;
+  }
+
   return buildCurrentColumnExportStorage({
     exportScope,
     originalStorageHtml: baseStorageHtml || tableState.originalStorageHtml,
     selectedColumnIndex: tableState.selectedColumnIndex,
     selectedColumnLabel: tableState.selectedHeader.label,
+    selectedRowIndexes: tableState.selectedRowIndexes,
     table: tableState.selectedTable,
   });
 };

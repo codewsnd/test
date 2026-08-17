@@ -29,12 +29,15 @@ import {
   isValidConfluenceUrl,
 } from '../utils/urlUtils';
 import {
-  buildStorageAttachmentPreviewBundle,
   getCopyTestValidationContext,
   getRequiredExportStorage,
   type CopyTestValidationContext,
 } from '../utils/copyTestControllerUtils';
-import { useCopyTestSession, type UseCopyTestSessionResult } from './useCopyTestSession';
+import {
+  useCopyTestSession,
+  type CopyTestComparisonColumnSelection,
+  type UseCopyTestSessionResult,
+} from './useCopyTestSession';
 import { useCopyTestUpload, type UseCopyTestUploadResult } from './useCopyTestUpload';
 
 /** CopyTest 控制器初始化参数。 */
@@ -53,6 +56,8 @@ interface CopyTestControllerState {
   canValidate: boolean;
   /** 用户输入的 Confluence 页面 URL。 */
   confluenceUrl: string;
+  /** 当前 Comparison Column 的 Evidence 附件是否正在加载。 */
+  comparisonColumnLoading: boolean;
   /** 等待用户确认删除的 Evidence 图片实例。 */
   deleteImageTarget: CopyTestEvidenceDeleteTarget | null;
   /** storage 导出请求是否正在执行。 */
@@ -63,7 +68,7 @@ interface CopyTestControllerState {
   importBusy: boolean;
   /** URL 或 storage 表格校验错误。 */
   importError?: string;
-  /** storage 或附件预览是否正在导入。 */
+  /** Confluence storage 是否正在导入。 */
   importLoading: boolean;
   /** 当前打开的大图预览信息。 */
   previewImage: CopyTestEvidencePreviewInfo | null;
@@ -88,7 +93,7 @@ interface CopyTestControllerHandlers {
   /** 在非忙碌状态关闭截图上传弹窗。 */
   handleCloseUploadModal: () => void;
   /** 切换 Comparison Column。 */
-  handleComparisonColumnChange: (value?: number) => void;
+  handleComparisonColumnChange: (value?: number) => Promise<void>;
   /** 确认删除一个 Evidence 图片实例。 */
   handleConfirmEvidenceImageDelete: () => void;
   /** 更新 Confluence URL 并清除旧输入错误。 */
@@ -123,6 +128,16 @@ interface PreparedExportStorage {
   storageHtml: string;
 }
 
+/** 一次可丢弃的 Comparison Column 附件请求上下文。 */
+interface ComparisonAttachmentRequestContext {
+  /** 当前列选择生成的单调递增请求编号。 */
+  requestId: number;
+  /** 请求所属的导入会话编号。 */
+  sessionId: number;
+  /** 请求对应的严格 managed Evidence Pair。 */
+  selection: CopyTestComparisonColumnSelection;
+}
+
 /** 页面状态和操作组成的 CopyTest 控制器结果。 */
 export interface CopyTestControllerResult extends CopyTestControllerState, CopyTestControllerHandlers {}
 
@@ -137,6 +152,9 @@ const COPY_TEST_VALIDATION_SUCCESS_MESSAGE = 'Copy test validation completed';
 
 /** Confluence storage 或附件导入失败时显示在输入框下方的文案。 */
 const CONFLUENCE_IMPORT_ERROR = 'Failed to load Confluence tables. Please check whether your Confluence URL or Confluence token is correct.';
+
+/** 当前 Comparison Column 的 Evidence 附件读取失败提示。 */
+const CONFLUENCE_ATTACHMENT_ERROR = 'Failed to load Test Evidence attachments.';
 
 /** 等待浏览器先完成一次界面绘制。 */
 const waitForNextPaint = async (): Promise<void> => {
@@ -240,6 +258,9 @@ export const useCopyTestController = ({
   /** Confluence 双读准备阶段是否已进入导出临界区。 */
   const [exportPreparing, setExportPreparing] = useState(false);
 
+  /** 当前 Comparison Column 的已有 Evidence 附件读取状态。 */
+  const [comparisonColumnLoading, setComparisonColumnLoading] = useState(false);
+
   /** 当前 Evidence 大图预览及其更新函数。 */
   const [previewImage, setPreviewImage] = useState<CopyTestEvidencePreviewInfo | null>(null);
 
@@ -252,6 +273,9 @@ export const useCopyTestController = ({
 
   /** 只允许最后一次导入请求提交状态。 */
   const importRequestIdRef = useRef(0);
+
+  /** 只允许当前会话最后一次 Comparison Column 附件请求提交状态。 */
+  const comparisonAttachmentRequestIdRef = useRef(0);
 
   /** 标识当前表格会话；URL 变化或重新导入时单调递增。 */
   const sessionIdRef = useRef(0);
@@ -286,15 +310,15 @@ export const useCopyTestController = ({
     manual: true,
   });
 
-  /** storage 或附件预览任一请求的综合导入状态。 */
-  const importLoading = storageRequest.loading || attachmentsRequest.loading;
+  /** URL 导入阶段只反映 Confluence storage 请求状态。 */
+  const importLoading = storageRequest.loading;
 
   /** 当前输入、成功导入 URL 与表格状态共同确认的有效会话。 */
   const hasActiveImportedSession = sessionReadyRef.current
     && loadedConfluenceUrl !== ''
     && confluenceUrl.trim() === loadedConfluenceUrl
     && tableState.tables.length > 0
-    && !importLoading;
+    && !storageRequest.loading;
 
   /** 根据请求、选择和上传状态计算全部操作按钮权限。 */
   const {
@@ -304,7 +328,7 @@ export const useCopyTestController = ({
     importBusy,
     uploadBusy,
   } = buildCopyTestActionState({
-    attachmentsLoading: attachmentsRequest.loading,
+    attachmentsLoading: comparisonColumnLoading,
     exportLoading,
     hasExportableContent: tableState.selectedColumnHasExportableContent,
     hasActiveImportedSession,
@@ -327,6 +351,7 @@ export const useCopyTestController = ({
   const resetImportedSessionState = (): void => {
     sessionReadyRef.current = false;
     setLoadedConfluenceUrl('');
+    setComparisonColumnLoading(false);
     setValidationLoading(false);
     setUploadModalOpen(false);
     setDeleteImageTarget(null);
@@ -338,6 +363,7 @@ export const useCopyTestController = ({
   /** 使当前会话及其尚未返回的 AI 校验请求立即失效。 */
   const invalidateCurrentSession = (): void => {
     sessionIdRef.current += 1;
+    comparisonAttachmentRequestIdRef.current += 1;
     validationRequestIdRef.current += 1;
     resetImportedSessionState();
   };
@@ -350,7 +376,7 @@ export const useCopyTestController = ({
     setImportError(undefined);
   };
 
-  /** 校验 URL 并导入最新 storage 与所需附件。 */
+  /** 校验 URL 并只导入最新 storage；Evidence 附件延迟到选择列时读取。 */
   const handleLoadTables = async (): Promise<void> => {
     if (importBusy) {
       return;
@@ -388,25 +414,12 @@ export const useCopyTestController = ({
         return;
       }
 
-      /** 附件 base64 与 storage HTML 分离，避免整页字符串内存翻倍。 */
-      const previewBundle = await buildStorageAttachmentPreviewBundle({
-        confluenceUrl: trimmedUrl,
-        loadAttachments: attachmentsRequest.runAsync,
-        storageHtml: response.storage,
-      });
-      if (requestId !== importRequestIdRef.current) {
-        return;
-      }
-
       /** 应用 storage 后实际保留的有效表格数量。 */
-      const tableCount = tableState.applyLoadedStorage(
-        previewBundle.storageHtml,
-        previewBundle.images
-      );
-      /** 附件预览应用后再次确认有效表格数量的错误。 */
-      const previewStorageError = getConfluenceTableError(tableCount);
-      if (previewStorageError) {
-        setImportError(previewStorageError);
+      const tableCount = tableState.applyLoadedStorage(response.storage);
+      /** storage 应用后再次确认有效表格数量的错误。 */
+      const appliedStorageError = getConfluenceTableError(tableCount);
+      if (appliedStorageError) {
+        setImportError(appliedStorageError);
         return;
       }
       sessionReadyRef.current = true;
@@ -426,24 +439,79 @@ export const useCopyTestController = ({
       return;
     }
 
+    comparisonAttachmentRequestIdRef.current += 1;
+    setComparisonColumnLoading(false);
     tableState.handleTableChange(value);
     uploadState.resetUploadState();
     handleClosePreviewImage();
   };
 
-  /** 切换 Comparison Column 并关闭旧图片预览。 */
-  const handleComparisonColumnChange = (value?: number): void => {
+  /** 判断一次附件响应是否仍属于当前导入会话和最后一次列选择。 */
+  const isCurrentComparisonAttachmentRequest = (
+    context: ComparisonAttachmentRequestContext
+  ): boolean => {
+    return sessionReadyRef.current
+      && context.requestId === comparisonAttachmentRequestIdRef.current
+      && context.sessionId === sessionIdRef.current;
+  };
+
+  /** 请求当前严格 managed Evidence Pair 的附件并合并到会话预览。 */
+  const loadComparisonColumnAttachments = async (
+    context: ComparisonAttachmentRequestContext
+  ): Promise<void> => {
+    try {
+      const response = await attachmentsRequest.runAsync({
+        confluenceUrl: loadedConfluenceUrl,
+        fileNames: context.selection.fileNames,
+      });
+      if (!isCurrentComparisonAttachmentRequest(context)) {
+        return;
+      }
+      tableStateRef.current.applyComparisonColumnPreviewImages(
+        context.selection,
+        response.images
+      );
+    } catch (error) {
+      if (!isCurrentComparisonAttachmentRequest(context)) {
+        return;
+      }
+      console.error('Failed to load Test Evidence attachments:', error);
+      message.error(CONFLUENCE_ATTACHMENT_ERROR);
+    } finally {
+      if (isCurrentComparisonAttachmentRequest(context)) {
+        setComparisonColumnLoading(false);
+      }
+    }
+  };
+
+  /** 切换 Comparison Column，并按当前严格 Pair 延迟读取 Evidence 附件。 */
+  const handleComparisonColumnChange = async (value?: number): Promise<void> => {
     if (!sessionReadyRef.current) {
       return;
     }
 
-    tableState.handleComparisonColumnChange(value);
+    /** 当前选择用于使更早的列附件请求立即失效。 */
+    const requestId = comparisonAttachmentRequestIdRef.current + 1;
+    comparisonAttachmentRequestIdRef.current = requestId;
+    /** 同步完成列切换并取得当前严格 managed Evidence Pair。 */
+    const selection = tableState.handleComparisonColumnChange(value);
     handleClosePreviewImage();
+    if (!selection || selection.fileNames.length === 0) {
+      setComparisonColumnLoading(false);
+      return;
+    }
+
+    setComparisonColumnLoading(true);
+    await loadComparisonColumnAttachments({
+      requestId,
+      selection,
+      sessionId: sessionIdRef.current,
+    });
   };
 
   /** 将文件选择结果交给上传状态准备。 */
   const handleFilesSelected = async (files: File[]): Promise<void> => {
-    if (!sessionReadyRef.current) {
+    if (!sessionReadyRef.current || comparisonColumnLoading) {
       return;
     }
 
@@ -597,7 +665,7 @@ export const useCopyTestController = ({
 
   /** 记录等待用户确认删除的 Evidence 图片实例。 */
   const handleEvidenceImageDelete = (target: CopyTestEvidenceDeleteTarget): void => {
-    if (!sessionReadyRef.current) {
+    if (!sessionReadyRef.current || comparisonColumnLoading) {
       return;
     }
 
@@ -611,7 +679,7 @@ export const useCopyTestController = ({
 
   /** 删除确认目标并同步关闭已无引用的预览。 */
   const handleConfirmEvidenceImageDelete = (): void => {
-    if (!sessionReadyRef.current || !deleteImageTarget) {
+    if (!sessionReadyRef.current || comparisonColumnLoading || !deleteImageTarget) {
       return;
     }
 
@@ -628,7 +696,7 @@ export const useCopyTestController = ({
 
   /** 打开指定 Evidence 图片的大图预览。 */
   const handleEvidenceImagePreview = (previewInfo: CopyTestEvidencePreviewInfo): void => {
-    if (!sessionReadyRef.current) {
+    if (!sessionReadyRef.current || comparisonColumnLoading) {
       return;
     }
 
@@ -637,7 +705,12 @@ export const useCopyTestController = ({
 
   /** 在当前有效会话内人工移动一个 Result Screen 状态。 */
   const handleResultStatusChange = (update: CopyTestResultStatusUpdate): void => {
-    if (!sessionReadyRef.current || validationLoading || exportInProgressRef.current) {
+    if (
+      !sessionReadyRef.current
+      || comparisonColumnLoading
+      || validationLoading
+      || exportInProgressRef.current
+    ) {
       return;
     }
 
@@ -646,7 +719,7 @@ export const useCopyTestController = ({
 
   /** 校验上传与选择上下文并执行一次 AI 校验。 */
   const handleValidateClick = async (): Promise<void> => {
-    if (!sessionReadyRef.current) {
+    if (!sessionReadyRef.current || comparisonColumnLoading) {
       return;
     }
 
@@ -703,9 +776,12 @@ export const useCopyTestController = ({
   };
 
   return {
-    canExportToConfluence: hasActiveImportedSession && canExportToConfluence,
+    canExportToConfluence: hasActiveImportedSession
+      && !comparisonColumnLoading
+      && canExportToConfluence,
     canUpload: hasActiveImportedSession && canUpload,
     canValidate: hasActiveImportedSession && canValidate,
+    comparisonColumnLoading,
     confluenceUrl,
     deleteImageTarget,
     exportLoading,

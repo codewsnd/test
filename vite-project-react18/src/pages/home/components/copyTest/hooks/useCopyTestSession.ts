@@ -20,8 +20,10 @@ import {
   type CopyTestResultScreenStatus,
   type CopyTestValidationSnapshot,
 } from '../table/copyTestTableEditor';
+import { isGeneratedCellForSource } from '../table/copyTestTableColumns';
 import {
   buildCopyTestRowsForValidation,
+  findGeneratedColumnIndexes,
   getCopyTestColumnContext,
   getSelectableCopyTestRowIndexes,
   getSourceColumnKey,
@@ -32,6 +34,7 @@ import {
 } from '../table/copyTestTableParser';
 import { getConfluenceStorageTableImageFileNames } from '../table/copyTestTableImages';
 import { migrateCopyTestImageLabelsWithDetails } from '../table/copyTestImageLabelMigration';
+import { COPY_TEST_GENERATED_EVIDENCE_TYPE } from '../table/tableConstants';
 import {
   copyTestSessionInitialState,
   copyTestSessionReducer,
@@ -45,8 +48,23 @@ export interface CopyTestSessionDeleteResult {
   removed: boolean;
 }
 
+/** 一次 Comparison Column 选择对应的严格 Evidence 附件上下文。 */
+export interface CopyTestComparisonColumnSelection {
+  /** 当前严格 managed Evidence Pair 实际引用的附件文件名。 */
+  fileNames: string[];
+  /** 当前来源列稳定 ownership 键。 */
+  sourceColumnKey: string;
+  /** 当前表格在 storage 中的下标。 */
+  tableIndex: number;
+}
+
 /** copyTest 会话状态 hook 的返回值。 */
 export interface UseCopyTestSessionResult {
+  /** 合并一次仍有效的 Comparison Column 附件响应。 */
+  applyComparisonColumnPreviewImages: (
+    selection: CopyTestComparisonColumnSelection,
+    images: CopyTestImage[]
+  ) => void;
   /** 导入 storage 并返回解析出的有效表格数量。 */
   applyLoadedStorage: (nextStorageHtml: string, previewImages?: CopyTestImage[]) => number;
   /** 把当前列的严格校验结果写入 working table。 */
@@ -68,7 +86,9 @@ export interface UseCopyTestSessionResult {
   /** 读取当前列最近一次校验使用的图片。 */
   getCurrentValidationImages: () => CopyTestImage[];
   /** 切换 Comparison Column 并初始化对应生成双列。 */
-  handleComparisonColumnChange: (columnIndex?: number) => void;
+  handleComparisonColumnChange: (
+    columnIndex?: number
+  ) => CopyTestComparisonColumnSelection | null;
   /** 切换当前操作的 Confluence 表格。 */
   handleTableChange: (value: number) => void;
   /** 最近一次成功导入或导出后的完整 storage。 */
@@ -154,6 +174,52 @@ const mergeCopyTestImageIdentities = (
     }
   });
   return Array.from(imageByFileName.values());
+};
+
+/** 将单个 Evidence 单元格包装为图片提取工具可扫描的最小表格。 */
+const wrapEvidenceCell = (cell: Element): string => {
+  return `<table><tr>${cell.outerHTML}</tr></table>`;
+};
+
+/** 读取指定来源 Pair 中严格 managed Evidence 单元格引用的附件文件名。 */
+const getManagedPairAttachmentFileNames = (
+  table: CopyTestTableEntry,
+  sourceColumnKey: string
+): string[] => {
+  /** 当前来源 Pair 的严格 managed Evidence 逻辑列下标。 */
+  const evidenceColumnIndex = findGeneratedColumnIndexes(
+    table.headers,
+    sourceColumnKey
+  ).evidence;
+  if (evidenceColumnIndex === undefined) {
+    return [];
+  }
+
+  /** 当前 Evidence 列中由物理行直接拥有且 ownership 匹配的单元格。 */
+  const evidenceCells = table.model.rows.slice(1).flatMap(row => {
+    /** 当前物理行在 Evidence 逻辑列上的槽位。 */
+    const slot = row.slots[evidenceColumnIndex];
+    return slot?.owned && isGeneratedCellForSource(
+      slot.cell,
+      COPY_TEST_GENERATED_EVIDENCE_TYPE,
+      sourceColumnKey
+    )
+      ? [slot.cell.element]
+      : [];
+  });
+  return Array.from(new Set(evidenceCells.flatMap(cell => {
+    return getConfluenceStorageTableImageFileNames(wrapEvidenceCell(cell));
+  })));
+};
+
+/** 只保留指定来源 Pair 实际引用且已加载到内存的图片。 */
+const getManagedPairPreviewImages = (
+  table: CopyTestTableEntry,
+  sourceColumnKey: string,
+  images: CopyTestImage[]
+): CopyTestImage[] => {
+  const fileNames = new Set(getManagedPairAttachmentFileNames(table, sourceColumnKey));
+  return images.filter(image => fileNames.has(image.fileName));
 };
 
 /** 将行级 AI 结果补齐为可独立累计的逐 Screen 状态。 */
@@ -427,13 +493,10 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
   const selectedColumnHasExportableContent = selectedPendingExportPairKey !== undefined
     && pendingExportPairKeys.includes(selectedPendingExportPairKey);
   /** 当前 working table 实际引用的内存预览图片。 */
-  const currentPreviewImages = useMemo(
-    () => buildCurrentPreviewImages(
-      selectedTable,
-      importedPreviewImagesRef.current,
-      validationImageSnapshotsRef.current
-    ),
-    [selectedTable]
+  const currentPreviewImages = buildCurrentPreviewImages(
+    selectedTable,
+    importedPreviewImagesRef.current,
+    validationImageSnapshotsRef.current
   );
 
   /** 重置校验图片快照。 */
@@ -472,6 +535,26 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     return nextTables.length;
   };
 
+  /** 合并当前列严格附件响应，忽略接口额外返回的非目标图片。 */
+  const applyComparisonColumnPreviewImages = (
+    selection: CopyTestComparisonColumnSelection,
+    images: CopyTestImage[]
+  ): void => {
+    /** 本次请求声明的严格 Evidence 附件文件名。 */
+    const requestedFileNames = new Set(selection.fileNames);
+    /** 只允许请求集合内的图片进入当前会话缓存。 */
+    const requestedImages = images.filter(image => requestedFileNames.has(image.fileName));
+    if (requestedImages.length === 0) {
+      return;
+    }
+
+    importedPreviewImagesRef.current = mergeCopyTestImageIdentities(
+      importedPreviewImagesRef.current,
+      requestedImages
+    );
+    dispatch({ type: 'PREVIEW_IMAGES_UPDATED' });
+  };
+
   /** 提交已成功导出的 storage 作为后续列级 patch 基底。 */
   const commitExportedStorage = (nextStorageHtml: string): void => {
     dispatch({
@@ -496,17 +579,19 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
   };
 
   /** 切换 Comparison Column 并确保当前列 Test 列存在。 */
-  const handleComparisonColumnChange = (columnIndex?: number): void => {
+  const handleComparisonColumnChange = (
+    columnIndex?: number
+  ): CopyTestComparisonColumnSelection | null => {
     if (!selectedTable || columnIndex === undefined) {
       dispatch({ columnIndex: undefined, type: 'COLUMN_SELECTED' });
-      return;
+      return null;
     }
 
     /** 当前逻辑列下标对应的非空表头。 */
     const header = selectedTable.headers.find(item => item.index === columnIndex);
     if (!header) {
       dispatch({ columnIndex: undefined, type: 'COLUMN_SELECTED' });
-      return;
+      return null;
     }
 
     /** 已确保当前 source Pair 双列存在的新工作表格。 */
@@ -517,6 +602,13 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
       nextTable,
       type: 'COLUMN_SELECTED',
     });
+    /** 当前来源列与生成 Pair 共用的严格 ownership 键。 */
+    const sourceColumnKey = getSourceColumnKey(columnIndex, header.label);
+    return {
+      fileNames: getManagedPairAttachmentFileNames(nextTable, sourceColumnKey),
+      sourceColumnKey,
+      tableIndex: nextTable.index,
+    };
   };
 
   /** 构建当前选中行校验输入。 */
@@ -582,7 +674,11 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
       columnLabel,
       currentImages: images,
       currentResults: results,
-      importedImages: importedPreviewImagesRef.current,
+      importedImages: getManagedPairPreviewImages(
+        targetTable,
+        getSourceColumnKey(columnIndex, columnLabel),
+        importedPreviewImagesRef.current
+      ),
       previousImages: validationImageSnapshotsRef.current[snapshotKey] || [],
       table: targetTable,
     });
@@ -690,7 +786,11 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     const availableImages = mergeCopyTestImageIdentities(
       snapshot.images,
       validationImageSnapshotsRef.current[snapshotKey] || [],
-      importedPreviewImagesRef.current
+      getManagedPairPreviewImages(
+        table,
+        getSourceColumnKey(columnIndex, columnLabel),
+        importedPreviewImagesRef.current
+      )
     );
     /** 当前 Result 仍实际引用的图片文件名。 */
     const referencedFileNames = getReferencedValidationImageFileNames(snapshot.results);
@@ -761,6 +861,7 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
   };
 
   return {
+    applyComparisonColumnPreviewImages,
     applyLoadedStorage,
     applyValidationResults,
     buildSelectedRowsForValidation,

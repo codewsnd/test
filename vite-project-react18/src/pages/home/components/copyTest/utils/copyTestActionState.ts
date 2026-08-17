@@ -109,6 +109,7 @@ const canWriteConfluenceStorage = (
   hasExportableContent: boolean,
   storageHtml: string,
   selectedColumnIndex: number | undefined,
+  selectedRowCount: number,
   storageLoading: boolean,
   uploadBusy: boolean
 ): boolean => {
@@ -116,6 +117,7 @@ const canWriteConfluenceStorage = (
     && Boolean(storageHtml)
     && hasExportableContent
     && hasSelectedComparisonColumn(selectedColumnIndex)
+    && selectedRowCount > 0
     && !storageLoading
     && !uploadBusy;
 };
@@ -163,6 +165,7 @@ export const buildCopyTestActionState = ({
       hasExportableContent,
       storageHtml,
       selectedColumnIndex,
+      selectedRowCount,
       storageLoading,
       uploadBusy
     ),

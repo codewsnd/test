@@ -34,6 +34,8 @@ describe('urlUtils', () => {
     expect(isValidConfluenceUrl('https://example.com/%ZZ')).toBe(false);
     expect(isValidConfluenceUrl('bad')).toBe(false);
     expect(getConfluenceUrlError('bad')).toBe(INVALID_CONFLUENCE_URL_ERROR);
+    expect(INVALID_CONFLUENCE_URL_ERROR)
+      .toBe('Invalid URL format, Please enter a valid Http:// or https:// URL');
   });
 
   it('rejects multiple absolute urls concatenated into one input', () => {

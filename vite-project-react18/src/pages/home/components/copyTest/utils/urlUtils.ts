@@ -2,7 +2,7 @@
  * 文件作用：提供 Confluence URL 基础校验工具。
  */
 /** URL 格式错误时显示在输入框下方的固定文案。 */
-export const INVALID_CONFLUENCE_URL_ERROR = 'In valid URL format, Please enter a valid Http:// or https:// URL';
+export const INVALID_CONFLUENCE_URL_ERROR = 'Invalid URL format, Please enter a valid Http:// or https:// URL';
 
 /** Confluence storage 没有有效表格时的固定文案。 */
 export const NO_VALID_TABLE_ERROR = 'No valid table found';

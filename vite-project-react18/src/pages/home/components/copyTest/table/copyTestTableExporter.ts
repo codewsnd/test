@@ -16,6 +16,7 @@ import {
   type CopyTestTableModel,
 } from './tableModel';
 import {
+  buildCopyTestRowGroups,
   getSourceColumnKey,
   type CopyTestWorkingTable,
 } from './copyTestTableParser';
@@ -30,7 +31,7 @@ import {
 } from './copyTestStoragePatch';
 
 /** 当前列导出入参。 */
-interface BuildCurrentColumnExportStorageParams {
+export interface BuildCurrentColumnExportStorageParams {
   /** 标记本次导出双列的唯一作用域值。 */
   exportScope: string;
   /** 执行导出前刚从 Confluence 读取的最新完整 storage。 */
@@ -39,6 +40,11 @@ interface BuildCurrentColumnExportStorageParams {
   selectedColumnIndex: number;
   /** 用户在导入快照中选择的 Comparison Column 标题。 */
   selectedColumnLabel: string;
+  /**
+   * 本次允许导出的零基业务数据行；组内任一行命中时会整体导出来源 rowspan 原子组。
+   * 省略时保留历史全行导出行为，调用方应在用户显式选择行时传入该字段。
+   */
+  selectedRowIndexes?: readonly number[];
   /** 包含导入快照和本地编辑结果的目标工作表。 */
   table: CopyTestWorkingTable;
 }
@@ -350,6 +356,43 @@ const hasStableSourceColumn = (
     && originalSignature === buildSourceRowGroupSignature(workingModel, workingIndex);
 };
 
+/** 将一个来源 rowspan 原子组覆盖的全部物理行加入导出范围。 */
+const addSelectedPhysicalRows = (
+  selectedPhysicalRows: Set<number>,
+  anchorRowIndex: number,
+  rowSpan: number,
+  rowCount: number
+): void => {
+  /** 原子组位于当前表格内的最后一个物理行后一位。 */
+  const rowEnd = Math.min(anchorRowIndex + rowSpan, rowCount);
+  for (let rowIndex = anchorRowIndex; rowIndex < rowEnd; rowIndex += 1) {
+    selectedPhysicalRows.add(rowIndex);
+  }
+};
+
+/** 将业务数据行选择规范为完整来源原子组对应的物理行集合。 */
+const buildSelectedPhysicalRowIndexes = (
+  model: CopyTestTableModel,
+  selectedColumnIndex: number,
+  selectedRowIndexes?: readonly number[]
+): Set<number> | undefined => {
+  if (selectedRowIndexes === undefined) {
+    return undefined;
+  }
+  /** 调用方显式选择的零基业务数据行。 */
+  const selectedDataRows = new Set(selectedRowIndexes);
+  /** 经来源 rowspan 原子组展开后的物理数据行。 */
+  const selectedPhysicalRows = new Set<number>();
+  buildCopyTestRowGroups({ headers: model.headers, model }, selectedColumnIndex).forEach(group => {
+    /** 组内任一业务行被选中时，整个来源原子组都属于本次导出范围。 */
+    const selected = group.dataRowIndexes.some(rowIndex => selectedDataRows.has(rowIndex));
+    if (selected) {
+      addSelectedPhysicalRows(selectedPhysicalRows, group.anchorRowIndex, group.rowSpan, model.rows.length);
+    }
+  });
+  return selectedPhysicalRows;
+};
+
 /** 构建 logical header identity，用于缺失 owned cell 的稳定插入位置。 */
 const buildHeaderColumnIdentities = (model: CopyTestTableModel): string[] => {
   /** 每个规范化非 managed 标题已经出现的次数。 */
@@ -410,6 +453,43 @@ const getTargetCells = (
     /** 只保留 ownership 键和 Result/Evidence 类型都匹配的单元格。 */
     cell => isTargetManagedCell(cell, type, sourceColumnKey)
   ) || [];
+};
+
+/** 判断当前目标 Pair 单元格是否同时覆盖已选和未选数据行。 */
+const crossesSelectedRowBoundary = (
+  cell: CopyTestCellModel,
+  selectedPhysicalRows: Set<number>,
+  rowCount: number
+): boolean => {
+  /** 当前生成单元格覆盖范围内是否出现已选数据行。 */
+  let hasSelectedRow = false;
+  /** 当前生成单元格覆盖范围内是否出现未选数据行。 */
+  let hasUnselectedRow = false;
+  /** 当前单元格位于表格内的最后一个覆盖行后一位。 */
+  const rowEnd = Math.min(cell.rowIndex + cell.rowSpan, rowCount);
+  for (let rowIndex = Math.max(1, cell.rowIndex); rowIndex < rowEnd; rowIndex += 1) {
+    if (selectedPhysicalRows.has(rowIndex)) {
+      hasSelectedRow = true;
+    } else {
+      hasUnselectedRow = true;
+    }
+  }
+  return hasSelectedRow && hasUnselectedRow;
+};
+
+/** 拒绝拆分跨越选择边界的 Result/Evidence 单元格，避免改写未选行。 */
+const hasTargetCellCrossingSelection = (
+  model: CopyTestTableModel,
+  sourceColumnKey: string,
+  selectedPhysicalRows: Set<number>
+): boolean => {
+  return model.rows.some(row => row.cells.some(cell => {
+    /** 只检查当前来源 Pair 的严格 managed Result/Evidence 单元格。 */
+    const targetCell = isCompleteManagedCell(cell)
+      && cell.sourceColumnKey === sourceColumnKey
+      && COPY_TEST_GENERATED_TYPES.includes(cell.generatedType!);
+    return targetCell && crossesSelectedRowBoundary(cell, selectedPhysicalRows, model.rows.length);
+  }));
 };
 
 /** 给当前导出 pair 的 raw cell 添加临时跨模块 scope marker。 */
@@ -569,9 +649,15 @@ const buildPairReplacements = (
   baseView: RawTableView,
   workingView: RawTableView,
   sourceColumnKey: string,
-  exportScope: string
+  exportScope: string,
+  selectedPhysicalRows?: Set<number>
 ): CopyTestRawReplacement[] | null => {
   if (baseView.model.rows.length !== workingView.model.rows.length) {
+    return null;
+  }
+  if (selectedPhysicalRows
+    && (hasTargetCellCrossingSelection(baseView.model, sourceColumnKey, selectedPhysicalRows)
+      || hasTargetCellCrossingSelection(workingView.model, sourceColumnKey, selectedPhysicalRows))) {
     return null;
   }
   /** 当前来源列双列在全部物理行上累计的 raw replacements。 */
@@ -581,11 +667,15 @@ const buildPairReplacements = (
   /** working 表头逻辑位置对应的稳定身份序列。 */
   const workingHeaderIdentities = buildHeaderColumnIdentities(workingView.model);
   for (let rowIndex = 0; rowIndex < workingView.model.rows.length; rowIndex += 1) {
+    /** 显式选择模式下完全跳过未选物理行，确保 latest raw 逐字节保持不变。 */
+    if (rowIndex > 0 && selectedPhysicalRows && !selectedPhysicalRows.has(rowIndex)) {
+      continue;
+    }
     for (let typeIndex = 0; typeIndex < COPY_TEST_GENERATED_TYPES.length; typeIndex += 1) {
       /** 当前物理行需要解析的 Result 或 Evidence 生成类型。 */
       const type = COPY_TEST_GENERATED_TYPES[typeIndex];
       /** 标记当前 row/type 是否成功追加或确认无需补丁。 */
-      const appended = appendCellPatch({
+      const context: CellPatchContext = {
         baseHeaderIdentities,
         baseView,
         exportScope,
@@ -595,7 +685,8 @@ const buildPairReplacements = (
         type,
         workingHeaderIdentities,
         workingView,
-      });
+      };
+      const appended = appendCellPatch(context);
       if (!appended) {
         return null;
       }
@@ -626,6 +717,7 @@ export const buildCurrentColumnExportStorage = ({
   originalStorageHtml,
   selectedColumnIndex,
   selectedColumnLabel,
+  selectedRowIndexes,
   table,
 }: BuildCurrentColumnExportStorageParams): string | null => {
   if (!isValidCopyTestExportScope(exportScope)) {
@@ -659,12 +751,19 @@ export const buildCurrentColumnExportStorage = ({
   }
   /** 将本次 Result/Evidence 双列绑定到 Comparison Column 的稳定键。 */
   const sourceColumnKey = getSourceColumnKey(selectedColumnIndex, selectedColumnLabel);
+  /** 显式选择经来源 rowspan 展开后的物理行；未传入时沿用历史全行导出。 */
+  const selectedPhysicalRows = buildSelectedPhysicalRowIndexes(
+    originalTable.model,
+    selectedColumnIndex,
+    selectedRowIndexes
+  );
   /** 在 latest 目标表格上应用当前双列所需的最小 raw replacements。 */
   const replacements = buildPairReplacements(
     latestView,
     workingView,
     sourceColumnKey,
-    exportScope
+    exportScope,
+    selectedPhysicalRows
   );
   if (!replacements) {
     return null;

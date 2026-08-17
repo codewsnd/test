@@ -23,6 +23,8 @@ interface CopyTestSelectorsProps {
   canExportToConfluence: boolean;
   /** 是否允许为当前列选择截图。 */
   canUpload: boolean;
+  /** 当前 Comparison Column 的 Evidence 附件是否正在加载。 */
+  comparisonColumnLoading?: boolean;
   /** 是否正在回写 Confluence。 */
   exporting: boolean;
   /** 是否正在生成 PDF、Word 或 Excel 文件。 */
@@ -180,6 +182,7 @@ export const CopyTestSelectors: React.FC<CopyTestSelectorsProps> = ({
   canExportFile,
   canExportToConfluence,
   canUpload,
+  comparisonColumnLoading = false,
   exporting,
   fileExporting,
   onChooseImages,
@@ -202,7 +205,7 @@ export const CopyTestSelectors: React.FC<CopyTestSelectorsProps> = ({
           className="w-full mt-2"
           value={selectedTableIndex}
           onChange={onTableChange}
-          disabled={processing}
+          disabled={processing || comparisonColumnLoading}
           options={buildTableOptions(tables)}
         />
       </div>
@@ -216,7 +219,8 @@ export const CopyTestSelectors: React.FC<CopyTestSelectorsProps> = ({
             allowClear
             value={selectedColumnIndex}
             onChange={value => onComparisonColumnChange(value)}
-            disabled={processing}
+            disabled={processing || comparisonColumnLoading}
+            loading={comparisonColumnLoading}
             options={buildComparisonOptions(selectedTable?.headers || [])}
           />
           <CopyTestActionButtons

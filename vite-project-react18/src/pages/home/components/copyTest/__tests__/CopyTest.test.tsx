@@ -17,6 +17,7 @@ const hoisted = vi.hoisted(() => ({
     canExportToConfluence: false,
     canUpload: false,
     canValidate: false,
+    comparisonColumnLoading: false,
     confluenceUrl: '',
     deleteImageTarget: { imageId: 'img' } as { imageId: string } | null,
     exportLoading: false,
@@ -91,7 +92,9 @@ vi.mock('antd', () => ({
 
 vi.mock('../components', () => ({
   CopyTestImportBar: () => <div>import-bar</div>,
-  CopyTestLoadingBlock: () => <div>loading-block</div>,
+  CopyTestLoadingBlock: ({ label }: { label?: string }) => (
+    <div>{label || 'loading-block'}</div>
+  ),
   CopyTestSelectors: ({ onExportFile }: {
     /** 按格式触发本地文件导出的组件测试回调。 */
     onExportFile: (format: 'pdf' | 'word' | 'excel') => void;
@@ -115,6 +118,8 @@ beforeEach(() => {
   });
   hoisted.controller.hasActiveImportedSession = true;
   hoisted.controller.importError = undefined;
+  hoisted.controller.comparisonColumnLoading = false;
+  hoisted.controller.importLoading = true;
 });
 
 describe('CopyTest', () => {
@@ -146,6 +151,16 @@ describe('CopyTest', () => {
     render(<CopyTest open={true} />);
     expect(screen.getByText('import-bar')).toBeTruthy();
     expect(screen.queryByText('selectors')).toBeNull();
+    expect(screen.queryByText('table-preview')).toBeNull();
+  });
+
+  it('replaces the table preview with explicit attachment loading feedback', () => {
+    hoisted.controller.importLoading = false;
+    hoisted.controller.comparisonColumnLoading = true;
+
+    render(<CopyTest open={true} />);
+
+    expect(screen.getByText('Loading Test Evidence attachments...')).toBeTruthy();
     expect(screen.queryByText('table-preview')).toBeNull();
   });
 

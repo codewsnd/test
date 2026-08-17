@@ -43,6 +43,10 @@ export type CopyTestSessionAction =
   }
   | { selectedRowIndexes: number[]; type: 'ROWS_SELECTED' }
   | {
+    /** 当前列附件图片已合并到会话内存状态。 */
+    type: 'PREVIEW_IMAGES_UPDATED';
+  }
+  | {
     /** 本次表格变更所属的待回写 Pair 键。 */
     pendingExportPairKey: string;
     /** 已应用本地变更的工作表格。 */
@@ -161,6 +165,11 @@ export const copyTestSessionReducer = (
       return {
         ...state,
         selectedRowIndexes: [...action.selectedRowIndexes],
+      };
+    case 'PREVIEW_IMAGES_UPDATED':
+      return {
+        ...state,
+        revision: state.revision + 1,
       };
     case 'TABLE_UPDATED':
       return {

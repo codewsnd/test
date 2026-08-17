@@ -114,7 +114,7 @@ describe('useCopyTestController synchronous guards', () => {
       invalidUrlHook.result.current.handleExportToConfluence();
     });
     expect(invalidUrlHook.result.current.importError).toBe(
-      'In valid URL format, Please enter a valid Http:// or https:// URL'
+      'Invalid URL format, Please enter a valid Http:// or https:// URL'
     );
   });
 

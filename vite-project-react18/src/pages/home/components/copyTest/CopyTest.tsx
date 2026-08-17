@@ -39,6 +39,9 @@ const COPY_TEST_MODAL_OVERFLOW = 'hidden';
 /** 本地文件导出失败时显示的统一提示。 */
 const COPY_TEST_FILE_EXPORT_ERROR_MESSAGE = 'Failed to export the selected table';
 
+/** Comparison Column 的已有 Evidence 附件加载说明。 */
+const COPY_TEST_ATTACHMENT_LOADING_LABEL = 'Loading Test Evidence attachments...';
+
 /** 点击后打开 CopyTest 弹窗的 className。 */
 export const COPY_TEST_TRIGGER_CLASS_NAME = 'copy-test-modal-trigger';
 
@@ -112,6 +115,7 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
   /** 当前完整工作表是否允许下载到本地文件。 */
   const canExportFile = Boolean(tableState.selectedTable)
     && !controller.importBusy
+    && !controller.comparisonColumnLoading
     && !controller.validationLoading
     && !controller.exportLoading
     && !fileExporting;
@@ -204,6 +208,7 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
               canExportFile={canExportFile}
               canExportToConfluence={controller.canExportToConfluence}
               canUpload={controller.canUpload}
+              comparisonColumnLoading={controller.comparisonColumnLoading}
               exporting={controller.exportLoading}
               fileExporting={fileExporting}
               onChooseImages={controller.handleChooseImages}
@@ -219,10 +224,14 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
               tables={tableState.tables}
             />
 
-            {tableState.selectedTable && (
+            {controller.comparisonColumnLoading && (
+              <CopyTestLoadingBlock label={COPY_TEST_ATTACHMENT_LOADING_LABEL} />
+            )}
+
+            {!controller.comparisonColumnLoading && tableState.selectedTable && (
               <div className="min-h-0 flex-1 overflow-hidden">
                 <TablePreview
-                  disabled={controller.validationLoading}
+                  disabled={controller.validationLoading || controller.comparisonColumnLoading}
                   images={tableState.getCurrentPreviewImages()}
                   selectedColumnIndex={tableState.selectedColumnIndex}
                   selectedRowIndexes={tableState.selectedRowIndexes}
@@ -232,7 +241,11 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
                   onResultStatusChange={controller.handleResultStatusChange}
                   onSelectedRowIndexesChange={tableState.setSelectedRowIndexes}
                   previewRevision={tableState.revision}
-                  resultStatusDisabled={controller.exportLoading || fileExporting}
+                  resultStatusDisabled={
+                    controller.comparisonColumnLoading
+                    || controller.exportLoading
+                    || fileExporting
+                  }
                 />
               </div>
             )}

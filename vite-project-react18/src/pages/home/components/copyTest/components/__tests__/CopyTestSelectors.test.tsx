@@ -44,8 +44,8 @@ vi.mock('antd', () => ({
       </div>
     );
   },
-  Select: ({ disabled, onChange, options = [], placeholder, value }: { disabled?: boolean; onChange?: (value?: number) => void; options?: Array<{ label: string; value: number }>; placeholder?: string; value?: number }) => (
-    <select aria-label={placeholder || 'select'} disabled={disabled} onChange={event => onChange?.(event.target.value === '' ? undefined : Number(event.target.value))} value={value ?? ''}>
+  Select: ({ disabled, loading, onChange, options = [], placeholder, value }: { disabled?: boolean; loading?: boolean; onChange?: (value?: number) => void; options?: Array<{ label: string; value: number }>; placeholder?: string; value?: number }) => (
+    <select aria-busy={loading} aria-label={placeholder || 'select'} disabled={disabled} onChange={event => onChange?.(event.target.value === '' ? undefined : Number(event.target.value))} value={value ?? ''}>
       <option value="">{placeholder || 'empty'}</option>
       {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
@@ -159,6 +159,36 @@ describe('CopyTestSelectors', () => {
     expect(screen.getByText('Upload Screenshot')).toHaveProperty('disabled', true);
     expect(screen.getByRole('button', { name: 'Export' })).not.toBeNull();
     expect(screen.queryByText('Export to Confluence')).toBeNull();
+  });
+
+  it('shows Comparison Column loading and disables selection and actions', () => {
+    render(
+      <CopyTestSelectors
+        canExportFile={false}
+        canExportToConfluence={false}
+        canUpload={false}
+        comparisonColumnLoading={true}
+        exporting={false}
+        fileExporting={false}
+        onChooseImages={vi.fn()}
+        onComparisonColumnChange={vi.fn()}
+        onExportFile={vi.fn()}
+        onExportToConfluence={vi.fn()}
+        onTableChange={vi.fn()}
+        preparingUpload={false}
+        processing={false}
+        selectedColumnIndex={0}
+        selectedTable={table}
+        selectedTableIndex={0}
+        tables={[table]}
+      />
+    );
+
+    expect(screen.getByLabelText('select')).toHaveProperty('disabled', true);
+    expect(screen.getByLabelText('Select comparison column')).toHaveProperty('disabled', true);
+    expect(screen.getByLabelText('Select comparison column').getAttribute('aria-busy')).toBe('true');
+    expect(screen.getByRole('button', { name: /Upload Screenshot/ })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: /Export/ })).toHaveProperty('disabled', true);
   });
 
   it('shows all export formats on hover and delegates each enabled action', () => {

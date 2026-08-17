@@ -40,12 +40,14 @@ const tableState = {
   originalStorageHtml: storageHtml,
   selectedColumnIndex: 0,
   selectedHeader: { index: 0, label: 'Target' },
+  selectedRowIndexes: [0],
   selectedTable: workingTable,
 } as unknown as UseCopyTestSessionResult;
 
 describe('copyTestControllerUtils', () => {
   it('validates export and validation context guards', () => {
     expect(getRequiredExportStorage({ ...tableState, selectedTable: undefined })).toBeNull();
+    expect(getRequiredExportStorage({ ...tableState, selectedRowIndexes: [] })).toBeNull();
     expect(getRequiredExportStorage(tableState)).toContain('Test Result - Target');
     expect(getCopyTestValidationContext(tableState, [])).toBeNull();
     expect(getCopyTestValidationContext({ ...tableState, selectedTable: undefined }, [{ base64: 'x', fileName: 'a.png', md5: 'm', size: 1 }])).toBeNull();

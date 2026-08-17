@@ -61,4 +61,25 @@ describe('copyTestActionState', () => {
       canValidate: false,
     });
   });
+
+  it('disables Confluence export when no source row is selected', () => {
+    expect(buildCopyTestActionState({
+      attachmentsLoading: false,
+      exportLoading: false,
+      hasExportableContent: true,
+      hasActiveImportedSession: true,
+      selectedColumnIndex: 1,
+      selectedRowCount: 0,
+      selectedTable: table,
+      storageHtml: '<table />',
+      storageLoading: false,
+      uploadImageCount: 1,
+      uploadPreparing: false,
+      validationLoading: false,
+    })).toMatchObject({
+      canExportToConfluence: false,
+      canUpload: false,
+      canValidate: false,
+    });
+  });
 });

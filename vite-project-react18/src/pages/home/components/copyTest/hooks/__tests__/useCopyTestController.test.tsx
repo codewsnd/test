@@ -73,14 +73,40 @@ const CONFLUENCE_IMPORT_ERROR = 'Failed to load Confluence tables. Please check 
 
 /** 包含严格托管 Evidence 附件引用的有效 storage。 */
 const managedEvidenceStorage = [
-  '<table><tr><th>Target</th><th data-copy-test-schema="2"',
-  ' data-copy-test-column-type="evidence" data-copy-test-source-column-key="table-0:target"',
-  ' data-copy-test-owner-id="table-0:target">Test Evidence - Target</th></tr>',
-  '<tr><td>copy</td><td data-copy-test-schema="2" data-copy-test-column-type="evidence"',
-  ' data-copy-test-source-column-key="table-0:target" data-copy-test-owner-id="table-0:target">',
+  '<table><tr><th>Target</th><th data-copy-test-schema="2" data-copy-test-column-type="result"',
+  ' data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target">Test Result - Target</th>',
+  '<th data-copy-test-schema="2" data-copy-test-column-type="evidence"',
+  ' data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target">Test Evidence - Target</th></tr>',
+  '<tr><td>copy</td><td data-copy-test-schema="2" data-copy-test-column-type="result"',
+  ' data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target"></td>',
+  '<td data-copy-test-schema="2" data-copy-test-column-type="evidence"',
+  ' data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target">',
   '<ac:image><ri:attachment ri:filename="screen.png" /></ac:image>',
   '</td></tr></table>',
 ].join('');
+
+/** 包含两个严格来源 Pair 和一个非托管业务附件的竞态测试 storage。 */
+const twoManagedPairsStorage = [
+  '<table><tr><th>Alpha</th>',
+  '<th data-copy-test-schema="2" data-copy-test-column-type="result" data-copy-test-source-column-key="0:Alpha" data-copy-test-owner-id="0:Alpha">Test Result - Alpha</th>',
+  '<th data-copy-test-schema="2" data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Alpha" data-copy-test-owner-id="0:Alpha">Test Evidence - Alpha</th>',
+  '<th>Beta</th>',
+  '<th data-copy-test-schema="2" data-copy-test-column-type="result" data-copy-test-source-column-key="3:Beta" data-copy-test-owner-id="3:Beta">Test Result - Beta</th>',
+  '<th data-copy-test-schema="2" data-copy-test-column-type="evidence" data-copy-test-source-column-key="3:Beta" data-copy-test-owner-id="3:Beta">Test Evidence - Beta</th></tr>',
+  '<tr><td>alpha<ac:image><ri:attachment ri:filename="business.png" /></ac:image></td>',
+  '<td data-copy-test-schema="2" data-copy-test-column-type="result" data-copy-test-source-column-key="0:Alpha" data-copy-test-owner-id="0:Alpha"></td>',
+  '<td data-copy-test-schema="2" data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Alpha" data-copy-test-owner-id="0:Alpha"><ac:image><ri:attachment ri:filename="alpha.png" /></ac:image></td>',
+  '<td>beta</td>',
+  '<td data-copy-test-schema="2" data-copy-test-column-type="result" data-copy-test-source-column-key="3:Beta" data-copy-test-owner-id="3:Beta"></td>',
+  '<td data-copy-test-schema="2" data-copy-test-column-type="evidence" data-copy-test-source-column-key="3:Beta" data-copy-test-owner-id="3:Beta"><ac:image><ri:attachment ri:filename="beta.png" /></ac:image></td>',
+  '</tr></table>',
+].join('');
+
+/** Alpha Pair 的最小附件响应图片。 */
+const alphaImage = { base64: 'data:image/png;base64,QUxQSEE=', fileName: 'alpha.png' };
+
+/** Beta Pair 的最小附件响应图片。 */
+const betaImage = { base64: 'data:image/png;base64,QkVUQQ==', fileName: 'beta.png' };
 
 const installBrowserMocks = (): void => {
   class MockFileReader {
@@ -120,7 +146,7 @@ describe('useCopyTestController', () => {
 
     await act(() => result.current.handleLoadTables());
     expect(result.current.importError).toBe(
-      'In valid URL format, Please enter a valid Http:// or https:// URL'
+      'Invalid URL format, Please enter a valid Http:// or https:// URL'
     );
     act(() => {
       result.current.handleConfluenceUrlChange('http://wiki');
@@ -177,6 +203,86 @@ describe('useCopyTestController', () => {
       result.current.handleMainClose();
     });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('imports only storage and requests the selected strict Evidence Pair', async () => {
+    hoisted.storageApi.mockResolvedValue({ storage: twoManagedPairsStorage });
+    hoisted.attachmentsApi.mockResolvedValue({ images: [alphaImage, betaImage] });
+    const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
+
+    act(() => {
+      result.current.handleConfluenceUrlChange('http://wiki');
+    });
+    await act(() => result.current.handleLoadTables());
+    expect(hoisted.attachmentsApi).not.toHaveBeenCalled();
+
+    await act(() => result.current.handleComparisonColumnChange(0));
+
+    expect(hoisted.attachmentsApi).toHaveBeenCalledWith({
+      confluenceUrl: 'http://wiki',
+      fileNames: ['alpha.png'],
+    });
+    expect(result.current.tableState.getCurrentPreviewImages()).toEqual([alphaImage]);
+  });
+
+  it('does not request attachments when the selected Pair has no Evidence files', async () => {
+    hoisted.storageApi.mockResolvedValue({ storage: storageHtml });
+    const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
+
+    act(() => {
+      result.current.handleConfluenceUrlChange('http://wiki');
+    });
+    await act(() => result.current.handleLoadTables());
+    await act(() => result.current.handleComparisonColumnChange(1));
+
+    expect(hoisted.attachmentsApi).not.toHaveBeenCalled();
+    expect(result.current.comparisonColumnLoading).toBe(false);
+  });
+
+  it('keeps the latest column loading and discards an older attachment response', async () => {
+    const alphaRequest = createDeferred<{ images: typeof alphaImage[] }>();
+    const betaRequest = createDeferred<{ images: typeof betaImage[] }>();
+    hoisted.storageApi.mockResolvedValue({ storage: twoManagedPairsStorage });
+    hoisted.attachmentsApi
+      .mockReturnValueOnce(alphaRequest.promise)
+      .mockReturnValueOnce(betaRequest.promise);
+    const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
+
+    act(() => {
+      result.current.handleConfluenceUrlChange('http://wiki');
+    });
+    await act(() => result.current.handleLoadTables());
+
+    let alphaPromise!: Promise<void>;
+    act(() => {
+      alphaPromise = result.current.handleComparisonColumnChange(0);
+    });
+    expect(result.current.comparisonColumnLoading).toBe(true);
+    expect(result.current.canUpload).toBe(false);
+
+    let betaPromise!: Promise<void>;
+    act(() => {
+      betaPromise = result.current.handleComparisonColumnChange(3);
+    });
+    expect(hoisted.attachmentsApi.mock.calls[1][0]).toEqual({
+      confluenceUrl: 'http://wiki',
+      fileNames: ['beta.png'],
+    });
+
+    await act(async () => {
+      alphaRequest.resolve({ images: [alphaImage] });
+      await alphaPromise;
+    });
+    expect(result.current.comparisonColumnLoading).toBe(true);
+    expect(result.current.tableState.getCurrentPreviewImages()).toEqual([]);
+
+    await act(async () => {
+      betaRequest.resolve({ images: [betaImage] });
+      await betaPromise;
+    });
+    expect(result.current.comparisonColumnLoading).toBe(false);
+    expect(result.current.tableState.selectedColumnIndex).toBe(3);
+    expect(result.current.tableState.getCurrentPreviewImages()).toEqual([betaImage]);
   });
 
   it('appends a second uploaded screenshot to the existing validation result', async () => {
@@ -375,8 +481,10 @@ describe('useCopyTestController', () => {
       attachmentHook.result.current.handleConfluenceUrlChange('http://wiki');
     });
     await act(() => attachmentHook.result.current.handleLoadTables());
-    expect(attachmentHook.result.current.importError).toBe(CONFLUENCE_IMPORT_ERROR);
-    expect(hoisted.messageError).not.toHaveBeenCalled();
+    expect(hoisted.attachmentsApi).not.toHaveBeenCalled();
+    await act(() => attachmentHook.result.current.handleComparisonColumnChange(0));
+    expect(attachmentHook.result.current.importError).toBeUndefined();
+    expect(hoisted.messageError).toHaveBeenCalledWith('Failed to load Test Evidence attachments.');
     attachmentHook.unmount();
 
     hoisted.storageApi.mockResolvedValue({ storage: storageHtml });

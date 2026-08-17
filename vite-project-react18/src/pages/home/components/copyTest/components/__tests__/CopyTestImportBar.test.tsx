@@ -63,7 +63,7 @@ describe('CopyTestImportBar', () => {
   });
 
   it('renders the exact inline error below the URL input', () => {
-    const error = 'In valid URL format, Please enter a valid Http:// or https:// URL';
+    const error = 'Invalid URL format, Please enter a valid Http:// or https:// URL';
     render(
       <CopyTestImportBar
         confluenceUrl="invalid"
