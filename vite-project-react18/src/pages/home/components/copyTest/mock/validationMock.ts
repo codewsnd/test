@@ -33,19 +33,63 @@ const RANDOM_FAILURE_REASONS = [
   'The expected copy is incomplete or truncated in the screenshot.',
 ] as const;
 
-/** Mock 可注入的随机或轮次依赖。 */
+/** 连续调用 Mock 工厂时可注入的确定性依赖。 */
 export interface CopyTestValidationMockOptions {
-  /** 返回区间为 [0, 1) 的随机数函数。 */
-  random?: () => number;
-  /** 从 0 开始的确定性 Mock 轮次；设置后不使用随机结果。 */
+  /** 从 0 开始的确定性 Mock 轮次。 */
   sequenceIndex?: number;
   /** 生成响应时间戳的当前时间函数。 */
   now?: () => Date;
 }
 
+/** 构建单次响应时可额外注入的随机依赖。 */
+export interface CopyTestValidationResponseOptions
+  extends CopyTestValidationMockOptions {
+  /** 返回区间为 [0, 1) 的随机数函数。 */
+  random?: () => number;
+}
+
 /** 判断未知值是否为普通对象。 */
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+};
+
+/** 判断未知值是否为严格的上传截图输入。 */
+const isRuntimeScreenshot = (
+  value: unknown
+): value is CopyTestValidationRuntimeContext['uploadedScreenshots'][number] => {
+  return isRecord(value)
+    && typeof value.fileName === 'string'
+    && value.fileName.trim() !== '';
+};
+
+/** 判断未知值是否为严格的待校验行输入。 */
+const isRuntimeRow = (
+  value: unknown
+): value is CopyTestValidationRuntimeContext['selectedRows'][number] => {
+  return isRecord(value)
+    && Number.isInteger(value.rowIndex)
+    && Number(value.rowIndex) >= 0
+    && typeof value.expectedText === 'string';
+};
+
+/** 判断待校验行中的稳定下标是否全部唯一。 */
+const hasUniqueRowIndexes = (
+  rows: CopyTestValidationRuntimeContext['selectedRows']
+): boolean => {
+  return new Set(rows.map(row => row.rowIndex)).size === rows.length;
+};
+
+/** 判断运行时 JSON 是否满足 CopyTest user 消息契约。 */
+const isRuntimeContext = (
+  value: unknown
+): value is CopyTestValidationRuntimeContext => {
+  return isRecord(value)
+    && typeof value.targetColumnName === 'string'
+    && Array.isArray(value.selectedRows)
+    && value.selectedRows.every(isRuntimeRow)
+    && hasUniqueRowIndexes(value.selectedRows)
+    && Array.isArray(value.uploadedScreenshots)
+    && value.uploadedScreenshots.every(isRuntimeScreenshot);
 };
 
 /** 读取 aiChat 请求中唯一的 CopyTest 运行时 user 消息。 */
@@ -62,12 +106,10 @@ const readRuntimeContext = (
 
   /** user 消息反序列化后的未知运行时值。 */
   const parsed: unknown = JSON.parse(runtimeMessage.content);
-  if (!isRecord(parsed)
-    || !Array.isArray(parsed.selectedRows)
-    || !Array.isArray(parsed.uploadedScreenshots)) {
+  if (!isRuntimeContext(parsed)) {
     throw new Error('CopyTest mock received invalid runtime JSON');
   }
-  return parsed as unknown as CopyTestValidationRuntimeContext;
+  return parsed;
 };
 
 /** 在包含上下界的整数范围内生成随机值。 */
@@ -246,7 +288,7 @@ const buildSequencedValidationResult = (
 const buildMockValidationResults = (
   runtimeContext: CopyTestValidationRuntimeContext,
   imageFileNames: string[],
-  options: CopyTestValidationMockOptions
+  options: CopyTestValidationResponseOptions
 ): CopyTestValidationResult[] => {
   const sequenceIndex = options.sequenceIndex;
   if (sequenceIndex !== undefined) {
@@ -272,10 +314,23 @@ const getSequencedMockDate = (sequenceIndex: number): Date => {
   return new Date(MOCK_TIMESTAMP_EPOCH_MS + sequenceIndex);
 };
 
+/** 将可注入时钟转换为严格递增的工厂响应时间。 */
+const createMonotonicNow = (now: () => Date): (() => Date) => {
+  let previousTimestampMs: number | undefined;
+  return () => {
+    const currentTimestampMs = now().getTime();
+    const timestampMs = previousTimestampMs === undefined
+      ? currentTimestampMs
+      : Math.max(currentTimestampMs, previousTimestampMs + 1);
+    previousTimestampMs = timestampMs;
+    return new Date(timestampMs);
+  };
+};
+
 /** 根据 aiChat 请求构建可同步断言的完整 Mock 响应。 */
 export const buildMockCopyTestAiChatResponse = (
   request: AiChatRequest,
-  options: CopyTestValidationMockOptions = {}
+  options: CopyTestValidationResponseOptions = {}
 ): ApiResponse<AiChatResponse> => {
   /** 显式轮次同时控制结果和默认时间，保证完整响应可复现。 */
   const sequenceIndex = options.sequenceIndex;
@@ -306,18 +361,20 @@ export const buildMockCopyTestAiChatResponse = (
   };
 };
 
-/** 创建可注入随机数和时间的 aiChat 同签名 Mock。 */
+/** 创建每次递增轮次且时间单调的 aiChat 同签名 Mock。 */
 export const createMockCopyTestAiChat = (
   options: CopyTestValidationMockOptions = {}
 ): typeof aiChat => {
   /** 每个 Mock 实例独立维护调用轮次，避免测试与页面实例互相污染。 */
   let sequenceIndex = options.sequenceIndex ?? 0;
+  /** 固定或回拨时钟下仍保证完整响应按调用变化。 */
+  const monotonicNow = options.now
+    ? createMonotonicNow(options.now)
+    : undefined;
   return request => {
-    if (options.random) {
-      return Promise.resolve(buildMockCopyTestAiChatResponse(request, options));
-    }
     const response = buildMockCopyTestAiChatResponse(request, {
       ...options,
+      now: monotonicNow,
       sequenceIndex,
     });
     sequenceIndex += 1;

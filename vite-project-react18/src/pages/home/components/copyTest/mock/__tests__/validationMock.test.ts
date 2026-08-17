@@ -33,7 +33,7 @@ describe('validationMock aiChat boundary', () => {
 
   it('has the exact aiChat signature and returns its complete response envelope', () => {
     expectTypeOf(mockCopyTestAiChat).toEqualTypeOf(aiChat);
-    expectTypeOf(createMockCopyTestAiChat({ random: () => 0.4 })).toEqualTypeOf(aiChat);
+    expectTypeOf(createMockCopyTestAiChat({ sequenceIndex: 2 })).toEqualTypeOf(aiChat);
 
     const response = buildMockCopyTestAiChatResponse(buildRequest(), {
       now: () => new Date('2026-07-14T01:02:03.000Z'),
@@ -300,16 +300,29 @@ describe('validationMock aiChat boundary', () => {
     });
   });
 
-  it('supports deterministic injection through the same-signature factory', () => {
-    const random = vi.fn(() => 0.4);
+  it('keeps empty-result responses unique when calls share a fixed clock', async () => {
     const mockAiChat = createMockCopyTestAiChat({
       now: () => new Date('2026-07-14T00:00:00.000Z'),
-      random,
     });
+    const request = buildRequest([], []);
 
-    void mockAiChat(buildRequest(['screen-a.png'], [{ expected: 'copy', rowIndex: 3 }]));
+    const responses = await Promise.all([
+      mockAiChat(request),
+      mockAiChat(request),
+      mockAiChat(request),
+    ]);
 
-    expect(random).toHaveBeenCalled();
+    expect(responses.map(response => response.data?.content)).toEqual([
+      '{"results":[]}',
+      '{"results":[]}',
+      '{"results":[]}',
+    ]);
+    expect(responses.map(response => response.data?.timestamp)).toEqual([
+      '2026-07-14T00:00:00.000Z',
+      '2026-07-14T00:00:00.001Z',
+      '2026-07-14T00:00:00.002Z',
+    ]);
+    expect(new Set(responses.map(response => JSON.stringify(response))).size).toBe(3);
   });
 
   it('rejects requests without a valid runtime user message', () => {
@@ -318,6 +331,39 @@ describe('validationMock aiChat boundary', () => {
     })).toThrow('requires a user runtime message');
     expect(() => buildMockCopyTestAiChatResponse({
       messages: [{ content: '{}', role: 'user' }],
+    })).toThrow('invalid runtime JSON');
+    expect(() => buildMockCopyTestAiChatResponse({
+      messages: [{
+        content: JSON.stringify({
+          selectedRows: [{ expectedText: 'copy', rowIndex: -1 }],
+          targetColumnName: 'Target',
+          uploadedScreenshots: [],
+        }),
+        role: 'user',
+      }],
+    })).toThrow('invalid runtime JSON');
+    expect(() => buildMockCopyTestAiChatResponse({
+      messages: [{
+        content: JSON.stringify({
+          selectedRows: [],
+          targetColumnName: 'Target',
+          uploadedScreenshots: [{ fileName: ' ' }],
+        }),
+        role: 'user',
+      }],
+    })).toThrow('invalid runtime JSON');
+    expect(() => buildMockCopyTestAiChatResponse({
+      messages: [{
+        content: JSON.stringify({
+          selectedRows: [
+            { expectedText: 'first', rowIndex: 1 },
+            { expectedText: 'second', rowIndex: 1 },
+          ],
+          targetColumnName: 'Target',
+          uploadedScreenshots: [],
+        }),
+        role: 'user',
+      }],
     })).toThrow('invalid runtime JSON');
   });
 });
