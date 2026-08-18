@@ -4,7 +4,8 @@
 import type { CopyTestRowInput } from '../api/copyTestApi';
 
 /** CopyTest 校验固定使用的模型名称。 */
-export const COPY_TEST_VALIDATION_MODEL = 'gpt-5.6-terra';
+export const COPY_TEST_VALIDATION_MODEL = 'openai/gpt-5.6-terra';
+/** GPT-5.6 Terra 官方支持的最大输出 token 数。 */
 export const COPY_TEST_MAX_OUTPUT_TOKENS = 128_000;
 
 /** CopyTest 校验请求中的单个截图标识。 */

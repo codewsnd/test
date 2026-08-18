@@ -219,7 +219,7 @@ const assertCanonicalSafeIssue = (issue: string): void => {
 
 describe('copyTestValidationPrompt strict contract', () => {
   it('uses GPT-5.6 Terra and serializes only runtime inputs', () => {
-    expect(COPY_TEST_VALIDATION_MODEL).toBe('gpt-5.6-terra');
+    expect(COPY_TEST_VALIDATION_MODEL).toBe('openai/gpt-5.6-terra');
     expect(COPY_TEST_MAX_OUTPUT_TOKENS).toBe(128_000);
 
     const prompt = buildCopyTestValidationPrompt(
