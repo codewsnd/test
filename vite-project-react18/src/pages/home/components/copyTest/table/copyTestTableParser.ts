@@ -40,7 +40,7 @@ export interface CopyTestRowGroup {
   rowSpan: number;
 }
 
-/** 由所选列空白单元格分隔的连续非空 Evidence section。 */
+/** 所选列按空白条件策略形成的非空 Evidence section。 */
 export interface CopyTestEvidenceSection {
   /** section 首个原子组所在的物理行下标。 */
   anchorRowIndex: number;
@@ -58,7 +58,7 @@ export interface CopyTestEvidenceSection {
 export interface CopyTestColumnContext {
   /** Comparison Column 按 rowspan 划分出的原子行组。 */
   rowGroups: CopyTestRowGroup[];
-  /** Comparison Column 中以空白单元格为边界的连续非空 Evidence section。 */
+  /** Comparison Column 按空白条件策略形成的 Evidence section。 */
   evidenceSections: CopyTestEvidenceSection[];
   /** 当前 Comparison Column 的逻辑列下标。 */
   selectedColumnIndex: number;
@@ -289,13 +289,17 @@ const appendEvidenceSectionRowGroup = (
   return rowGroup;
 };
 
-/** 同时构建 rowspan 原子组与空行分隔的 Evidence section。 */
+/** 同时构建 rowspan 原子组与按整列空白条件确定的 Evidence section。 */
 const buildCopyTestRowGrouping = (
   table: CopyTestTableStructure,
   selectedColumnIndex: number
 ): { evidenceSections: CopyTestEvidenceSection[]; rowGroups: CopyTestRowGroup[] } => {
   /** 不改变 rowspan 语义的来源列原子组。 */
   const atomicRowGroups = buildAtomicCopyTestRowGroups(table, selectedColumnIndex);
+  /** 只有整列至少包含一个空白原子行时，连续非空原子才允许合并。 */
+  const hasBlankBoundary = atomicRowGroups.some(group => {
+    return isBlankEvidenceBoundary(table, selectedColumnIndex, group);
+  });
   /** 附加 Evidence 分组 ID 后仍与原子组一一对应的结果。 */
   const rowGroups: CopyTestRowGroup[] = [];
   /** 由空白来源单元格分隔的连续非空 section。 */
@@ -308,7 +312,7 @@ const buildCopyTestRowGrouping = (
       currentSection = undefined;
       return;
     }
-    if (!currentSection || !isContinuousEvidenceSection(currentSection, group)) {
+    if (!hasBlankBoundary || !currentSection || !isContinuousEvidenceSection(currentSection, group)) {
       /** 一个新连续非空区域的首个原子组和 section。 */
       const created = createEvidenceSection(group);
       currentSection = created.section;
@@ -329,7 +333,7 @@ export const buildCopyTestRowGroups = (
   return buildCopyTestRowGrouping(table, selectedColumnIndex).rowGroups;
 };
 
-/** 构建当前 Comparison Column 中由空白单元格分隔的 Evidence section。 */
+/** 按整列空白条件构建当前 Comparison Column 的 Evidence section。 */
 export const buildCopyTestEvidenceSections = (
   table: CopyTestTableStructure,
   selectedColumnIndex: number

@@ -159,7 +159,7 @@ describe('useCopyTestSession', () => {
     expect(result.current.selectedRowIndexes).toEqual([0, 2]);
     expect(result.current.buildSelectedRowsForValidation()).toEqual([
       { evidenceGroupId: 0, expected: '你好', rowIndex: 0 },
-      { evidenceGroupId: 0, expected: '提交', rowIndex: 2 },
+      { evidenceGroupId: 2, expected: '提交', rowIndex: 2 },
     ]);
     act(() => {
       result.current.setSelectedRowIndexes([0]);
@@ -687,7 +687,7 @@ describe('useCopyTestSession', () => {
     expect(result.current.buildSelectedRowsForValidation()).toEqual(expectedValidationRows);
   });
 
-  it('normalizes four selected physical rows into three atomic source groups', () => {
+  it('keeps rowspan atoms independently selectable when the column has no blank boundary', () => {
     const { result } = renderHook(() => useCopyTestSession());
     act(() => {
       result.current.applyLoadedStorage(middleMergedStorageHtml);
@@ -698,18 +698,32 @@ describe('useCopyTestSession', () => {
 
     expect(result.current.selectedRowIndexes).toEqual([0, 1, 3]);
     act(() => {
-      result.current.setSelectedRowIndexes([0, 1, 2, 3]);
+      result.current.setSelectedRowIndexes([0]);
     });
-
-    expect(result.current.selectedRowIndexes).toEqual([0, 1, 3]);
+    expect(result.current.selectedRowIndexes).toEqual([0]);
     expect(result.current.buildSelectedRowsForValidation()).toEqual([
       { evidenceGroupId: 0, expected: 'copy 1', rowIndex: 0 },
-      { evidenceGroupId: 0, expected: 'copy 2 and 3', rowIndex: 1 },
-      { evidenceGroupId: 0, expected: 'copy 4', rowIndex: 3 },
+    ]);
+
+    /** rowspan 覆盖行仍规范为原子锚点，但不会联动相邻原子组。 */
+    act(() => {
+      result.current.setSelectedRowIndexes([2]);
+    });
+    expect(result.current.selectedRowIndexes).toEqual([1]);
+    expect(result.current.buildSelectedRowsForValidation()).toEqual([
+      { evidenceGroupId: 1, expected: 'copy 2 and 3', rowIndex: 1 },
+    ]);
+
+    act(() => {
+      result.current.setSelectedRowIndexes([3]);
+    });
+    expect(result.current.selectedRowIndexes).toEqual([3]);
+    expect(result.current.buildSelectedRowsForValidation()).toEqual([
+      { evidenceGroupId: 3, expected: 'copy 4', rowIndex: 3 },
     ]);
   });
 
-  it('reuses the section winner for a historical row that originally had no image', () => {
+  it('does not restore an independent historical row during partial validation', () => {
     /** 先提交同时包含无图失败结果和有图通过结果的 AI 响应。 */
     const generated = renderHook(() => useCopyTestSession());
     act(() => {
@@ -757,14 +771,14 @@ describe('useCopyTestSession', () => {
       }], [secondImage], 1, 'Target', 0);
     });
 
-    /** 新旧图平票时保留先出现的 section winner，并绑定到同组历史 Result。 */
+    /** 仅更新第二个独立原子组，不恢复首组的无图历史 Result。 */
     const updatedHtml = imported.result.current.selectedTable?.workingHtml || '';
-    expect(updatedHtml).toContain('Historical missing copy');
-    expect(updatedHtml).toContain('screen-a.png');
-    expect(updatedHtml).not.toContain('screen-b.png');
+    expect(updatedHtml).not.toContain('Historical missing copy');
+    expect(updatedHtml).not.toContain('screen-a.png');
+    expect(updatedHtml).toContain('screen-b.png');
   });
 
-  it('preserves the section winner and atomic Result rowspans during partial validation after import', () => {
+  it('preserves independent atom winners and rowspans during partial validation after import', () => {
     /** 先为四个物理行、三个来源原子组生成完整校验结果。 */
     const generated = renderHook(() => useCopyTestSession());
     act(() => {
@@ -798,7 +812,7 @@ describe('useCopyTestSession', () => {
         },
       ], [image, secondImage, thirdImage], 1, 'Target', 0);
     });
-    /** 模拟回写后重新导入，只有结构组 winner 会留在 managed Evidence。 */
+    /** 模拟回写后重新导入，每个无空行原子组保留自己的 winner。 */
     const generatedStorageHtml = generated.result.current.selectedTable?.workingHtml || '';
     /** 用于验证 DOM 恢复路径的新会话。 */
     const imported = renderHook(() => useCopyTestSession());
@@ -822,13 +836,17 @@ describe('useCopyTestSession', () => {
       }], [], 1, 'Target', 0);
     });
 
-    /** 本次首行无新 Evidence，继续保留 section 唯一历史 winner。 */
+    /** 本次首行无新 Evidence，三个独立原子组的历史 winner 均保留。 */
     const updatedHtml = imported.result.current.selectedTable?.workingHtml || '';
     expect(updatedHtml).not.toContain('Updated first row only');
     expect(updatedHtml).toContain('screen-a.png');
-    expect(updatedHtml).not.toContain('screen-b.png');
-    expect(updatedHtml).not.toContain('screen-c.png');
-    expect(imported.result.current.getCurrentValidationImages()).toEqual([image]);
+    expect(updatedHtml).toContain('screen-b.png');
+    expect(updatedHtml).toContain('screen-c.png');
+    expect(imported.result.current.getCurrentValidationImages()).toEqual([
+      image,
+      secondImage,
+      thirdImage,
+    ]);
 
     /** 重新解析更新结果，确认 2/3 行的 Result 与 Evidence 仍共享 rowspan=2。 */
     const updatedTable = parseCopyTestStorageTables(updatedHtml)[0];
@@ -840,9 +858,8 @@ describe('useCopyTestSession', () => {
     expect(updatedTable.model.rows[2].slots[generatedIndexes.result!]?.owned).toBe(true);
     expect(updatedTable.model.rows[2].slots[generatedIndexes.result!]?.cell.rowSpan).toBe(2);
     expect(updatedTable.model.rows[3].slots[generatedIndexes.result!]?.owned).toBe(false);
-    expect(updatedTable.model.rows[1].slots[generatedIndexes.evidence!]?.owned).toBe(true);
-    expect(updatedTable.model.rows[1].slots[generatedIndexes.evidence!]?.cell.rowSpan).toBe(4);
-    expect(updatedTable.model.rows[2].slots[generatedIndexes.evidence!]?.owned).toBe(false);
+    expect(updatedTable.model.rows[2].slots[generatedIndexes.evidence!]?.owned).toBe(true);
+    expect(updatedTable.model.rows[2].slots[generatedIndexes.evidence!]?.cell.rowSpan).toBe(2);
     expect(updatedTable.model.rows[3].slots[generatedIndexes.evidence!]?.owned).toBe(false);
   });
 

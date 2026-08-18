@@ -94,16 +94,23 @@ describe('copyTestEvidencePlanner', () => {
     }]);
   });
 
-  it('不同 evidenceGroupId 或物理不连续时绝不跨边界合并', () => {
-    /** 第二行使用新组标识，第四行与第二行同组但物理不连续。 */
+  it('不同 evidenceGroupId 的原子行各自选择 singleton，物理不连续时也不合并', () => {
+    /** 第一行候选平票按上传顺序选 Screen01，其余独立原子行各用自己的图片。 */
     const plan = planCopyTestEvidenceGroups([
-      sourceGroup(1, [SCREEN_1], 1, 10),
-      sourceGroup(2, [SCREEN_1], 1, 20),
-      sourceGroup(4, [SCREEN_1], 1, 20),
+      sourceGroup(1, [SCREEN_2, SCREEN_1], 1, 10),
+      sourceGroup(2, [SCREEN_2], 1, 20),
+      sourceGroup(4, [SCREEN_3], 1, 20),
     ], UPLOADED_IMAGES);
 
     expect(plan.map(group => group.anchorRowIndex)).toEqual([1, 2, 4]);
     expect(plan.every(group => group.rowSpan === 1)).toBe(true);
+    expect(plan.map(group => group.screens.map(screen => screen.image.fileName))).toEqual([
+      [SCREEN_1.fileName],
+      [SCREEN_2.fileName],
+      [SCREEN_3.fileName],
+    ]);
+    expect(plan.map(group => group.rowResults[0].screens).every(screens => screens.length === 1))
+      .toBe(true);
   });
 
   it('累加同一结构组中不可拆分来源原子组的 rowspan', () => {

@@ -118,19 +118,28 @@ describe('copyTestTableParser', () => {
     expect(buildCopyTestRowGroups(crossingHeaderTable, 1)).toEqual([]);
   });
 
-  it('expands any selected atom to every atom anchor in its continuous non-blank section', () => {
+  it('keeps each rowspan atom in its own Evidence section when the column has no blank row', () => {
     const table = parseCopyTestStorageTables(middleMergedStorageHtml)[0];
     const context = getCopyTestColumnContext(table, 1);
 
     expect(context?.rowGroups.map(group => group.dataRowIndexes)).toEqual([[0], [1, 2], [3]]);
-    expect(context?.rowGroups.map(group => group.evidenceGroupId)).toEqual([0, 0, 0]);
+    expect(context?.rowGroups.map(group => group.evidenceGroupId)).toEqual([0, 1, 3]);
+    expect(context?.evidenceSections.map(section => ({
+      dataRowIndexes: section.dataRowIndexes,
+      evidenceGroupId: section.evidenceGroupId,
+      rowSpan: section.rowSpan,
+    }))).toEqual([
+      { dataRowIndexes: [0], evidenceGroupId: 0, rowSpan: 1 },
+      { dataRowIndexes: [1], evidenceGroupId: 1, rowSpan: 2 },
+      { dataRowIndexes: [3], evidenceGroupId: 3, rowSpan: 1 },
+    ]);
     expect(getSelectableCopyTestRowIndexes(table, 1)).toEqual([0, 1, 3]);
+    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [2, 99])).toEqual([1]);
     expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [3, 2, 1, 99, 0, 2]))
       .toEqual([0, 1, 3]);
     expect(buildCopyTestRowsForValidation(table, context, [2, 3, 1])).toEqual([
-      { evidenceGroupId: 0, expected: 'copy 1', rowIndex: 0 },
-      { evidenceGroupId: 0, expected: 'copy 2 and 3', rowIndex: 1 },
-      { evidenceGroupId: 0, expected: 'copy 4', rowIndex: 3 },
+      { evidenceGroupId: 1, expected: 'copy 2 and 3', rowIndex: 1 },
+      { evidenceGroupId: 3, expected: 'copy 4', rowIndex: 3 },
     ]);
   });
 

@@ -114,6 +114,16 @@ const blankSeparatedSelectionTable = parseCopyTestStorageTables([
   '</table>',
 ].join(''))[0];
 
+/** 整列无空行时，每个 rowspan 原子组保持独立选择的表格。 */
+const unbrokenSelectionTable = parseCopyTestStorageTables([
+  '<table><tr><th>Target</th></tr>',
+  '<tr><td>Copy 1</td></tr>',
+  '<tr><td rowspan="2">Copy 2 and 3</td></tr>',
+  '<tr></tr>',
+  '<tr><td>Copy 4</td></tr>',
+  '</table>',
+].join(''))[0];
+
 const sharedImages = [
   { base64: BASE64_IMAGE, fileName: 'img-shared', md5: 'img-shared' },
   { base64: BASE64_IMAGE, fileName: 'img-shared', md5: 'img-shared' },
@@ -447,6 +457,49 @@ describe('TablePreview', () => {
       source: iframe.contentWindow,
     }));
     expect(handlers.onRowsChange).toHaveBeenCalledWith([3]);
+  });
+
+  it('keeps adjacent row checkboxes independent when the column has no blank boundary', () => {
+    const handlers = createHandlers();
+    render(
+      <TablePreview
+        onEvidenceImageDelete={handlers.onDelete}
+        onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
+        onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={1}
+        selectedColumnIndex={0}
+        selectedRowIndexes={[0, 1, 3]}
+        table={unbrokenSelectionTable}
+      />
+    );
+    const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
+    const frameDocument = parseFrameDocument(iframe);
+    const rowCheckboxes = Array.from(frameDocument.querySelectorAll<HTMLInputElement>(
+      `[${SELECTION_CHECKBOX_ATTRIBUTE}]:not([${SELECTION_SELECT_ALL_ATTRIBUTE}])`
+    ));
+    const selectAll = frameDocument.querySelector<HTMLInputElement>(
+      `[${SELECTION_SELECT_ALL_ATTRIBUTE}]`
+    );
+
+    /** rowspan 原子只暴露自身锚点，不把覆盖的物理行写入 checkbox payload。 */
+    expect(rowCheckboxes.map(checkbox => {
+      return checkbox.getAttribute(SELECTION_ROW_INDEXES_ATTRIBUTE);
+    })).toEqual(['[0]', '[1]', '[3]']);
+    expect(rowCheckboxes.every(checkbox => !checkbox.disabled)).toBe(true);
+    expect(selectAll?.getAttribute(SELECTION_ROW_INDEXES_ATTRIBUTE)).toBe('[0,1,3]');
+
+    fireEvent(window, new MessageEvent('message', {
+      data: {
+        action: 'selection',
+        checked: false,
+        rowIndexes: [1],
+        type: PREVIEW_MESSAGE_TYPE,
+      },
+      origin: window.location.origin,
+      source: iframe.contentWindow,
+    }));
+    expect(handlers.onRowsChange).toHaveBeenCalledWith([0, 3]);
   });
 
   it('renders independent target actions for Passed and Failed Screens in one Result', () => {
