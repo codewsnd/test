@@ -8,6 +8,7 @@ import {
   parseCopyTestValidationResults,
   type CopyTestValidationResult,
 } from '../copyTestApi';
+import { COPY_TEST_VALIDATION_MODEL } from '../../prompt/copyTestValidationPrompt';
 
 const hoisted = vi.hoisted(() => ({
   aiChat: vi.fn(),
@@ -88,13 +89,13 @@ describe('copyTestApi strict validation contract', () => {
 
     /** 用于核对 system/user 消息分离契约的校验请求。 */
     const request = buildCopyTestValidationRequest([images[0]], [rows[0]], 'Target');
-    expect(request.modelName).toBe('gpt-5.4');
+    expect(request.modelName).toBe(COPY_TEST_VALIDATION_MODEL);
     expect(request.documents).toEqual([
       { base64url: ['data:image/png;base64,QUJD'], type: 'image' },
     ]);
     expect(request.messages).toHaveLength(2);
     expect(request.messages[0]).toEqual(expect.objectContaining({
-      content: expect.stringContaining('Do not decide table merges'),
+      content: expect.stringContaining('Never return or decide rowspan'),
       role: 'system',
     }));
     expect(JSON.parse(request.messages[1].content)).toEqual({
@@ -141,7 +142,7 @@ describe('copyTestApi strict validation contract', () => {
       data: {
         characterCount: content.length,
         content,
-        modelName: 'gpt-5.4',
+        modelName: COPY_TEST_VALIDATION_MODEL,
         timestamp: '2026-07-14T00:00:00.000Z',
       },
     };
@@ -176,7 +177,7 @@ describe('copyTestApi strict validation contract', () => {
         data: {
           characterCount: 0,
           content: '   ',
-          modelName: 'gpt-5.4',
+          modelName: COPY_TEST_VALIDATION_MODEL,
           timestamp: '',
         },
         success: true,

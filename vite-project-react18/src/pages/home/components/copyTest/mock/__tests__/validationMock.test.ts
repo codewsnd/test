@@ -1,6 +1,9 @@
 import { aiChat, type AiChatRequest } from '@/api';
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
-import { buildCopyTestValidationPrompt } from '../../prompt/copyTestValidationPrompt';
+import {
+  buildCopyTestValidationPrompt,
+  COPY_TEST_VALIDATION_MODEL,
+} from '../../prompt/copyTestValidationPrompt';
 import {
   buildMockCopyTestAiChatResponse,
   createMockCopyTestAiChat,
@@ -23,7 +26,7 @@ const buildRequest = (
       role: 'user',
     },
   ],
-  modelName: 'gpt-5.4',
+  modelName: COPY_TEST_VALIDATION_MODEL,
 });
 
 describe('validationMock aiChat boundary', () => {
@@ -46,7 +49,7 @@ describe('validationMock aiChat boundary', () => {
       data: {
         characterCount: content.length,
         content,
-        modelName: 'gpt-5.4',
+        modelName: COPY_TEST_VALIDATION_MODEL,
         timestamp: '2026-07-14T01:02:03.000Z',
       },
     });
