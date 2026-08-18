@@ -22,6 +22,9 @@ export const COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE = 'data-copy-test-column-
 /** 记录生成单元格所属源列 key 的属性名。 */
 export const COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE = 'data-copy-test-source-column-key';
 
+/** 在每个 Result 原子单元格上持久化 Evidence 结构组锚点的属性名。 */
+export const COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE = 'data-copy-test-evidence-group-id';
+
 /** CopyTest 生成节点的 metadata schema 属性。 */
 export const COPY_TEST_SCHEMA_ATTRIBUTE = 'data-copy-test-schema';
 

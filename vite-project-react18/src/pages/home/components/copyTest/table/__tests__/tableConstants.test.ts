@@ -7,6 +7,7 @@ describe('tableConstants', () => {
     expect(constants.COPY_TEST_GENERATED_EVIDENCE_TYPE).toBe('evidence');
     expect(constants.COPY_TEST_SCHEMA_VERSION).toBe('2');
     expect(constants.COPY_TEST_OWNER_ID_ATTRIBUTE).toBe('data-copy-test-owner-id');
+    expect(constants.COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE).toBe('data-copy-test-evidence-group-id');
     expect(constants.COPY_TEST_RESULT_RETAINED_LANGUAGE_ISSUES_ATTRIBUTE).toBe(
       'data-copy-test-result-retained-language-issues'
     );

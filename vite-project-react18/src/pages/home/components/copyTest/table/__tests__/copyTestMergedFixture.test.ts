@@ -89,7 +89,7 @@ describe('copyTest merged Confluence fixture', () => {
     expect(validated.model.rows[2].slots[indexes.evidence!]?.owned).toBe(false);
   });
 
-  it('keeps no-blank source groups as independent singleton Evidence atoms', () => {
+  it('merges adjacent no-blank source atoms that choose the same current winner', () => {
     const table = parseCopyTestStorageTables(buildGroupedTable('GROUP', [3, 2]))[0];
     const validated = applyCopyTestValidationResults(
       ensureCopyTestWorkingColumns(table, 2, 'Target'),
@@ -116,13 +116,12 @@ describe('copyTest merged Confluence fixture', () => {
 
     expect(validated.model.rows[1].slots[indexes.result!]?.cell.rowSpan).toBe(3);
     expect(validated.model.rows[4].slots[indexes.result!]?.cell.rowSpan).toBe(2);
-    expect(validated.model.rows[1].slots[indexes.evidence!]?.cell.rowSpan).toBe(3);
-    expect(validated.model.rows[4].slots[indexes.evidence!]?.cell.rowSpan).toBe(2);
-    expect(validated.model.rows[4].slots[indexes.evidence!]?.owned).toBe(true);
+    expect(validated.model.rows[1].slots[indexes.evidence!]?.cell.rowSpan).toBe(5);
+    expect(validated.model.rows[4].slots[indexes.evidence!]?.owned).toBe(false);
     const evidenceRoots = parseHtml(validated.workingHtml).querySelectorAll(
       '[data-copy-test-generated-content="evidence"]'
     );
-    expect(evidenceRoots).toHaveLength(2);
+    expect(evidenceRoots).toHaveLength(1);
     expect(Array.from(evidenceRoots).every(root => {
       return root.querySelectorAll('[data-copy-test-evidence-image-id]').length === 1;
     })).toBe(true);

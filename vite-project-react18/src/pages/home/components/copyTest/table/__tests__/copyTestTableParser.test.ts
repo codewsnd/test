@@ -46,6 +46,41 @@ const blankSeparatedStorageHtml = [
   '</table>',
 ].join('');
 
+/** 构建当前 source key 下的严格 managed 单元格。 */
+const managedCell = (type: 'evidence' | 'result', content = '', extraAttributes = ''): string => {
+  return `<td data-copy-test-column-type="${type}" data-copy-test-source-column-key="1:Target"`
+    + ` data-copy-test-owner-id="1:Target" data-copy-test-schema="2"${extraAttributes}>${content}</td>`;
+};
+
+/** 无空行且前两个来源原子已持久化为同一 Evidence 组的表格。 */
+const persistedNoBlankStorageHtml = [
+  '<table><tr><th>ID</th><th>Target</th>',
+  '<th data-copy-test-column-type="result" data-copy-test-source-column-key="1:Target" data-copy-test-owner-id="1:Target" data-copy-test-schema="2">Test Result - Target</th>',
+  '<th data-copy-test-column-type="evidence" data-copy-test-source-column-key="1:Target" data-copy-test-owner-id="1:Target" data-copy-test-schema="2">Test Evidence - Target</th></tr>',
+  `<tr><td>1</td><td>copy 1</td>${managedCell('result', '', ' data-copy-test-evidence-group-id="0"')}`,
+  `${managedCell('evidence', '', ' rowspan="3"')}</tr>`,
+  `<tr><td>2</td><td rowspan="2">copy 2 and 3</td>${managedCell(
+    'result',
+    '',
+    ' rowspan="2" data-copy-test-evidence-group-id="0"'
+  )}</tr>`,
+  '<tr><td>3</td></tr>',
+  `<tr><td>4</td><td>copy 4</td>${managedCell('result', '', ' data-copy-test-evidence-group-id="3"')}`,
+  `${managedCell('evidence')}</tr></table>`,
+].join('');
+
+/** 空行条件下 Result metadata 企图拆分 First/Second 的表格。 */
+const splitBlankSectionStorageHtml = [
+  '<table><tr><th>ID</th><th>Target</th>',
+  '<th data-copy-test-column-type="result" data-copy-test-source-column-key="1:Target" data-copy-test-owner-id="1:Target" data-copy-test-schema="2">Test Result - Target</th>',
+  '<th data-copy-test-column-type="evidence" data-copy-test-source-column-key="1:Target" data-copy-test-owner-id="1:Target" data-copy-test-schema="2">Test Evidence - Target</th></tr>',
+  `<tr><td>1</td><td>First</td>${managedCell('result', '', ' data-copy-test-evidence-group-id="0"')}${managedCell('evidence')}</tr>`,
+  `<tr><td>2</td><td>Second</td>${managedCell('result', '', ' data-copy-test-evidence-group-id="1"')}${managedCell('evidence')}</tr>`,
+  `<tr><td>3</td><td></td>${managedCell('result')}${managedCell('evidence')}</tr>`,
+  `<tr><td>4</td><td>Fourth</td>${managedCell('result', '', ' data-copy-test-evidence-group-id="3"')}${managedCell('evidence')}</tr>`,
+  '</table>',
+].join('');
+
 describe('copyTestTableParser', () => {
   it('builds working tables, contexts, generated indexes, and selected validation rows', () => {
     const tables = parseCopyTestStorageTables(storageHtml);
@@ -182,5 +217,95 @@ describe('copyTestTableParser', () => {
       { evidenceGroupId: 3, expected: 'copy 4 and 5', rowIndex: 3 },
       { evidenceGroupId: 3, expected: 'copy 6', rowIndex: 5 },
     ]);
+  });
+
+  it('restores a valid monotonic Result-cell group and couples selection and validation rows', () => {
+    const table = parseCopyTestStorageTables(persistedNoBlankStorageHtml)[0];
+    const context = getCopyTestColumnContext(table, 1);
+
+    expect(context?.rowGroups.map(group => group.evidenceGroupId)).toEqual([0, 0, 3]);
+    expect(context?.evidenceSections.map(section => ({
+      dataRowIndexes: section.dataRowIndexes,
+      evidenceGroupId: section.evidenceGroupId,
+      rowSpan: section.rowSpan,
+    }))).toEqual([
+      { dataRowIndexes: [0, 1], evidenceGroupId: 0, rowSpan: 3 },
+      { dataRowIndexes: [3], evidenceGroupId: 3, rowSpan: 1 },
+    ]);
+    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [2])).toEqual([0, 1]);
+    expect(buildCopyTestRowsForValidation(table, context, [2])).toEqual([
+      { evidenceGroupId: 0, expected: 'copy 1', rowIndex: 0 },
+      { evidenceGroupId: 0, expected: 'copy 2 and 3', rowIndex: 1 },
+    ]);
+  });
+
+  it('fills missing Result metadata only with the source atom base ID', () => {
+    const trailingMissing = persistedNoBlankStorageHtml.replace(
+      ' data-copy-test-evidence-group-id="3"',
+      ''
+    );
+    const missingInsideDynamicGroup = persistedNoBlankStorageHtml.replace(
+      ' rowspan="2" data-copy-test-evidence-group-id="0"',
+      ' rowspan="2"'
+    );
+    const missingDynamicAnchor = persistedNoBlankStorageHtml.replace(
+      ' data-copy-test-evidence-group-id="0"',
+      ''
+    );
+    const missingInsideBlankBaseSection = splitBlankSectionStorageHtml
+      .replace('data-copy-test-evidence-group-id="1"', 'data-copy-test-evidence-group-id="0"')
+      .replace(' data-copy-test-evidence-group-id="0"', '');
+
+    expect(buildCopyTestRowGroups(
+      parseCopyTestStorageTables(trailingMissing)[0],
+      1
+    ).map(group => group.evidenceGroupId)).toEqual([0, 0, 3]);
+    expect(buildCopyTestRowGroups(
+      parseCopyTestStorageTables(missingInsideDynamicGroup)[0],
+      1
+    ).map(group => group.evidenceGroupId)).toEqual([0, 1, 3]);
+    expect(buildCopyTestRowGroups(
+      parseCopyTestStorageTables(missingDynamicAnchor)[0],
+      1
+    ).map(group => group.evidenceGroupId)).toEqual([0, 1, 3]);
+    expect(buildCopyTestRowGroups(
+      parseCopyTestStorageTables(missingInsideBlankBaseSection)[0],
+      1
+    ).map(group => group.evidenceGroupId)).toEqual([0, 0, undefined, 3]);
+  });
+
+  it('fails closed for noncanonical, noncontiguous, split, and non-atomic Result metadata', () => {
+    const noncanonical = persistedNoBlankStorageHtml.replace(
+      'data-copy-test-evidence-group-id="0"',
+      'data-copy-test-evidence-group-id="01"'
+    );
+    const noncontiguous = persistedNoBlankStorageHtml
+      .replace(' rowspan="2" data-copy-test-evidence-group-id="0"', ' rowspan="2" data-copy-test-evidence-group-id="1"')
+      .replace('data-copy-test-evidence-group-id="3"', 'data-copy-test-evidence-group-id="0"');
+    const splitBlankSection = parseCopyTestStorageTables(splitBlankSectionStorageHtml)[0];
+    const crossesBlank = parseCopyTestStorageTables(
+      splitBlankSectionStorageHtml
+        .replace('data-copy-test-evidence-group-id="1"', 'data-copy-test-evidence-group-id="0"')
+        .replace('data-copy-test-evidence-group-id="3"', 'data-copy-test-evidence-group-id="0"')
+    )[0];
+    const nonAtomicResult = parseCopyTestStorageTables([
+      '<table><tr><th>Target</th>',
+      '<th data-copy-test-column-type="result" data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target" data-copy-test-schema="2">Test Result - Target</th>',
+      '<th data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target" data-copy-test-schema="2">Test Evidence - Target</th></tr>',
+      '<tr><td>A</td><td rowspan="2" data-copy-test-column-type="result" data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target" data-copy-test-schema="2" data-copy-test-evidence-group-id="0"></td>',
+      '<td rowspan="2" data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target" data-copy-test-schema="2"></td></tr>',
+      '<tr><td>B</td></tr></table>',
+    ].join(''))[0];
+
+    [noncanonical, noncontiguous].forEach(html => {
+      const table = parseCopyTestStorageTables(html)[0];
+      expect(buildCopyTestRowGroups(table, 1).map(group => group.evidenceGroupId)).toEqual([0, 1, 3]);
+    });
+    expect(buildCopyTestRowGroups(splitBlankSection, 1).map(group => group.evidenceGroupId))
+      .toEqual([0, 0, undefined, 3]);
+    expect(buildCopyTestRowGroups(crossesBlank, 1).map(group => group.evidenceGroupId))
+      .toEqual([0, 0, undefined, 3]);
+    expect(buildCopyTestRowGroups(nonAtomicResult, 0).map(group => group.evidenceGroupId))
+      .toEqual([0, 1]);
   });
 });

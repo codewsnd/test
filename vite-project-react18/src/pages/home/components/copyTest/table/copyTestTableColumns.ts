@@ -2,6 +2,7 @@
  * 文件作用：维护 CopyTest managed 生成列的 ownership、创建与 rowspan 结构。
  */
 import {
+  COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE,
   COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE,
   COPY_TEST_GENERATED_EVIDENCE_TYPE,
   COPY_TEST_GENERATED_RESULT_TYPE,
@@ -21,10 +22,13 @@ import {
 } from './tableModel';
 import {
   buildCopyTestEvidenceSections,
+  buildCopyTestRowGroups,
   findGeneratedColumnIndexes,
   getSourceColumnDisplayLabel,
   getSourceColumnKey,
   refreshWorkingTable,
+  resolveCopyTestEvidenceGroupIds,
+  type CopyTestRowGroup,
   type CopyTestWorkingTable,
 } from './copyTestTableParser';
 
@@ -265,6 +269,186 @@ export const syncGeneratedColumnSpans = (
   );
 };
 
+/** 判断严格 managed Result 列中是否已有任一持久化分组值。 */
+const hasPersistedEvidenceGroupIds = (
+  model: CopyTestTableModel,
+  resultColumnIndex: number,
+  sourceColumnKey: string
+): boolean => {
+  return model.rows.slice(FIRST_DATA_ROW_INDEX).some(row => {
+    /** 当前物理行直接拥有的 Result 单元格。 */
+    const slot = row.slots[resultColumnIndex];
+    return slot?.owned
+      && isGeneratedCellForSource(slot.cell, COPY_TEST_GENERATED_RESULT_TYPE, sourceColumnKey)
+      && slot.cell.element.hasAttribute(COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE);
+  });
+};
+
+/** 读取一个来源原子锚点上属于当前 Pair 的严格 Evidence cell。 */
+const getLegacyEvidenceCell = (
+  model: CopyTestTableModel,
+  group: CopyTestRowGroup,
+  evidenceColumnIndex: number,
+  sourceColumnKey: string
+): CopyTestCellModel | undefined => {
+  /** 当前来源原子锚点的 Evidence 槽位，可能由早先行的 rowspan 覆盖。 */
+  const slot = model.rows[group.anchorRowIndex]?.slots[evidenceColumnIndex];
+  return slot && isGeneratedCellForSource(
+    slot.cell,
+    COPY_TEST_GENERATED_EVIDENCE_TYPE,
+    sourceColumnKey
+  ) ? slot.cell : undefined;
+};
+
+/** 把一个历史 Evidence cell 的物理范围解析为完整来源原子序列。 */
+const getSourceGroupsCoveredByEvidenceCell = (
+  cell: CopyTestCellModel,
+  rowGroups: CopyTestRowGroup[]
+): CopyTestRowGroup[] | null => {
+  /** Evidence cell 必须从一个来源原子锚点开始。 */
+  const startIndex = rowGroups.findIndex(group => group.anchorRowIndex === cell.rowIndex);
+  if (startIndex < 0) {
+    return null;
+  }
+  /** Evidence cell 覆盖的首尾之后物理行下标。 */
+  const cellEnd = cell.rowIndex + cell.rowSpan;
+  /** 下一个来源原子必须开始的物理行。 */
+  let cursor = cell.rowIndex;
+  const coveredGroups: CopyTestRowGroup[] = [];
+  for (let index = startIndex; cursor < cellEnd; index += 1) {
+    /** 当前 Evidence 范围中的下一个来源原子。 */
+    const group = rowGroups[index];
+    if (!group || group.anchorRowIndex !== cursor || cursor + group.rowSpan > cellEnd) {
+      return null;
+    }
+    coveredGroups.push(group);
+    cursor += group.rowSpan;
+  }
+  return cursor === cellEnd ? coveredGroups : null;
+};
+
+/** 判断历史 Evidence cell 是否精确覆盖这批完整原子且不跨空行。 */
+const isValidLegacyEvidenceCoverage = (
+  cell: CopyTestCellModel,
+  coveredGroups: CopyTestRowGroup[],
+  model: CopyTestTableModel,
+  evidenceColumnIndex: number
+): boolean => {
+  if (coveredGroups.length === 0) {
+    return false;
+  }
+  /** 包含空行时只允许 Evidence cell 精确对应该单个空白原子。 */
+  const containsBlankBoundary = coveredGroups.some(group => group.evidenceGroupId === undefined);
+  if (containsBlankBoundary && (coveredGroups.length !== 1 || coveredGroups[0].evidenceGroupId !== undefined)) {
+    return false;
+  }
+  return coveredGroups.every(group => {
+    /** 每个原子锚点都必须由同一个历史 Evidence cell 覆盖。 */
+    return model.rows[group.anchorRowIndex]?.slots[evidenceColumnIndex]?.cell.element === cell.element;
+  });
+};
+
+/** 从无 group-id 的严格历史 Evidence rowspan 推断单调结构组。 */
+const migrateLegacyEvidenceGroups = (
+  model: CopyTestTableModel,
+  baseRowGroups: CopyTestRowGroup[],
+  evidenceColumnIndex: number,
+  sourceColumnKey: string
+): CopyTestRowGroup[] | null => {
+  /** 来源原子锚点引用的所有唯一历史 Evidence cell。 */
+  const evidenceCells = new Map<Element, CopyTestCellModel>();
+  for (const group of baseRowGroups) {
+    const cell = getLegacyEvidenceCell(model, group, evidenceColumnIndex, sourceColumnKey);
+    if (!cell) {
+      return null;
+    }
+    evidenceCells.set(cell.element, cell);
+  }
+
+  /** 以来源原子物理锚点为键的历史组 ID。 */
+  const groupIds = new Map<number, number>();
+  for (const cell of evidenceCells.values()) {
+    const coveredGroups = getSourceGroupsCoveredByEvidenceCell(cell, baseRowGroups);
+    if (!coveredGroups || !isValidLegacyEvidenceCoverage(
+      cell,
+      coveredGroups,
+      model,
+      evidenceColumnIndex
+    )) {
+      return null;
+    }
+    if (coveredGroups[0].evidenceGroupId === undefined) {
+      continue;
+    }
+    /** 历史合并组首个原子的零基业务锚点。 */
+    const groupId = coveredGroups[0].dataRowIndexes[0];
+    if (groupId === undefined) {
+      return null;
+    }
+    coveredGroups.forEach(group => groupIds.set(group.anchorRowIndex, groupId));
+  }
+  return resolveCopyTestEvidenceGroupIds(baseRowGroups, groupIds);
+};
+
+/** 将已验证的结构组 ID 同步到每个严格 managed Result 原子 cell。 */
+export const syncCopyTestEvidenceGroupIds = (
+  model: CopyTestTableModel,
+  rowGroups: CopyTestRowGroup[],
+  resultColumnIndex: number,
+  sourceColumnKey: string
+): void => {
+  model.rows.slice(FIRST_DATA_ROW_INDEX).forEach(row => {
+    /** 当前物理行直接拥有的严格 Result cell。 */
+    const slot = row.slots[resultColumnIndex];
+    if (slot?.owned && isGeneratedCellForSource(
+      slot.cell,
+      COPY_TEST_GENERATED_RESULT_TYPE,
+      sourceColumnKey
+    )) {
+      slot.cell.element.removeAttribute(COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE);
+    }
+  });
+  rowGroups.forEach(group => {
+    if (group.evidenceGroupId === undefined) {
+      return;
+    }
+    /** 与来源原子锚点一一对应的严格 Result cell。 */
+    const slot = model.rows[group.anchorRowIndex]?.slots[resultColumnIndex];
+    if (slot?.owned && isGeneratedCellForSource(
+      slot.cell,
+      COPY_TEST_GENERATED_RESULT_TYPE,
+      sourceColumnKey
+    )) {
+      slot.cell.element.setAttribute(
+        COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE,
+        String(group.evidenceGroupId)
+      );
+    }
+  });
+};
+
+/** 在恢复 Evidence 原子跨度前读取已持久化组或迁移历史 rowspan。 */
+const resolveEvidenceGroupsBeforeSpanReset = (
+  model: CopyTestTableModel,
+  selectedColumnIndex: number,
+  resultColumnIndex: number,
+  evidenceColumnIndex: number,
+  sourceColumnKey: string,
+  evidenceColumnCreated: boolean
+): CopyTestRowGroup[] => {
+  /** parser 已对现有 Result group-id 严格验证并失败关闭后的分组。 */
+  const parsedGroups = buildCopyTestRowGroups({ headers: model.headers, model }, selectedColumnIndex);
+  if (hasPersistedEvidenceGroupIds(model, resultColumnIndex, sourceColumnKey) || evidenceColumnCreated) {
+    return parsedGroups;
+  }
+  return migrateLegacyEvidenceGroups(
+    model,
+    parsedGroups,
+    evidenceColumnIndex,
+    sourceColumnKey
+  ) || parsedGroups;
+};
+
 /** 将 Evidence 列投影为空行分隔的永久 section rowspan。 */
 const syncEvidenceSectionSpans = (
   doc: Document,
@@ -386,20 +570,38 @@ export const ensureCopyTestGeneratedColumns = (
     selectedColumnIndex,
     selectedColumnLabel
   );
-  if (resultColumnCreated) {
-    syncGeneratedColumnSpans(
-      doc,
-      model,
-      selectedColumnIndex,
-      indexes.result,
-      COPY_TEST_GENERATED_RESULT_TYPE,
-      sourceColumnKey
-    );
-  }
+  /** 补齐 metadata 后重新解析，在任何 Evidence rowspan 恢复之前读取历史拓扑。 */
+  const managedModel = parseTableModel(tableElement);
+  /** 已持久化或从严格旧 Evidence rowspan 安全迁移的最终分组。 */
+  const resolvedRowGroups = resolveEvidenceGroupsBeforeSpanReset(
+    managedModel,
+    selectedColumnIndex,
+    indexes.result,
+    indexes.evidence,
+    sourceColumnKey,
+    evidenceColumnCreated
+  );
+  /** Result 始终恢复为每个来源 rowspan 原子一个 cell，作为分组权威载体。 */
+  syncGeneratedColumnSpans(
+    doc,
+    managedModel,
+    selectedColumnIndex,
+    indexes.result,
+    COPY_TEST_GENERATED_RESULT_TYPE,
+    sourceColumnKey
+  );
+  /** Result 原子恢复可能新建 cell，需基于最新模型回填所有组 ID。 */
+  const atomicResultModel = parseTableModel(tableElement);
+  syncCopyTestEvidenceGroupIds(
+    atomicResultModel,
+    resolvedRowGroups,
+    indexes.result,
+    sourceColumnKey
+  );
   /** Evidence 先恢复来源原子跨度，确保历史 Pair 的空行边界也拥有独立单元格。 */
   syncGeneratedColumnSpans(
     doc,
-    model,
+    atomicResultModel,
     selectedColumnIndex,
     indexes.evidence,
     COPY_TEST_GENERATED_EVIDENCE_TYPE,

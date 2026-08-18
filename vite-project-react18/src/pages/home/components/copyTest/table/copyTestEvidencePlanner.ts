@@ -12,6 +12,8 @@ export interface CopyTestEvidenceSourceGroup {
   evidenceGroupId: number;
   /** 当前原子组逐行校验命中的 Evidence 图片。 */
   evidenceImages: CopyTestImage[];
+  /** 本轮 AI 为当前原子组选择的唯一图片；仅用于新增动态合并边。 */
+  currentEvidenceFileName?: string;
   /** 当前原子组是否已有 AI 校验结果。 */
   hasResult: boolean;
   /** 来源单元格实际覆盖的物理行数。 */
@@ -62,6 +64,19 @@ interface MutableEvidenceGroup {
   sourceGroups: CopyTestEvidenceSourceGroup[];
 }
 
+/** 判断两张 Evidence 是否代表同一张图片。 */
+const hasSameImageIdentity = (
+  existingImage: CopyTestImage,
+  nextImage: CopyTestImage
+): boolean => {
+  if (existingImage.fileName === nextImage.fileName) {
+    return true;
+  }
+
+  return existingImage.base64.trim() !== ''
+    && existingImage.base64 === nextImage.base64;
+};
+
 /** 按文件名去重上传图片，并保留首次上传顺序。 */
 const deduplicateUploadedImages = (uploadedImages: CopyTestImage[]): CopyTestImage[] => {
   /** 已加入结果的图片文件名。 */
@@ -72,6 +87,20 @@ const deduplicateUploadedImages = (uploadedImages: CopyTestImage[]): CopyTestIma
     }
 
     addedFileNames.add(image.fileName);
+    return true;
+  });
+};
+
+/** 在单个最终 Evidence 组内按文件名或非空内容去重。 */
+const deduplicateGroupImages = (images: CopyTestImage[]): CopyTestImage[] => {
+  /** 当前组已接受的图片，保持历史顺序。 */
+  const acceptedImages: CopyTestImage[] = [];
+  return images.filter(image => {
+    if (acceptedImages.some(acceptedImage => hasSameImageIdentity(acceptedImage, image))) {
+      return false;
+    }
+
+    acceptedImages.push(image);
     return true;
   });
 };
@@ -115,13 +144,45 @@ const isPhysicallyContinuous = (
   return previousSourceGroup.anchorRowIndex + previousSourceGroup.rowSpan === nextSourceGroup.anchorRowIndex;
 };
 
+/** 读取当前组所有原子在本轮共同选择的唯一图片。 */
+const getSharedCurrentEvidenceFileName = (
+  group: MutableEvidenceGroup
+): string | undefined => {
+  /** 当前结构组内每个原子组的本轮 singleton winner。 */
+  const fileNames = group.sourceGroups.map(sourceGroup => {
+    return sourceGroup.currentEvidenceFileName;
+  });
+  if (fileNames.some(fileName => !fileName)) {
+    return undefined;
+  }
+
+  /** 去重后只有一个文件名才表示整组在同一轮共同匹配该图。 */
+  const uniqueFileNames = new Set(fileNames);
+  return uniqueFileNames.size === 1 ? fileNames[0] : undefined;
+};
+
+/** 判断当前组能否依据本轮共同 winner 单调扩展到下一原子组。 */
+const sharesCurrentEvidence = (
+  group: MutableEvidenceGroup,
+  nextSourceGroup: CopyTestEvidenceSourceGroup
+): boolean => {
+  /** 下一原子组本轮选择的 singleton winner。 */
+  const nextFileName = nextSourceGroup.currentEvidenceFileName;
+  return Boolean(nextFileName)
+    && getSharedCurrentEvidenceFileName(group) === nextFileName;
+};
+
 /** 判断下一来源原子组是否应并入当前 Evidence 组。 */
 const canJoinEvidenceGroup = (
   group: MutableEvidenceGroup,
   nextSourceGroup: CopyTestEvidenceSourceGroup
 ): boolean => {
+  if (!isPhysicallyContinuous(group, nextSourceGroup)) {
+    return false;
+  }
+
   return group.evidenceGroupId === nextSourceGroup.evidenceGroupId
-    && isPhysicallyContinuous(group, nextSourceGroup);
+    || sharesCurrentEvidence(group, nextSourceGroup);
 };
 
 /** 为一个来源原子组创建新的可变 Evidence 组。 */
@@ -143,50 +204,32 @@ const createImageLabel = (image: CopyTestImage): string => {
   return getCopyTestImageDisplayName(image);
 };
 
-/** 统计每张候选图片覆盖的已选且有结果来源原子组数量。 */
-const countImageVotes = (group: MutableEvidenceGroup): Map<string, number> => {
-  /** 图片文件名到有效来源原子组覆盖数的映射。 */
-  const votesByFileName = new Map<string, number>();
-  group.sourceGroups.filter(hasRowResult).forEach(sourceGroup => {
-    /** 同一来源结果重复引用同一图片时只计算一票。 */
-    const sourceFileNames = new Set(sourceGroup.evidenceImages.map(image => image.fileName));
-    sourceFileNames.forEach(fileName => {
-      votesByFileName.set(fileName, (votesByFileName.get(fileName) || 0) + 1);
-    });
-  });
-  return votesByFileName;
-};
-
-/** 按覆盖票数选择唯一 Evidence，平票时保持上传图片顺序。 */
-const selectWinningImage = (
+/** 按历史批次顺序收集当前结构组累计引用的唯一 Evidence。 */
+const collectGroupImages = (
   group: MutableEvidenceGroup,
   uploadedImages: CopyTestImage[]
-): CopyTestImage | undefined => {
-  /** 每张已上传候选图片覆盖的有效来源原子组数量。 */
-  const votesByFileName = countImageVotes(group);
-  /** 当前最高覆盖票数；只有正票候选可以成为 winner。 */
-  let highestVoteCount = 0;
-  /** 当前唯一 winner；相同票数不会覆盖先上传的图片。 */
-  let winner: CopyTestImage | undefined;
-  uploadedImages.forEach(image => {
-    /** 当前候选在本结构组中的覆盖票数。 */
-    const voteCount = votesByFileName.get(image.fileName) || 0;
-    if (voteCount > highestVoteCount) {
-      highestVoteCount = voteCount;
-      winner = image;
-    }
+): CopyTestImage[] => {
+  /** 组内任一有效逐行结果实际引用的图片文件名。 */
+  const referencedFileNames = new Set<string>();
+  group.sourceGroups.filter(hasRowResult).forEach(sourceGroup => {
+    sourceGroup.evidenceImages.forEach(image => {
+      referencedFileNames.add(image.fileName);
+    });
   });
-  return winner;
+  return deduplicateGroupImages(
+    uploadedImages.filter(image => referencedFileNames.has(image.fileName))
+  );
 };
 
-/** 为当前结构组的唯一 winner 创建 Screen 列表。 */
+/** 为当前结构组的累计 Evidence 创建有序 Screen 列表。 */
 const createGroupScreens = (
   group: MutableEvidenceGroup,
   uploadedImages: CopyTestImage[]
 ): CopyTestEvidenceScreen[] => {
-  /** 由覆盖票数和上传顺序确定的唯一 Evidence 图片。 */
-  const winner = selectWinningImage(group, uploadedImages);
-  return winner ? [{ image: winner, label: createImageLabel(winner) }] : [];
+  return collectGroupImages(group, uploadedImages).map(image => ({
+    image,
+    label: createImageLabel(image),
+  }));
 };
 
 /** 构建单个来源原子组真正使用的 Result Screen 子集。 */
@@ -206,7 +249,7 @@ const finalizeEvidenceGroup = (
   group: MutableEvidenceGroup,
   uploadedImages: CopyTestImage[]
 ): CopyTestEvidenceGroupPlan => {
-  /** 当前组 Evidence 使用的有序 Screen。 */
+  /** 当前组 Evidence 使用的跨批累计有序 Screen。 */
   const screens = createGroupScreens(group, uploadedImages);
   return {
     anchorRowIndex: group.sourceGroups[0].anchorRowIndex,
@@ -224,7 +267,7 @@ const finalizeEvidenceGroup = (
 
 /**
  * 按稳定 Evidence 组标识和物理连续性规划不可拆分结构组。
- * 图片命中、选择和结果状态仅影响唯一 Screen 与逐行 Result，不改变结构分组。
+ * 已持久化组永不拆分；本轮相邻原子共同选择同一 singleton 时只新增合并边。
  */
 export const planCopyTestEvidenceGroups = (
   sourceGroups: CopyTestEvidenceSourceGroup[],

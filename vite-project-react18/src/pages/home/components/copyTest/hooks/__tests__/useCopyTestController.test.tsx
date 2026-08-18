@@ -112,7 +112,10 @@ const installBrowserMocks = (): void => {
   class MockFileReader {
     onload: (() => void) | null = null;
     result = 'data:image/png;base64,QUJD';
-    readAsDataURL(): void {
+    readAsDataURL(file: File): void {
+      if (file.name === 'second.png') {
+        this.result = 'data:image/png;base64,REVG';
+      }
       this.onload?.();
     }
   }
@@ -285,12 +288,13 @@ describe('useCopyTestController', () => {
     expect(result.current.tableState.getCurrentPreviewImages()).toEqual([betaImage]);
   });
 
-  it('replaces historical Evidence with the latest group winner', async () => {
+  it('appends each batch winner and ignores an uploaded image with repeated content', async () => {
     hoisted.storageApi.mockResolvedValue({ storage: storageHtml });
     hoisted.attachmentsApi.mockResolvedValue({ images: [] });
     hoisted.uuid
       .mockReturnValueOnce('uuid-a')
-      .mockReturnValueOnce('uuid-b');
+      .mockReturnValueOnce('uuid-b')
+      .mockReturnValueOnce('uuid-c');
     hoisted.validationApi
       .mockResolvedValueOnce([{
         evidenceImageFileNames: ['uuid-a.png'],
@@ -302,6 +306,12 @@ describe('useCopyTestController', () => {
         evidenceImageFileNames: ['uuid-b.png'],
         languageIssues: ['Second screenshot differs.'],
         passed: false,
+        rowIndex: 0,
+      }])
+      .mockResolvedValueOnce([{
+        evidenceImageFileNames: ['uuid-c.png'],
+        languageIssues: [],
+        passed: true,
         rowIndex: 0,
       }]);
     const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
@@ -321,16 +331,24 @@ describe('useCopyTestController', () => {
       new File(['second'], 'second.png', { type: 'image/png' }),
     ]));
     await act(() => result.current.handleValidateClick());
+    await act(() => result.current.handleFilesSelected([
+      new File(['first'], 'first-copy.png', { type: 'image/png' }),
+    ]));
+    await act(() => result.current.handleValidateClick());
 
-    expect(hoisted.validationApi).toHaveBeenCalledTimes(2);
+    expect(hoisted.validationApi).toHaveBeenCalledTimes(3);
     expect(hoisted.validationApi.mock.calls[1][0].map(
       (uploadedImage: { fileName: string }) => uploadedImage.fileName
     )).toEqual(['uuid-b.png']);
-    expect(result.current.tableState.selectedTable?.workingHtml).not.toContain('uuid-a.png');
+    expect(hoisted.validationApi.mock.calls[2][0].map(
+      (uploadedImage: { fileName: string }) => uploadedImage.fileName
+    )).toEqual(['uuid-c.png']);
+    expect(result.current.tableState.selectedTable?.workingHtml).toContain('uuid-a.png');
     expect(result.current.tableState.selectedTable?.workingHtml).toContain('uuid-b.png');
+    expect(result.current.tableState.selectedTable?.workingHtml).not.toContain('uuid-c.png');
     expect(result.current.tableState.getCurrentValidationImages().map(
       uploadedImage => uploadedImage.fileName
-    )).toEqual(['uuid-b.png']);
+    )).toEqual(['uuid-a.png', 'uuid-b.png']);
   });
 
   it('locks Result status changes throughout Confluence export preparation', async () => {

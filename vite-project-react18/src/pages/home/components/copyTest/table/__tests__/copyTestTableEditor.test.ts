@@ -20,6 +20,7 @@ import {
 } from '../copyTestTableParser';
 import {
   COPY_TEST_EVIDENCE_CARD_ATTRIBUTE,
+  COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE,
@@ -37,17 +38,14 @@ import {
 } from '../tableConstants';
 import { parseHtml } from '../tableModel';
 
-/** 测试图片共用的最小 data URL。 */
-const IMAGE_BASE64 = 'data:image/png;base64,QUJD';
-
 /** 用户核心案例中的 Screen01。 */
-const SCREEN_1 = { base64: IMAGE_BASE64, fileName: 'screen-a.png' };
+const SCREEN_1 = { base64: 'data:image/png;base64,QUJD', fileName: 'screen-a.png' };
 
 /** 用户核心案例中的 Screen02。 */
-const SCREEN_2 = { base64: IMAGE_BASE64, fileName: 'screen-b.png' };
+const SCREEN_2 = { base64: 'data:image/png;base64,REVG', fileName: 'screen-b.png' };
 
 /** 与任何校验行都不相关、不得写入表格的 Screen03。 */
-const SCREEN_3 = { base64: IMAGE_BASE64, fileName: 'screen-c.png' };
+const SCREEN_3 = { base64: 'data:image/png;base64,R0hJ', fileName: 'screen-c.png' };
 
 /** 所有编辑器测试共用的上传图片顺序。 */
 const images = [SCREEN_1, SCREEN_2, SCREEN_3];
@@ -231,7 +229,7 @@ describe('copyTestTableEditor', () => {
       '<table><tr><th>Target</th></tr><tr><td>copy</td></tr></table>'
     )[0];
     const uploadedImage = {
-      base64: IMAGE_BASE64,
+      base64: SCREEN_1.base64,
       fileName: '0198f4e0-0000-7000-8000-000000000000.png',
       originalFileName: 'This is just test.png',
     };
@@ -265,14 +263,14 @@ describe('copyTestTableEditor', () => {
     });
   });
 
-  it('toggles only the section winner status and keeps export content clean', () => {
-    /** 单行候选图片平票时，上传顺序靠前的 Screen01 成为唯一 winner。 */
+  it('toggles only the selected Evidence status and keeps export content clean', () => {
+    /** 单行只保留模型返回的 Screen01。 */
     const table = parseCopyTestStorageTables(
       '<table><tr><th>Target</th></tr><tr><td>copy</td></tr></table>'
     )[0];
-    /** 原始失败结果保留多图片输入，用于验证渲染层只接受唯一 winner。 */
+    /** 原始失败结果只引用当前批次的 singleton winner。 */
     const results = bindResultImages([{
-      evidenceImageFileNames: [SCREEN_2.fileName, SCREEN_1.fileName],
+      evidenceImageFileNames: [SCREEN_1.fileName],
       languageIssues: ['Visible copy differs.'],
       passed: false,
       rowIndex: 0,
@@ -549,8 +547,14 @@ describe('copyTestTableEditor', () => {
     const evidenceCells = [1, 3, 4].map(rowIndex => {
       return ensured.model.rows[rowIndex].slots[indexes.evidence!]!.cell.element;
     });
+    /** 每个 Result 原子 cell 回填的权威 section ID，空行不属于任何组。 */
+    const resultGroupIds = [1, 2, 3, 4].map(rowIndex => {
+      return ensured.model.rows[rowIndex].slots[indexes.result!]!.cell.element
+        .getAttribute(COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE);
+    });
 
     expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1))).toEqual([2, 1, 1]);
+    expect(resultGroupIds).toEqual(['0', '0', null, '3']);
     expect(ensured.model.rows[2].slots[indexes.evidence!]!.owned).toBe(false);
     expect(Array.from(evidenceCells[0].querySelectorAll('[data-existing-evidence]')).map(node => {
       return node.getAttribute('data-existing-evidence');
@@ -562,6 +566,158 @@ describe('copyTestTableEditor', () => {
     expect(evidenceCells[2].querySelector('[data-existing-evidence="fourth"]')).not.toBeNull();
   });
 
+  it('migrates a strict legacy no-blank Evidence rowspan into Result group metadata before span reset', () => {
+    const table = parseCopyTestStorageTables([
+      '<table><tr><th>Target</th>',
+      '<th data-copy-test-column-type="result" data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target" data-copy-test-schema="2">Test Result - Target</th>',
+      '<th data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target" data-copy-test-schema="2">Test Evidence - Target</th></tr>',
+      '<tr><td>First</td><td>First result</td><td rowspan="2" data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Target"><span data-legacy-evidence="winner">Winner</span></td></tr>',
+      '<tr><td>Second</td><td>Second result</td></tr>',
+      '<tr><td>Third</td><td>Third result</td><td data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Target">Third evidence</td></tr>',
+      '</table>',
+    ].join(''))[0];
+
+    const ensured = ensureCopyTestWorkingColumns(table, 0, 'Target');
+    const sourceKey = getSourceColumnKey(0, 'Target');
+    const indexes = findGeneratedColumnIndexes(ensured.headers, sourceKey);
+    const resultGroupIds = [1, 2, 3].map(rowIndex => {
+      return ensured.model.rows[rowIndex].slots[indexes.result!]!.cell.element
+        .getAttribute(COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE);
+    });
+    const evidenceCells = [1, 3].map(rowIndex => {
+      return ensured.model.rows[rowIndex].slots[indexes.evidence!]!.cell.element;
+    });
+
+    expect(resultGroupIds).toEqual(['0', '0', '2']);
+    expect(buildCopyTestRowGroups(ensured, 0).map(group => group.evidenceGroupId)).toEqual([0, 0, 2]);
+    expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1))).toEqual([2, 1]);
+    expect(evidenceCells[0].querySelector('[data-legacy-evidence="winner"]')).not.toBeNull();
+    expect(ensured.model.rows[2].slots[indexes.evidence!]!.owned).toBe(false);
+  });
+
+  it('preserves a partially exported dynamic group through parse and ensure round trips', () => {
+    const table = parseCopyTestStorageTables([
+      '<table><tr><th>Target</th></tr>',
+      '<tr><td>First</td></tr>',
+      '<tr><td>Second</td></tr>',
+      '<tr><td>Third</td></tr></table>',
+    ].join(''))[0];
+    const selectedResults = bindResultImages([
+      {
+        evidenceImageFileNames: [SCREEN_1.fileName],
+        languageIssues: [],
+        passed: true,
+        rowIndex: 0,
+      },
+      {
+        evidenceImageFileNames: [SCREEN_1.fileName],
+        languageIssues: [],
+        passed: true,
+        rowIndex: 1,
+      },
+    ], images);
+    const validated = applyCopyTestValidationResults(
+      table,
+      selectedResults,
+      0,
+      'Target',
+      images
+    );
+    const exported = buildCurrentColumnExportStorage({
+      exportScope: 'copytest-dddddddddddddddddddddddddddddddd',
+      originalStorageHtml: table.originalHtml,
+      selectedColumnIndex: 0,
+      selectedColumnLabel: 'Target',
+      selectedRowIndexes: [0, 1],
+      table: validated,
+    });
+
+    expect(exported).not.toBeNull();
+    const reparsed = parseCopyTestStorageTables(exported!)[0];
+    expect(buildCopyTestRowGroups(reparsed, 0).map(group => group.evidenceGroupId))
+      .toEqual([0, 0, 2]);
+    const firstEnsure = ensureCopyTestWorkingColumns(reparsed, 0, 'Target');
+    const reparsedAfterEnsure = parseCopyTestStorageTables(firstEnsure.workingHtml)[0];
+    const secondEnsure = ensureCopyTestWorkingColumns(reparsedAfterEnsure, 0, 'Target');
+
+    [firstEnsure, reparsedAfterEnsure, secondEnsure].forEach(current => {
+      const sourceKey = getSourceColumnKey(0, 'Target');
+      const indexes = findGeneratedColumnIndexes(current.headers, sourceKey);
+      const resultGroupIds = [1, 2, 3].map(rowIndex => {
+        return current.model.rows[rowIndex].slots[indexes.result!]!.cell.element
+          .getAttribute(COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE);
+      });
+      const evidenceCells = [1, 3].map(rowIndex => {
+        return current.model.rows[rowIndex].slots[indexes.evidence!]!.cell.element;
+      });
+
+      expect(resultGroupIds).toEqual(['0', '0', '2']);
+      expect(buildCopyTestRowGroups(current, 0).map(group => group.evidenceGroupId))
+        .toEqual([0, 0, 2]);
+      expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1))).toEqual([2, 1]);
+      expect(evidenceCells[0].querySelector(
+        `[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}="${SCREEN_1.fileName}"]`
+      )).not.toBeNull();
+    });
+  });
+
+  it('fails closed when a strict legacy Evidence rowspan splits a source atom', () => {
+    const table = parseCopyTestStorageTables([
+      '<table><tr><th>ID</th><th>Target</th>',
+      '<th data-copy-test-column-type="result" data-copy-test-source-column-key="1:Target" data-copy-test-owner-id="1:Target" data-copy-test-schema="2">Test Result - Target</th>',
+      '<th data-copy-test-column-type="evidence" data-copy-test-source-column-key="1:Target" data-copy-test-owner-id="1:Target" data-copy-test-schema="2">Test Evidence - Target</th></tr>',
+      '<tr><td>1</td><td rowspan="2">First and Second</td><td rowspan="2">Result</td><td data-copy-test-column-type="evidence" data-copy-test-source-column-key="1:Target">First evidence</td></tr>',
+      '<tr><td>2</td><td data-copy-test-column-type="evidence" data-copy-test-source-column-key="1:Target">Second evidence</td></tr>',
+      '<tr><td>3</td><td>Third</td><td>Third result</td><td data-copy-test-column-type="evidence" data-copy-test-source-column-key="1:Target">Third evidence</td></tr>',
+      '</table>',
+    ].join(''))[0];
+
+    const ensured = ensureCopyTestWorkingColumns(table, 1, 'Target');
+    const sourceKey = getSourceColumnKey(1, 'Target');
+    const indexes = findGeneratedColumnIndexes(ensured.headers, sourceKey);
+    const resultGroupIds = [1, 3].map(rowIndex => {
+      return ensured.model.rows[rowIndex].slots[indexes.result!]!.cell.element
+        .getAttribute(COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE);
+    });
+    const evidenceCells = [1, 3].map(rowIndex => {
+      return ensured.model.rows[rowIndex].slots[indexes.evidence!]!.cell.element;
+    });
+
+    expect(resultGroupIds).toEqual(['0', '2']);
+    expect(buildCopyTestRowGroups(ensured, 1).map(group => group.evidenceGroupId)).toEqual([0, 2]);
+    expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1))).toEqual([2, 1]);
+  });
+
+  it('fails closed from a legacy Evidence rowspan that crosses a blank boundary', () => {
+    const table = parseCopyTestStorageTables([
+      '<table><tr><th>Target</th>',
+      '<th data-copy-test-column-type="result" data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target" data-copy-test-schema="2">Test Result - Target</th>',
+      '<th data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target" data-copy-test-schema="2">Test Evidence - Target</th></tr>',
+      '<tr><td>First</td><td>First result</td><td rowspan="4" data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Target">Crossed evidence</td></tr>',
+      '<tr><td>Second</td><td>Second result</td></tr>',
+      '<tr><td></td><td>Blank result</td></tr>',
+      '<tr><td>Fourth</td><td>Fourth result</td></tr>',
+      '</table>',
+    ].join(''))[0];
+
+    const ensured = ensureCopyTestWorkingColumns(table, 0, 'Target');
+    const sourceKey = getSourceColumnKey(0, 'Target');
+    const indexes = findGeneratedColumnIndexes(ensured.headers, sourceKey);
+    const resultGroupIds = [1, 2, 3, 4].map(rowIndex => {
+      return ensured.model.rows[rowIndex].slots[indexes.result!]!.cell.element
+        .getAttribute(COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE);
+    });
+    const evidenceCells = [1, 3, 4].map(rowIndex => {
+      return ensured.model.rows[rowIndex].slots[indexes.evidence!]!.cell.element;
+    });
+
+    expect(resultGroupIds).toEqual(['0', '0', null, '3']);
+    expect(buildCopyTestRowGroups(ensured, 0).map(group => group.evidenceGroupId))
+      .toEqual([0, 0, undefined, 3]);
+    expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1))).toEqual([2, 1, 1]);
+    expect(ensured.model.rows[2].slots[indexes.evidence!]!.owned).toBe(false);
+  });
+
   it('keeps no-blank atomic rows independent with one winner per Evidence cell', () => {
     const table = parseCopyTestStorageTables([
       '<table><tr><th>ID</th><th>Target</th></tr>',
@@ -571,7 +727,7 @@ describe('copyTestTableEditor', () => {
     ].join(''))[0];
     const results = bindResultImages([
       {
-        evidenceImageFileNames: [SCREEN_2.fileName, SCREEN_1.fileName],
+        evidenceImageFileNames: [SCREEN_1.fileName],
         languageIssues: [],
         passed: true,
         rowIndex: 0,
@@ -651,7 +807,7 @@ describe('copyTestTableEditor', () => {
         rowIndex: 0,
       },
       {
-        evidenceImageFileNames: [SCREEN_2.fileName, SCREEN_1.fileName],
+        evidenceImageFileNames: [SCREEN_1.fileName],
         languageIssues: [],
         passed: true,
         rowIndex: 1,
@@ -855,7 +1011,7 @@ describe('copyTestTableEditor', () => {
         rowIndex: 0,
       },
       {
-        evidenceImageFileNames: [SCREEN_1.fileName, SCREEN_2.fileName],
+        evidenceImageFileNames: [SCREEN_2.fileName],
         languageIssues: [],
         passed: true,
         rowIndex: 1,
@@ -878,18 +1034,18 @@ describe('copyTestTableEditor', () => {
     const evidenceCards = Array.from(doc.querySelectorAll(`[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`));
 
     expect(deleted.removed).toBe(true);
-    expect(deleted.imageStillUsed).toBe(true);
+    expect(deleted.imageStillUsed).toBe(false);
     expect(deleted.validationResults?.map(result => ({
       evidenceImageFileNames: result.evidenceImageFileNames,
       rowIndex: result.rowIndex,
     }))).toEqual([{
-      evidenceImageFileNames: [SCREEN_1.fileName],
+      evidenceImageFileNames: [SCREEN_2.fileName],
       rowIndex: 1,
     }]);
     expect(resultRoots).toHaveLength(1);
     expect(evidenceCards).toHaveLength(1);
-    expect(deleted.table.workingHtml).toContain(SCREEN_1.fileName);
-    expect(deleted.table.workingHtml).not.toContain(SCREEN_2.fileName);
+    expect(deleted.table.workingHtml).not.toContain(SCREEN_1.fileName);
+    expect(deleted.table.workingHtml).toContain(SCREEN_2.fileName);
     const indexes = findGeneratedColumnIndexes(deleted.table.headers, sourceKey);
     const evidenceCells = [1, 2].map(rowIndex => {
       return deleted.table.model.rows[rowIndex].slots[indexes.evidence!]!.cell.element;
@@ -897,7 +1053,7 @@ describe('copyTestTableEditor', () => {
     expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1))).toEqual([1, 1]);
     expect(evidenceCells[0].textContent?.trim()).toBe('');
     expect(evidenceCells[1].querySelector(
-      `[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}="${SCREEN_1.fileName}"]`
+      `[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}="${SCREEN_2.fileName}"]`
     )).not.toBeNull();
     expect(deleted.table.model.rows[2].slots[indexes.evidence!]!.owned).toBe(true);
   });
@@ -922,7 +1078,7 @@ describe('copyTestTableEditor', () => {
         rowIndex: 0,
       },
       {
-        evidenceImageFileNames: [SCREEN_1.fileName],
+        evidenceImageFileNames: [SCREEN_1.fileName, SCREEN_2.fileName],
         languageIssues: [],
         passed: true,
         rowIndex: 3,
@@ -968,7 +1124,7 @@ describe('copyTestTableEditor', () => {
     const affectedEvidence = deleted.table.model.rows[1].slots[deletedIndexes.evidence!]!.cell.element;
 
     expect(deleted.removed).toBe(true);
-    expect(deleted.imageStillUsed).toBe(false);
+    expect(deleted.imageStillUsed).toBe(true);
     expect(unaffectedSignatureAfter).toEqual(unaffectedSignatureBefore);
     expect(affectedResult.getAttribute('rowspan')).toBe('2');
     expect(affectedEvidence.getAttribute('rowspan')).toBe('2');
@@ -976,7 +1132,7 @@ describe('copyTestTableEditor', () => {
     expect(affectedResult.textContent?.trim()).toBe('');
     expect(affectedEvidence.textContent?.trim()).toBe('');
     expect(deleted.table.workingHtml).toContain(SCREEN_1.fileName);
-    expect(deleted.table.workingHtml).not.toContain(SCREEN_2.fileName);
+    expect(deleted.table.workingHtml).toContain(SCREEN_2.fileName);
     expect(buildCopyTestRowGroups(deleted.table, 0).map(group => group.rowSpan)).toEqual([2, 1, 2, 1]);
   });
 
@@ -1038,7 +1194,7 @@ describe('copyTestTableEditor', () => {
     )))).toHaveLength(1);
   });
 
-  it('keeps no-blank rowspan atoms independent after deleting one singleton winner', () => {
+  it('keeps a dynamically merged no-blank group locked after deleting its winner', () => {
     /** 中间两行通过 rowspan 合并为原子组的四行来源表格。 */
     const table = parseCopyTestStorageTables(middleMergedStorageHtml)[0];
     /** 四行来源表格按原子组构造的校验结果。 */
@@ -1063,7 +1219,14 @@ describe('copyTestTableEditor', () => {
       },
     ], images);
     /** 应用初次校验结果后的工作表格。 */
-    const validated = applyCopyTestValidationResults(table, results, 1, 'Target', images);
+    const validated = applyCopyTestValidationResults(
+      table,
+      results,
+      1,
+      'Target',
+      images,
+      results.slice(0, 2)
+    );
     /** Target 来源列稳定 ownership key。 */
     const sourceKey = getSourceColumnKey(1, 'Target');
     /** 初次校验后生成双列的逻辑下标。 */
@@ -1078,21 +1241,21 @@ describe('copyTestTableEditor', () => {
     expect(initialResultCells.map(getResultImageIds)).toEqual([
       [SCREEN_1.fileName],
       [SCREEN_1.fileName],
-      [SCREEN_1.fileName],
+      [SCREEN_1.fileName, SCREEN_2.fileName],
     ]);
     expect([1, 2, 3, 4].map(rowIndex => {
       const slot = validated.model.rows[rowIndex].slots[initialIndexes.evidence!];
       return { owned: slot!.owned, rowSpan: slot!.cell.rowSpan };
     })).toEqual([
-      { owned: true, rowSpan: 1 },
-      { owned: true, rowSpan: 2 },
-      { owned: false, rowSpan: 2 },
+      { owned: true, rowSpan: 3 },
+      { owned: false, rowSpan: 3 },
+      { owned: false, rowSpan: 3 },
       { owned: true, rowSpan: 1 },
     ]);
 
-    /** 首个独立 Evidence 原子组图片的稳定 ID。 */
+    /** 首两个原子组共享图片的稳定 ID。 */
     const firstImageId = getCopyTestImageId(SCREEN_1);
-    /** 只删除首个原子组图片并重新规划该组。 */
+    /** 删除已锁定动态组的共享图片，并保留组 rowspan。 */
     const deleted = deleteCopyTestEvidenceImage(
       validated,
       { imageId: firstImageId, instanceId: `${sourceKey}:1:${firstImageId}` },
@@ -1116,32 +1279,34 @@ describe('copyTestTableEditor', () => {
     expect(deleted.removed).toBe(true);
     expect(deleted.imageStillUsed).toBe(true);
     expect(evidenceSlots).toEqual([
-      { owned: true, rowSpan: 1 },
-      { owned: true, rowSpan: 2 },
-      { owned: false, rowSpan: 2 },
+      { owned: true, rowSpan: 3 },
+      { owned: false, rowSpan: 3 },
+      { owned: false, rowSpan: 3 },
       { owned: true, rowSpan: 1 },
     ]);
     expect(buildCopyTestRowGroups(deleted.table, 1).map(group => group.rowSpan)).toEqual([1, 2, 1]);
     expect(resultCells.map(getResultImageIds)).toEqual([
       [],
-      [SCREEN_1.fileName],
-      [SCREEN_1.fileName],
+      [],
+      [SCREEN_1.fileName, SCREEN_2.fileName],
     ]);
     expect(doc.querySelectorAll(
       `[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}="${SCREEN_1.fileName}"]`
-    )).toHaveLength(2);
+    )).toHaveLength(1);
     const evidenceCell = deleted.table.model.rows[1].slots[indexes.evidence!]!.cell.element;
-    expect(evidenceCell.getAttribute('rowspan')).toBeNull();
+    expect(evidenceCell.getAttribute('rowspan')).toBe('3');
     expect(evidenceCell.textContent?.trim()).toBe('');
     expect(deleted.table.workingHtml).toContain(SCREEN_1.fileName);
-    expect(deleted.table.workingHtml).not.toContain(SCREEN_2.fileName);
+    expect(deleted.table.workingHtml).toContain(SCREEN_2.fileName);
     expect(deleted.table.workingHtml).not.toContain(SCREEN_3.fileName);
     expect(deleted.validationResults?.map(result => ({
       evidenceImageFileNames: result.evidenceImageFileNames,
       rowIndex: result.rowIndex,
     }))).toEqual([
-      { evidenceImageFileNames: [SCREEN_1.fileName], rowIndex: 1 },
-      { evidenceImageFileNames: [SCREEN_1.fileName], rowIndex: 3 },
+      {
+        evidenceImageFileNames: [SCREEN_1.fileName, SCREEN_2.fileName],
+        rowIndex: 3,
+      },
     ]);
   });
 
@@ -1242,7 +1407,7 @@ describe('copyTestTableEditor', () => {
         rowIndex: 0,
       },
       {
-        evidenceImageFileNames: [SCREEN_1.fileName, SCREEN_2.fileName],
+        evidenceImageFileNames: [SCREEN_1.fileName],
         languageIssues: [],
         passed: true,
         rowIndex: 1,
@@ -1351,7 +1516,7 @@ describe('copyTestTableEditor', () => {
       '<table><tr><th>Target</th></tr>',
       '<tr><td>copy 1</td></tr><tr><td>copy 2</td></tr></table>',
     ].join(''))[0];
-    /** 两个独立原子组都使用 Screen01，供 fallback 精确恢复目标组。 */
+    /** 两个独立原子组使用不同 Screen，供 fallback 精确恢复目标组。 */
     const results = bindResultImages([
       {
         evidenceImageFileNames: [SCREEN_1.fileName],
@@ -1360,7 +1525,7 @@ describe('copyTestTableEditor', () => {
         rowIndex: 0,
       },
       {
-        evidenceImageFileNames: [SCREEN_1.fileName],
+        evidenceImageFileNames: [SCREEN_2.fileName],
         languageIssues: [],
         passed: true,
         rowIndex: 1,
@@ -1394,13 +1559,13 @@ describe('copyTestTableEditor', () => {
     const deletedIndexes = findGeneratedColumnIndexes(deleted.table.headers, sourceKey);
 
     expect(deleted.removed).toBe(true);
-    expect(deleted.imageStillUsed).toBe(true);
-    expect(deleted.table.workingHtml).toContain(SCREEN_1.fileName);
+    expect(deleted.imageStillUsed).toBe(false);
+    expect(deleted.table.workingHtml).toContain(SCREEN_2.fileName);
     expect(deleted.validationResults?.map(result => ({
       evidenceImageFileNames: result.evidenceImageFileNames,
       rowIndex: result.rowIndex,
     }))).toEqual([{
-      evidenceImageFileNames: [SCREEN_1.fileName],
+      evidenceImageFileNames: [SCREEN_2.fileName],
       rowIndex: 1,
     }]);
     const evidenceAfter = deleted.table.model.rows[1]

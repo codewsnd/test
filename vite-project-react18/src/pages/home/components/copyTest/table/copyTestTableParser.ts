@@ -4,6 +4,7 @@
 import type { CopyTestRowInput } from '../api/copyTestApi';
 import { projectCopyTestSourceColumn } from './copyTestGridModel';
 import {
+  COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE,
   COPY_TEST_EVIDENCE_HEADER_PREFIX,
   COPY_TEST_GENERATED_EVIDENCE_TYPE,
   COPY_TEST_GENERATED_RESULT_TYPE,
@@ -17,6 +18,7 @@ import {
   parseStorageTables,
   type CopyTestGeneratedColumnType,
   type CopyTestHeader,
+  type CopyTestCellSlot,
   type CopyTestTableEntry,
 } from './tableModel';
 
@@ -253,7 +255,7 @@ const createEvidenceSection = (
   group: CopyTestRowGroup
 ): { rowGroup: CopyTestRowGroup; section: CopyTestEvidenceSection } => {
   /** 原子组对外使用的零基业务锚点。 */
-  const evidenceGroupId = group.dataRowIndexes[0];
+  const evidenceGroupId = group.evidenceGroupId ?? group.dataRowIndexes[0];
   /** 每个数据原子组都必然至少覆盖一行。 */
   if (evidenceGroupId === undefined || evidenceGroupId < 0) {
     throw new Error('Evidence section requires a non-negative data row anchor');
@@ -289,8 +291,37 @@ const appendEvidenceSectionRowGroup = (
   return rowGroup;
 };
 
-/** 同时构建 rowspan 原子组与按整列空白条件确定的 Evidence section。 */
-const buildCopyTestRowGrouping = (
+/** 从已解析的行组构建物理连续的 Evidence section。 */
+const buildEvidenceSectionsFromRowGroups = (
+  rowGroups: CopyTestRowGroup[]
+): CopyTestEvidenceSection[] => {
+  /** 按结构组 ID 与物理连续性划分的结果。 */
+  const evidenceSections: CopyTestEvidenceSection[] = [];
+  /** 当前可继续追加的非空 section。 */
+  let currentSection: CopyTestEvidenceSection | undefined;
+  rowGroups.forEach(group => {
+    if (group.evidenceGroupId === undefined) {
+      currentSection = undefined;
+      return;
+    }
+    if (
+      !currentSection
+      || currentSection.evidenceGroupId !== group.evidenceGroupId
+      || !isContinuousEvidenceSection(currentSection, group)
+    ) {
+      /** 新结构组首个原子行创建的 section。 */
+      const created = createEvidenceSection(group);
+      currentSection = created.section;
+      evidenceSections.push(currentSection);
+      return;
+    }
+    appendEvidenceSectionRowGroup(currentSection, group);
+  });
+  return evidenceSections;
+};
+
+/** 只依据来源列空白边界构建不可拆分的基础分组。 */
+const buildBaseCopyTestRowGrouping = (
   table: CopyTestTableStructure,
   selectedColumnIndex: number
 ): { evidenceSections: CopyTestEvidenceSection[]; rowGroups: CopyTestRowGroup[] } => {
@@ -323,6 +354,270 @@ const buildCopyTestRowGrouping = (
     rowGroups.push(appendEvidenceSectionRowGroup(currentSection, group));
   });
   return { evidenceSections, rowGroups };
+};
+
+/** 判断持久化组 ID 是否是合法的零基业务锚点。 */
+const isValidEvidenceGroupId = (value: number): boolean => {
+  return Number.isSafeInteger(value) && value >= 0;
+};
+
+/** 持久化 Evidence 组序列校验的可变状态。 */
+interface EvidenceGroupResolutionState {
+  /** 基础组 ID 到持久化组 ID 的单调映射。 */
+  resolvedIdByBaseId: Map<number, number>;
+  /** 已读取过的持久化组 ID。 */
+  seenResolvedIds: Set<number>;
+  /** 上一个非空来源原子组。 */
+  previousGroup?: CopyTestRowGroup;
+  /** 上一个非空原子组的持久化 ID。 */
+  previousResolvedId?: number;
+}
+
+/** 校验并记录一个非空原子的持久化组位置。 */
+const acceptResolvedEvidenceGroup = (
+  state: EvidenceGroupResolutionState,
+  group: CopyTestRowGroup,
+  resolvedId: number | undefined
+): boolean => {
+  /** 当前原子的基础组与零基业务锚点。 */
+  const baseId = group.evidenceGroupId!;
+  const dataAnchor = group.dataRowIndexes[0];
+  if (resolvedId === undefined || dataAnchor === undefined || !isValidEvidenceGroupId(resolvedId)) {
+    return false;
+  }
+  /** 同一基础 section 之前已锁定的持久化组 ID。 */
+  const baseResolvedId = state.resolvedIdByBaseId.get(baseId);
+  if (baseResolvedId !== undefined && baseResolvedId !== resolvedId) {
+    return false;
+  }
+  const continuesPrevious = state.previousResolvedId === resolvedId;
+  if (continuesPrevious) {
+    const physicallyContinuous = state.previousGroup
+      && state.previousGroup.anchorRowIndex + state.previousGroup.rowSpan === group.anchorRowIndex;
+    if (!physicallyContinuous) {
+      return false;
+    }
+  } else if (state.seenResolvedIds.has(resolvedId) || resolvedId !== dataAnchor) {
+    return false;
+  }
+  state.resolvedIdByBaseId.set(baseId, resolvedId);
+  state.seenResolvedIds.add(resolvedId);
+  state.previousGroup = group;
+  state.previousResolvedId = resolvedId;
+  return true;
+};
+
+/** 按物理锚点应用单调 Evidence 合并关系，非法时整体失败关闭。 */
+export const resolveCopyTestEvidenceGroupIds = (
+  baseRowGroups: CopyTestRowGroup[],
+  groupIdByAnchorRowIndex: ReadonlyMap<number, number>
+): CopyTestRowGroup[] | null => {
+  const nonBlankGroupCount = baseRowGroups.filter(group => group.evidenceGroupId !== undefined).length;
+  if (groupIdByAnchorRowIndex.size !== nonBlankGroupCount) {
+    return null;
+  }
+  /** 按顺序校验基础 section 不被拆分且合并组物理连续的状态。 */
+  const state: EvidenceGroupResolutionState = {
+    resolvedIdByBaseId: new Map<number, number>(),
+    seenResolvedIds: new Set<number>(),
+  };
+  const resolvedGroups: CopyTestRowGroup[] = [];
+  for (const group of baseRowGroups) {
+    if (group.evidenceGroupId === undefined) {
+      if (groupIdByAnchorRowIndex.has(group.anchorRowIndex)) {
+        return null;
+      }
+      resolvedGroups.push(group);
+      state.previousGroup = undefined;
+      state.previousResolvedId = undefined;
+      continue;
+    }
+
+    /** 当前来源原子组在 Result cell 上声明的结构组 ID。 */
+    const resolvedId = groupIdByAnchorRowIndex.get(group.anchorRowIndex);
+    if (!acceptResolvedEvidenceGroup(state, group, resolvedId)) {
+      return null;
+    }
+    resolvedGroups.push({ ...group, evidenceGroupId: resolvedId! });
+  }
+  return resolvedGroups;
+};
+
+/** 单个来源原子上的持久化 Evidence 组读取结果。 */
+interface PersistedEvidenceGroupIdRead {
+  /** 当前严格 Result cell 是否显式声明了属性。 */
+  explicit: boolean;
+  /** 显式值或缺失值回填后的基础 canonical ID。 */
+  groupId?: number;
+  /** 显式值及其 Result 原子结构是否全部合法。 */
+  valid: boolean;
+}
+
+/** 整列 Result Evidence 分组元数据的候选读取结果。 */
+interface PersistedEvidenceGroupIdsRead {
+  /** 显式声明 group-id 的来源原子物理锚点。 */
+  explicitAnchorRowIndexes: Set<number>;
+  /** 当前列是否至少包含一个显式声明。 */
+  found: boolean;
+  /** 每个非空来源原子的显式值或基础 canonical ID。 */
+  groupIds: Map<number, number> | null;
+}
+
+/** 定位当前来源原子所在逻辑列的严格 managed Result cell。 */
+const getStrictResultSlot = (
+  table: CopyTestTableStructure,
+  group: CopyTestRowGroup,
+  resultColumnIndex: number,
+  sourceColumnKey: string
+): CopyTestCellSlot | undefined => {
+  /** 当前原子锚点上的 Result 逻辑槽位。 */
+  const slot = table.model.rows[group.anchorRowIndex]?.slots[resultColumnIndex];
+  if (slot?.cell.generatedType !== COPY_TEST_GENERATED_RESULT_TYPE) {
+    return undefined;
+  }
+  return slot.cell.sourceColumnKey === sourceColumnKey ? slot : undefined;
+};
+
+/** 读取并严格校验一个来源原子的显式或基础 Evidence 组 ID。 */
+const readPersistedEvidenceGroupId = (
+  table: CopyTestTableStructure,
+  group: CopyTestRowGroup,
+  resultColumnIndex: number,
+  sourceColumnKey: string
+): PersistedEvidenceGroupIdRead => {
+  const slot = getStrictResultSlot(table, group, resultColumnIndex, sourceColumnKey);
+  const rawGroupId = slot?.cell.element.getAttribute(COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE);
+  if (rawGroupId === null || rawGroupId === undefined) {
+    return { explicit: false, groupId: group.evidenceGroupId, valid: true };
+  }
+  if (!slot?.owned || group.evidenceGroupId === undefined) {
+    return { explicit: true, valid: false };
+  }
+  const matchesSourceAtom = slot.cell.rowIndex === group.anchorRowIndex
+    && slot.cell.rowSpan === group.rowSpan;
+  if (!matchesSourceAtom || !/^(?:0|[1-9]\d*)$/.test(rawGroupId)) {
+    return { explicit: true, valid: false };
+  }
+  const groupId = Number(rawGroupId);
+  return {
+    explicit: true,
+    groupId,
+    valid: isValidEvidenceGroupId(groupId),
+  };
+};
+
+/** 从当前来源列严格 managed Result 原子单元格读取持久化分组。 */
+const readPersistedEvidenceGroupIds = (
+  table: CopyTestTableStructure,
+  selectedColumnIndex: number,
+  baseRowGroups: CopyTestRowGroup[]
+): PersistedEvidenceGroupIdsRead => {
+  /** 当前 Comparison Column 表头与稳定 ownership key。 */
+  const header = table.headers.find(item => item.index === selectedColumnIndex);
+  const sourceColumnKey = header ? getSourceColumnKey(selectedColumnIndex, header.label) : '';
+  /** 当前来源列的严格 Result 逻辑列。 */
+  const resultColumnIndex = sourceColumnKey
+    ? findGeneratedColumnIndexes(table.headers, sourceColumnKey).result
+    : undefined;
+  if (resultColumnIndex === undefined) {
+    return { explicitAnchorRowIndexes: new Set<number>(), found: false, groupIds: null };
+  }
+
+  /** 按来源原子物理锚点保存的候选组 ID。 */
+  const groupIds = new Map<number, number>();
+  const explicitAnchorRowIndexes = new Set<number>();
+  let found = false;
+  let valid = true;
+  baseRowGroups.forEach(group => {
+    const read = readPersistedEvidenceGroupId(
+      table,
+      group,
+      resultColumnIndex,
+      sourceColumnKey
+    );
+    if (read.explicit) {
+      found = true;
+      explicitAnchorRowIndexes.add(group.anchorRowIndex);
+    }
+    if (!read.valid) {
+      valid = false;
+      return;
+    }
+    if (read.groupId !== undefined) {
+      groupIds.set(group.anchorRowIndex, read.groupId);
+    }
+  });
+  return {
+    explicitAnchorRowIndexes,
+    found,
+    groupIds: valid ? groupIds : null,
+  };
+};
+
+/** 找出跨越多个基础组的动态 Evidence group-id。 */
+const findDynamicEvidenceGroupIds = (
+  baseRowGroups: CopyTestRowGroup[],
+  resolvedRowGroups: CopyTestRowGroup[]
+): Set<number> => {
+  const firstBaseIdByResolvedId = new Map<number, number>();
+  const dynamicGroupIds = new Set<number>();
+  resolvedRowGroups.forEach((group, index) => {
+    const resolvedId = group.evidenceGroupId;
+    const baseId = baseRowGroups[index]?.evidenceGroupId;
+    if (resolvedId === undefined || baseId === undefined) {
+      return;
+    }
+    const firstBaseId = firstBaseIdByResolvedId.get(resolvedId);
+    if (firstBaseId === undefined) {
+      firstBaseIdByResolvedId.set(resolvedId, baseId);
+      return;
+    }
+    if (firstBaseId !== baseId) {
+      dynamicGroupIds.add(resolvedId);
+    }
+  });
+  return dynamicGroupIds;
+};
+
+/** 动态合并不得由缺失 metadata 的后续原子反向推断产生。 */
+const hasCompleteDynamicGroupMetadata = (
+  baseRowGroups: CopyTestRowGroup[],
+  resolvedRowGroups: CopyTestRowGroup[],
+  explicitAnchorRowIndexes: ReadonlySet<number>
+): boolean => {
+  const dynamicGroupIds = findDynamicEvidenceGroupIds(baseRowGroups, resolvedRowGroups);
+  return resolvedRowGroups.every(group => {
+    const groupId = group.evidenceGroupId;
+    return groupId === undefined
+      || !dynamicGroupIds.has(groupId)
+      || explicitAnchorRowIndexes.has(group.anchorRowIndex);
+  });
+};
+
+/** 同时构建 rowspan 原子组与基础或已持久化的 Evidence section。 */
+const buildCopyTestRowGrouping = (
+  table: CopyTestTableStructure,
+  selectedColumnIndex: number
+): { evidenceSections: CopyTestEvidenceSection[]; rowGroups: CopyTestRowGroup[] } => {
+  /** 只依据来源列空白边界得到的不可拆分基础结构。 */
+  const baseGrouping = buildBaseCopyTestRowGrouping(table, selectedColumnIndex);
+  /** 严格 Result 原子 cell 中可选的单调布局组 ID。 */
+  const persisted = readPersistedEvidenceGroupIds(table, selectedColumnIndex, baseGrouping.rowGroups);
+  if (!persisted.found) {
+    return baseGrouping;
+  }
+  /** 任一持久化值非法时，整列回退到基础结构。 */
+  const resolvedGroups = persisted.groupIds
+    ? resolveCopyTestEvidenceGroupIds(baseGrouping.rowGroups, persisted.groupIds)
+    : null;
+  const hasCompleteDynamicMetadata = resolvedGroups && hasCompleteDynamicGroupMetadata(
+    baseGrouping.rowGroups,
+    resolvedGroups,
+    persisted.explicitAnchorRowIndexes
+  );
+  return resolvedGroups && hasCompleteDynamicMetadata
+    ? { evidenceSections: buildEvidenceSectionsFromRowGroups(resolvedGroups), rowGroups: resolvedGroups }
+    : baseGrouping;
 };
 
 /** 构建当前 Comparison Column 的 rowspan 原子行组。 */

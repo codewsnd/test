@@ -5,6 +5,7 @@ import type { CopyTestImage, CopyTestValidationResult } from '../api/copyTestApi
 import {
   COPY_TEST_EVIDENCE_CARD_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE,
+  COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_HEIGHT,
   COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE,
@@ -526,10 +527,25 @@ const buildLogicalRowResults = (
   );
 };
 
+/** 读取本轮结果真正返回的 singleton winner。 */
+const getCurrentEvidenceFileName = (
+  result: CopyTestValidationResultWithEvidence | undefined
+): string | undefined => {
+  return result?.evidenceImageFileNames.length === 1
+    ? result.evidenceImageFileNames[0]
+    : undefined;
+};
+
 /** 将逻辑行结果转换为 Evidence Planner 的不可拆分来源原子组。 */
-const buildEvidenceSourceGroups = (items: LogicalRowResult[]): CopyTestEvidenceSourceGroup[] => {
+const buildEvidenceSourceGroups = (
+  items: LogicalRowResult[],
+  currentResultByRowIndex: Map<number, CopyTestValidationResultWithEvidence>
+): CopyTestEvidenceSourceGroup[] => {
   return items.map(item => ({
     anchorRowIndex: item.rowGroup.anchorRowIndex,
+    currentEvidenceFileName: getCurrentEvidenceFileName(
+      currentResultByRowIndex.get(item.rowGroup.dataRowIndexes[0] ?? -1)
+    ),
     evidenceGroupId: item.rowGroup.evidenceGroupId
       ?? item.rowGroup.dataRowIndexes[0]
       ?? item.rowGroup.anchorRowIndex,
@@ -578,13 +594,19 @@ export const buildEvidenceGroups = (
   rowGroups: CopyTestRowGroup[],
   results: CopyTestValidationResultWithEvidence[],
   uploadedImages: CopyTestImage[],
-  sourceColumnKey: string
+  sourceColumnKey: string,
+  currentResults: CopyTestValidationResultWithEvidence[] = []
 ): EvidenceGroup[] => {
   /** 所有原子来源行组与聚合校验结果的顺序绑定。 */
   const items = buildLogicalRowResults(rowGroups, results);
+  /** 只包含本轮结果的行索引，用于新增而不是重算动态合并边。 */
+  const currentResultByRowIndex = buildResultMap(currentResults);
   /** 便于 Planner 输出按物理锚点绑定回完整行结果的索引。 */
   const itemByAnchorRowIndex = new Map(items.map(item => [item.rowGroup.anchorRowIndex, item]));
-  return planCopyTestEvidenceGroups(buildEvidenceSourceGroups(items), uploadedImages).map(plan => {
+  return planCopyTestEvidenceGroups(
+    buildEvidenceSourceGroups(items, currentResultByRowIndex),
+    uploadedImages
+  ).map(plan => {
     /** Evidence 与组内 Result 共同使用的唯一 Screen 注册表。 */
     const screens = createScreenRefs(plan.screens, plan.anchorRowIndex, sourceColumnKey);
     return {
@@ -597,6 +619,50 @@ export const buildEvidenceGroups = (
         itemByAnchorRowIndex
       ),
     };
+  });
+};
+
+/** 将最终 Evidence 结构组 ID 写入始终保持原子跨度的 managed Result 单元格。 */
+const writeEvidenceGroupMetadata = (
+  doc: Document,
+  context: GeneratedColumnContext,
+  rowGroups: CopyTestRowGroup[],
+  evidenceGroups: EvidenceGroup[]
+): void => {
+  rowGroups.forEach(rowGroup => {
+    /** 当前来源原子组对应且不会被 Evidence rowspan 覆盖的 Result 单元格。 */
+    const resultCell = ensureWritableGeneratedCell(
+      doc,
+      context.model,
+      rowGroup.anchorRowIndex,
+      context.resultColumnIndex,
+      COPY_TEST_GENERATED_RESULT_TYPE,
+      context.sourceColumnKey
+    );
+    resultCell.removeAttribute(COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE);
+  });
+  evidenceGroups.forEach(evidenceGroup => {
+    /** 空白边界没有 Evidence group ID，不能被动态分组元数据接管。 */
+    if (evidenceGroup.sourceRowGroups.some(rowGroup => rowGroup.evidenceGroupId === undefined)) {
+      return;
+    }
+
+    /** 动态并集使用最顶部来源原子组的业务锚点作为规范 ID。 */
+    const evidenceGroupId = evidenceGroup.sourceRowGroups[0]?.dataRowIndexes[0];
+    if (evidenceGroupId === undefined) {
+      return;
+    }
+    evidenceGroup.sourceRowGroups.forEach(rowGroup => {
+      const resultCell = ensureWritableGeneratedCell(
+        doc,
+        context.model,
+        rowGroup.anchorRowIndex,
+        context.resultColumnIndex,
+        COPY_TEST_GENERATED_RESULT_TYPE,
+        context.sourceColumnKey
+      );
+      resultCell.setAttribute(COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE, String(evidenceGroupId));
+    });
   });
 };
 
@@ -777,7 +843,8 @@ export const applyCopyTestValidationResults = (
   results: CopyTestValidationResultWithEvidence[],
   selectedColumnIndex: number,
   selectedColumnLabel: string,
-  uploadedImages: CopyTestImage[]
+  uploadedImages: CopyTestImage[],
+  currentResults: CopyTestValidationResultWithEvidence[] = results
 ): CopyTestWorkingTable => {
   /** 已补齐当前来源列双列及严格 ownership 的编辑上下文。 */
   const ensured = ensureCopyTestGeneratedColumns(table.workingHtml, selectedColumnIndex, selectedColumnLabel);
@@ -801,8 +868,10 @@ export const applyCopyTestValidationResults = (
     rowGroups,
     results,
     uploadedImages,
-    context.sourceColumnKey
+    context.sourceColumnKey,
+    currentResults
   );
+  writeEvidenceGroupMetadata(doc, context, rowGroups, evidenceGroups);
   /** 本次实际拥有可渲染图片 Result 的来源物理锚点集合。 */
   const renderableAnchorRowIndexes = new Set(
     evidenceGroups.flatMap(group => group.rowGroups.flatMap(rowGroup => {
