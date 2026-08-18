@@ -36,7 +36,7 @@ const workingTable = applyCopyTestValidationResults(
   []
 );
 const tableState = {
-  buildSelectedRowsForValidation: () => [{ expected: 'copy', rowIndex: 0 }],
+  buildSelectedRowsForValidation: () => [{ evidenceGroupId: 0, expected: 'copy', rowIndex: 0 }],
   originalStorageHtml: storageHtml,
   selectedColumnIndex: 0,
   selectedHeader: { index: 0, label: 'Target' },
@@ -58,7 +58,9 @@ describe('copyTestControllerUtils', () => {
       size: 1,
     })))).toBeNull();
     expect(getCopyTestValidationContext({ ...tableState, buildSelectedRowsForValidation: () => [] }, [{ base64: 'x', fileName: 'a.png', md5: 'm', size: 1 }])).toBeNull();
-    expect(getCopyTestValidationContext(tableState, [{ base64: 'x', fileName: 'a.png', md5: 'm', size: 1 }])?.rows).toHaveLength(1);
+    expect(getCopyTestValidationContext(tableState, [{ base64: 'x', fileName: 'a.png', md5: 'm', size: 1 }])?.rows).toEqual([
+      { evidenceGroupId: 0, expected: 'copy', rowIndex: 0 },
+    ]);
   });
 
   it('builds attachment preview requests and propagates attachment failures', async () => {

@@ -12,6 +12,7 @@ interface DecisionExampleEvidence {
 }
 
 interface DecisionExampleInput {
+  evidenceGroupId: number;
   expectedText: string;
   rowIndex: number;
   visualEvidence: DecisionExampleEvidence[];
@@ -54,11 +55,13 @@ const readDecisionExampleOutput = (id: string): DecisionExampleOutput => {
 };
 
 describe('copyTestValidationPrompt strict contract', () => {
-  it('keeps the GPT-5.4 request and complete evidence mapping', () => {
+  it('keeps the GPT-5.4 request and app-owned Evidence grouping', () => {
     expect(COPY_TEST_VALIDATION_MODEL).toBe('gpt-5.4');
     expect(COPY_TEST_MAX_OUTPUT_TOKENS).toBe(128_000);
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/deterministic visual copy validator/i);
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/complete Cartesian product/i);
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(/application assigns selectedRows to indivisible Evidence groups/i);
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(/Never create, split, merge, or renumber groups/i);
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/Use this fixed priority/i);
     expect(COMPACT_SYSTEM_PROMPT).toMatch(
       /uploadedScreenshots\[i\]\.fileName identifies attached image i/i
@@ -102,9 +105,9 @@ describe('copyTestValidationPrompt strict contract', () => {
       passed: true,
     });
     expect(periodMismatchResult).toEqual({
-      evidenceImageFileNames: ['ideographic-stop.png', 'fullwidth-period.png'],
+      evidenceImageFileNames: ['ideographic-stop.png'],
       languageIssues: [
-        "The final punctuation should be '.' instead of '。' or '．'.",
+        "The final punctuation should be '.' instead of '。'.",
       ],
       passed: false,
       rowIndex: 0,
@@ -160,7 +163,7 @@ describe('copyTestValidationPrompt strict contract', () => {
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/Remove layout-only line breaks/i);
     expect(COMPACT_SYSTEM_PROMPT).toMatch(/every remaining insertion, deletion, substitution/i);
     expect(readDecisionExampleOutput('D07').results[0].languageIssues).toEqual([
-      "The suffixes '2' and ' (option)' are extra.",
+      "Remove the unexpected suffix '2'.",
     ]);
   });
 
@@ -190,6 +193,7 @@ describe('copyTestValidationPrompt strict contract', () => {
       /never applies to Han characters, Chinese words, punctuation, or whitespace/i
     );
     expect(input).toEqual({
+      evidenceGroupId: 0,
       expectedText: '输入您的信息',
       rowIndex: 0,
       visualEvidence: [
@@ -284,6 +288,7 @@ describe('copyTestValidationPrompt strict contract', () => {
         'rowIndex',
       ]);
       expect(result.rowIndex).toBe(input.rowIndex);
+      expect(input.evidenceGroupId).toBe(0);
       expect(new Set(result.evidenceImageFileNames).size).toBe(
         result.evidenceImageFileNames.length
       );
@@ -293,8 +298,8 @@ describe('copyTestValidationPrompt strict contract', () => {
       expect(evidencePositions).toEqual(
         [...evidencePositions].sort((left, right) => left - right)
       );
+      expect(result.evidenceImageFileNames).toHaveLength(1);
       if (result.passed) {
-        expect(result.evidenceImageFileNames.length).toBeGreaterThan(0);
         expect(result.languageIssues).toEqual([]);
       } else {
         expect(result.languageIssues).toHaveLength(1);
@@ -312,12 +317,13 @@ describe('copyTestValidationPrompt strict contract', () => {
       .filter(line => /^- (rowIndex|passed|evidenceImageFileNames|languageIssues):/.test(line))
       .map(line => line.slice(2, line.indexOf(':')));
 
-    expect(COMPACT_SYSTEM_PROMPT).toMatch(
-      /Passed:.{0,180}all and only exact screenshots/i
-    );
-    expect(COMPACT_SYSTEM_PROMPT).toMatch(
-      /Failed:.{0,200}all relevant mismatch or unreadable screenshots/i
-    );
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(/select exactly one best group screenshot/i);
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(/More group rows whose complete copy unit is visibly present/i);
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(/More exact full-unit matches/i);
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(/fewer total literal insertions, deletions, and substitutions/i);
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(/compact, coherent UI region/i);
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(/Earlier uploadedScreenshots order/i);
+    expect(COMPACT_SYSTEM_PROMPT).toMatch(/sole item in evidenceImageFileNames/i);
     expect(outputContract).toMatch(/raw JSON object/i);
     expect(outputContract).toMatch(/exactly one field: results/i);
     expect(outputContract).toMatch(/exactly these four fields/i);
@@ -334,8 +340,8 @@ describe('copyTestValidationPrompt strict contract', () => {
   it('serializes only runtime inputs into the user message JSON', () => {
     const prompt = buildCopyTestValidationPrompt(
       [
-        { expected: '你好', rowIndex: 0 },
-        { expected: '我在', rowIndex: 2 },
+        { evidenceGroupId: 0, expected: '你好', rowIndex: 0 },
+        { evidenceGroupId: 0, expected: '我在', rowIndex: 2 },
       ],
       'Target Copy',
       ['screen-a.png', 'screen-b.png']
@@ -343,8 +349,8 @@ describe('copyTestValidationPrompt strict contract', () => {
 
     expect(JSON.parse(prompt)).toEqual({
       selectedRows: [
-        { expectedText: '你好', rowIndex: 0 },
-        { expectedText: '我在', rowIndex: 2 },
+        { evidenceGroupId: 0, expectedText: '你好', rowIndex: 0 },
+        { evidenceGroupId: 0, expectedText: '我在', rowIndex: 2 },
       ],
       targetColumnName: 'Target Copy',
       uploadedScreenshots: [

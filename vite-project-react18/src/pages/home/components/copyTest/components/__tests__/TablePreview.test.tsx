@@ -98,6 +98,22 @@ const mergedTableHtml = [
 ].join('');
 const mergedTable = parseCopyTestStorageTables(mergedTableHtml)[0];
 
+/** 前两行非空、第三行为空白边界的 Evidence section 选择表格。 */
+const blankSeparatedSelectionTable = parseCopyTestStorageTables([
+  '<table><tr><th>Target</th>',
+  `<th ${COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"`,
+  ` ${COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE}="0:Target" data-copy-test-owner-id="0:Target"`,
+  ' data-copy-test-schema="2">Test Result - Target</th>',
+  `<th ${COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE}="${COPY_TEST_GENERATED_EVIDENCE_TYPE}"`,
+  ` ${COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE}="0:Target" data-copy-test-owner-id="0:Target"`,
+  ' data-copy-test-schema="2">Test Evidence - Target</th></tr>',
+  '<tr><td>Copy 1</td><td></td><td></td></tr>',
+  '<tr><td>Copy 2</td><td></td><td></td></tr>',
+  '<tr><td><br /></td><td></td><td></td></tr>',
+  '<tr><td>Copy 4</td><td></td><td></td></tr>',
+  '</table>',
+].join(''))[0];
+
 const sharedImages = [
   { base64: BASE64_IMAGE, fileName: 'img-shared', md5: 'img-shared' },
   { base64: BASE64_IMAGE, fileName: 'img-shared', md5: 'img-shared' },
@@ -389,6 +405,48 @@ describe('TablePreview', () => {
 
     unmount();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview-1');
+  });
+
+  it('gives every row checkbox in one non-blank section the same linked anchors', () => {
+    const handlers = createHandlers();
+    render(
+      <TablePreview
+        onEvidenceImageDelete={handlers.onDelete}
+        onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
+        onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={1}
+        selectedColumnIndex={0}
+        selectedRowIndexes={[0, 1, 3]}
+        table={blankSeparatedSelectionTable}
+      />
+    );
+    const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
+    const frameDocument = parseFrameDocument(iframe);
+    const rowCheckboxes = Array.from(frameDocument.querySelectorAll<HTMLInputElement>(
+      `[${SELECTION_CHECKBOX_ATTRIBUTE}]:not([${SELECTION_SELECT_ALL_ATTRIBUTE}])`
+    ));
+    const selectAll = frameDocument.querySelector<HTMLInputElement>(
+      `[${SELECTION_SELECT_ALL_ATTRIBUTE}]`
+    );
+
+    expect(rowCheckboxes.map(checkbox => {
+      return checkbox.getAttribute(SELECTION_ROW_INDEXES_ATTRIBUTE);
+    })).toEqual(['[0,1]', '[0,1]', '[2]', '[3]']);
+    expect(rowCheckboxes.map(checkbox => checkbox.disabled)).toEqual([false, false, true, false]);
+    expect(selectAll?.getAttribute(SELECTION_ROW_INDEXES_ATTRIBUTE)).toBe('[0,1,3]');
+
+    fireEvent(window, new MessageEvent('message', {
+      data: {
+        action: 'selection',
+        checked: false,
+        rowIndexes: [0, 1],
+        type: PREVIEW_MESSAGE_TYPE,
+      },
+      origin: window.location.origin,
+      source: iframe.contentWindow,
+    }));
+    expect(handlers.onRowsChange).toHaveBeenCalledWith([3]);
   });
 
   it('renders independent target actions for Passed and Failed Screens in one Result', () => {

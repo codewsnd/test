@@ -2,8 +2,10 @@
  * 文件作用：把 working table HTML 转换为可交互的安全预览文档副本。
  */
 import {
+  buildCopyTestEvidenceSections,
   buildCopyTestRowGroups,
   findGeneratedColumnIndexes,
+  getSelectableCopyTestRowIndexes,
   getSourceColumnKey,
 } from '../../table/copyTestTableParser';
 import {
@@ -258,23 +260,24 @@ const applyPreviewColumnWidths = (
 
 /** 从 data url 创建 blob url。 */
 
-const hasSelectableCellText = (
-  table: CopyTestTableEntry,
-  rowIndex: number,
-  selectedColumnIndex: number
-): boolean => {
-  return table.model.rows[rowIndex]?.slots[selectedColumnIndex]?.cell.text.trim() !== '';
-};
-
 /** 读取当前列可选择的逻辑行首行。 */
 const getSelectableAnchorRowIndexes = (
   table: CopyTestTableEntry,
   selectedColumnIndex: number
 ): number[] => {
-  return table.model.rows.slice(1)
-    .filter(row => row.slots[selectedColumnIndex]?.owned)
-    .filter(row => hasSelectableCellText(table, row.index, selectedColumnIndex))
-    .map(row => row.index - 1);
+  return getSelectableCopyTestRowIndexes(table, selectedColumnIndex);
+};
+
+/** 为每个非空原子组锚点建立其 Evidence section 全部成员锚点索引。 */
+const buildEvidenceSectionSelectionIndex = (
+  table: CopyTestTableEntry,
+  selectedColumnIndex: number
+): Map<number, number[]> => {
+  return new Map(buildCopyTestEvidenceSections(table, selectedColumnIndex).flatMap(section => {
+    return section.rowGroups.map(rowGroup => {
+      return [rowGroup.anchorRowIndex, section.dataRowIndexes] as const;
+    });
+  }));
 };
 
 /** 创建选择列 checkbox。 */
@@ -318,16 +321,14 @@ const createSelectionHeaderCell = (
 /** 创建选择列数据单元格。 */
 const createSelectionDataCell = (
   doc: Document,
-  rowIndex: number,
+  rowIndexes: number[],
   rowSpan: number,
   selectable: boolean
 ): HTMLTableCellElement => {
-  /** 排除表头后的业务数据行下标。 */
-  const dataRowIndex = rowIndex - 1;
   /** 容纳单行选择框的数据单元格。 */
   const cell = doc.createElement('td');
-  /** 当前逻辑行对应的选择框。 */
-  const checkbox = createSelectionCheckbox(doc, [dataRowIndex], !selectable);
+  /** 当前原子行对应的整个 Evidence section 选择框。 */
+  const checkbox = createSelectionCheckbox(doc, rowIndexes, !selectable);
   cell.setAttribute(SELECTION_COLUMN_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
   if (rowSpan > 1) {
     cell.setAttribute('rowspan', String(rowSpan));
@@ -354,6 +355,8 @@ const applyPreviewRowSelection = (
 
   /** 当前 Comparison Column 中可选的逻辑行首行。 */
   const selectableRows = getSelectableAnchorRowIndexes(table, selectedColumnIndex);
+  /** 非空 Evidence section 中每个原子锚点到全部成员锚点的索引。 */
+  const selectionRowsByAnchor = buildEvidenceSectionSelectionIndex(table, selectedColumnIndex);
   /** 排除嵌套表格后的顶层预览行。 */
   const previewRows = Array.from(tableElement.querySelectorAll<HTMLTableRowElement>('tr'))
     .filter(row => row.closest('table') === tableElement);
@@ -374,10 +377,17 @@ const applyPreviewRowSelection = (
       return;
     }
 
-    /** 当前逻辑行是否有可供校验的原始内容。 */
-    const selectable = hasSelectableCellText(table, row.index, selectedColumnIndex);
+    /** 当前原子组所属 Evidence section 的全部业务锚点。 */
+    const sectionRowIndexes = selectionRowsByAnchor.get(row.index);
+    /** 空白单元格不属于任何 Evidence section，因此不可选。 */
+    const selectable = sectionRowIndexes !== undefined;
     /** 与原始单元格合并范围对齐的选择单元格。 */
-    const cell = createSelectionDataCell(doc, row.index, slot.cell.rowSpan, selectable);
+    const cell = createSelectionDataCell(
+      doc,
+      sectionRowIndexes || [row.index - 1],
+      slot.cell.rowSpan,
+      selectable
+    );
     previewRow.insertBefore(cell, previewRow.firstChild);
   });
 };

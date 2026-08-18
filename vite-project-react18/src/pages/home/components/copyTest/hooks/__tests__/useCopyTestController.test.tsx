@@ -285,7 +285,7 @@ describe('useCopyTestController', () => {
     expect(result.current.tableState.getCurrentPreviewImages()).toEqual([betaImage]);
   });
 
-  it('appends a second uploaded screenshot to the existing validation result', async () => {
+  it('replaces historical Evidence with the latest group winner', async () => {
     hoisted.storageApi.mockResolvedValue({ storage: storageHtml });
     hoisted.attachmentsApi.mockResolvedValue({ images: [] });
     hoisted.uuid
@@ -326,11 +326,11 @@ describe('useCopyTestController', () => {
     expect(hoisted.validationApi.mock.calls[1][0].map(
       (uploadedImage: { fileName: string }) => uploadedImage.fileName
     )).toEqual(['uuid-b.png']);
-    expect(result.current.tableState.selectedTable?.workingHtml).toContain('uuid-a.png');
+    expect(result.current.tableState.selectedTable?.workingHtml).not.toContain('uuid-a.png');
     expect(result.current.tableState.selectedTable?.workingHtml).toContain('uuid-b.png');
     expect(result.current.tableState.getCurrentValidationImages().map(
       uploadedImage => uploadedImage.fileName
-    )).toEqual(['uuid-a.png', 'uuid-b.png']);
+    )).toEqual(['uuid-b.png']);
   });
 
   it('locks Result status changes throughout Confluence export preparation', async () => {

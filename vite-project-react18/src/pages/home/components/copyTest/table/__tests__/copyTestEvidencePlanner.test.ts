@@ -24,9 +24,11 @@ const UPLOADED_IMAGES = [SCREEN_1, SCREEN_2, SCREEN_3];
 const sourceGroup = (
   anchorRowIndex: number,
   evidenceImages: CopyTestImage[],
-  rowSpan = 1
+  rowSpan = 1,
+  evidenceGroupId = 1
 ): CopyTestEvidenceSourceGroup => ({
   anchorRowIndex,
+  evidenceGroupId,
   evidenceImages,
   hasResult: true,
   rowSpan,
@@ -34,130 +36,115 @@ const sourceGroup = (
 });
 
 describe('copyTestEvidencePlanner', () => {
-  it('合并共享图片的三行并为每行 Result 保留自己的 Screen 子集', () => {
-    /** 用户核心案例对应的 Evidence 规划。 */
+  it('按结构组合并命中不同图片的连续行，并在平票时选择先上传的唯一图片', () => {
+    /** 两行没有共享图片，但属于同一稳定结构组。 */
     const plan = planCopyTestEvidenceGroups([
       sourceGroup(1, [SCREEN_1]),
-      sourceGroup(2, [SCREEN_1]),
-      sourceGroup(3, [SCREEN_1, SCREEN_2]),
+      sourceGroup(2, [SCREEN_2]),
     ], UPLOADED_IMAGES);
 
     expect(plan).toHaveLength(1);
     expect(plan[0].anchorRowIndex).toBe(1);
-    expect(plan[0].rowSpan).toBe(3);
-    expect(plan[0].sourceGroups.map(group => group.anchorRowIndex)).toEqual([1, 2, 3]);
-    expect(plan[0].screens.map(screen => screen.image.fileName)).toEqual([
-      SCREEN_1.fileName,
-      SCREEN_2.fileName,
-    ]);
+    expect(plan[0].rowSpan).toBe(2);
+    expect(plan[0].sourceGroups.map(group => group.anchorRowIndex)).toEqual([1, 2]);
+    expect(plan[0].screens.map(screen => screen.image.fileName)).toEqual([SCREEN_1.fileName]);
     expect(plan[0].screenLabelByFileName).toEqual({
       [SCREEN_1.fileName]: 'screen-01',
-      [SCREEN_2.fileName]: 'screen-02',
     });
     expect(plan[0].rowResults.map(result => result.screens.map(screen => screen.label))).toEqual([
       ['screen-01'],
       ['screen-01'],
-      ['screen-01', 'screen-02'],
     ]);
   });
 
-  it('通过中间行的共享图片传递合并并累加不可拆分来源 rowspan', () => {
-    /** rowspan 分别为 1、2、1 的传递合并规划。 */
+  it('按覆盖有结果来源行的票数选择唯一 winner', () => {
+    /** Screen02 覆盖两行，其余候选各覆盖一行。 */
     const plan = planCopyTestEvidenceGroups([
-      sourceGroup(1, [SCREEN_1]),
-      sourceGroup(2, [SCREEN_2, SCREEN_1], 2),
-      sourceGroup(4, [SCREEN_2]),
+      sourceGroup(1, [SCREEN_1, SCREEN_2]),
+      sourceGroup(2, [SCREEN_2]),
+      sourceGroup(3, [SCREEN_3]),
+    ], UPLOADED_IMAGES);
+
+    expect(plan).toHaveLength(1);
+    expect(plan[0].screens.map(screen => screen.image.fileName)).toEqual([SCREEN_2.fileName]);
+    expect(plan[0].rowResults.map(result => result.screens[0]?.image.fileName)).toEqual([
+      SCREEN_2.fileName,
+      SCREEN_2.fileName,
+      SCREEN_2.fileName,
+    ]);
+  });
+
+  it('无图时仍保留完整结构组，未选或无结果行只贡献 rowspan', () => {
+    /** 同组包含有结果无图行、未选行和无结果行。 */
+    const plan = planCopyTestEvidenceGroups([
+      sourceGroup(1, []),
+      { ...sourceGroup(2, [SCREEN_1], 2), selected: false },
+      { ...sourceGroup(4, [SCREEN_1]), hasResult: false },
     ], UPLOADED_IMAGES);
 
     expect(plan).toHaveLength(1);
     expect(plan[0].rowSpan).toBe(4);
-    expect(plan[0].sourceGroups.map(group => group.rowSpan)).toEqual([1, 2, 1]);
-    expect(plan[0].screens.map(screen => screen.label)).toEqual([
-      'screen-01',
-      'screen-02',
-    ]);
-    expect(plan[0].rowResults[1].screens.map(screen => screen.label)).toEqual([
-      'screen-01',
-      'screen-02',
-    ]);
+    expect(plan[0].screens).toEqual([]);
+    expect(plan[0].screenLabelByFileName).toEqual({});
+    expect(plan[0].sourceGroups.map(group => group.anchorRowIndex)).toEqual([1, 2, 4]);
+    expect(plan[0].rowResults).toEqual([{
+      anchorRowIndex: 1,
+      rowSpan: 1,
+      screens: [],
+    }]);
   });
 
-  it('把空图片行作为强制边界且不跨边界合并相同图片', () => {
-    /** 中间空图片行分隔出的两个 Evidence 组。 */
+  it('不同 evidenceGroupId 或物理不连续时绝不跨边界合并', () => {
+    /** 第二行使用新组标识，第四行与第二行同组但物理不连续。 */
     const plan = planCopyTestEvidenceGroups([
-      sourceGroup(1, [SCREEN_1]),
-      sourceGroup(2, []),
-      sourceGroup(3, [SCREEN_1]),
+      sourceGroup(1, [SCREEN_1], 1, 10),
+      sourceGroup(2, [SCREEN_1], 1, 20),
+      sourceGroup(4, [SCREEN_1], 1, 20),
     ], UPLOADED_IMAGES);
 
-    expect(plan.map(group => group.anchorRowIndex)).toEqual([1, 3]);
-    expect(plan.map(group => group.rowSpan)).toEqual([1, 1]);
-    expect(plan.map(group => group.screens[0].label)).toEqual([
-      'screen-01',
-      'screen-01',
-    ]);
-  });
-
-  it('不合并图片不相交、未选择、无结果或物理不连续的来源原子组', () => {
-    /** 包含四种合并边界的来源原子组。 */
-    const groups: CopyTestEvidenceSourceGroup[] = [
-      sourceGroup(1, [SCREEN_1]),
-      sourceGroup(2, [SCREEN_2]),
-      { ...sourceGroup(3, [SCREEN_2]), selected: false },
-      { ...sourceGroup(4, [SCREEN_2]), hasResult: false },
-      sourceGroup(5, [SCREEN_2]),
-      sourceGroup(7, [SCREEN_2]),
-    ];
-    /** 所有边界处理完成后的 Evidence 规划。 */
-    const plan = planCopyTestEvidenceGroups(groups, UPLOADED_IMAGES);
-
-    expect(plan.map(group => group.anchorRowIndex)).toEqual([1, 2, 5, 7]);
+    expect(plan.map(group => group.anchorRowIndex)).toEqual([1, 2, 4]);
     expect(plan.every(group => group.rowSpan === 1)).toBe(true);
   });
 
-  it('按上传顺序去重图片并排除未命中或不在上传列表中的图片', () => {
-    /** 模拟模型返回但不属于本批上传的未知图片。 */
+  it('累加同一结构组中不可拆分来源原子组的 rowspan', () => {
+    /** 两个来源原子组分别覆盖两行和三行。 */
+    const plan = planCopyTestEvidenceGroups([
+      sourceGroup(1, [SCREEN_1], 2, 30),
+      sourceGroup(3, [SCREEN_1], 3, 30),
+    ], UPLOADED_IMAGES);
+
+    expect(plan).toHaveLength(1);
+    expect(plan[0].rowSpan).toBe(5);
+    expect(plan[0].sourceGroups.map(group => group.rowSpan)).toEqual([2, 3]);
+    expect(plan[0].rowResults.map(result => result.rowSpan)).toEqual([2, 3]);
+  });
+
+  it('按上传顺序去重候选并排除未上传图片', () => {
+    /** 模型返回但不属于本批上传的未知图片。 */
     const unknownImage: CopyTestImage = { base64: IMAGE_BASE64, fileName: 'unknown.png' };
-    /** 图片顺序混乱且带未知图片时的 Evidence 规划。 */
+    /** Screen02 虽在输入中靠前，平票仍由上传顺序选择 Screen01。 */
     const plan = planCopyTestEvidenceGroups([
       sourceGroup(1, [SCREEN_2, unknownImage, SCREEN_1]),
     ], [SCREEN_1, SCREEN_1, SCREEN_2, SCREEN_3]);
 
-    expect(plan).toHaveLength(1);
-    expect(plan[0].screens.map(screen => screen.image.fileName)).toEqual([
-      SCREEN_1.fileName,
-      SCREEN_2.fileName,
-    ]);
-    expect(plan[0].rowResults[0].screens.map(screen => screen.label)).toEqual([
-      'screen-01',
-      'screen-02',
-    ]);
-    expect(plan[0].screenLabelByFileName).not.toHaveProperty(SCREEN_3.fileName);
+    expect(plan[0].screens.map(screen => screen.image.fileName)).toEqual([SCREEN_1.fileName]);
+    expect(plan[0].screenLabelByFileName).toEqual({ [SCREEN_1.fileName]: 'screen-01' });
     expect(plan[0].screenLabelByFileName).not.toHaveProperty(unknownImage.fileName);
   });
 
-  it('优先使用中英文原始文件名且只去掉最后一段扩展名', () => {
+  it('优先使用原始文件名且只去掉最后一段扩展名', () => {
     const englishImage: CopyTestImage = {
       base64: IMAGE_BASE64,
       fileName: '0198f4e0-0000-7000-8000-000000000000.png',
       originalFileName: 'This is just test.png',
     };
-    const chineseImage: CopyTestImage = {
-      base64: IMAGE_BASE64,
-      fileName: '0198f4e0-0001-7000-8000-000000000000.png',
-      originalFileName: '首页.最终版.PNG',
-    };
     const plan = planCopyTestEvidenceGroups([
-      sourceGroup(1, [englishImage, chineseImage]),
-    ], [englishImage, chineseImage]);
+      sourceGroup(1, [englishImage]),
+    ], [englishImage]);
 
-    expect(plan[0].screens.map(screen => screen.label)).toEqual([
-      'This is just test',
-      '首页.最终版',
-    ]);
+    expect(plan[0].screens.map(screen => screen.label)).toEqual(['This is just test']);
     expect(plan[0].screenLabelByFileName).toEqual({
       [englishImage.fileName]: 'This is just test',
-      [chineseImage.fileName]: '首页.最终版',
     });
   });
 

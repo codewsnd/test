@@ -16,9 +16,6 @@ import {
 /** 随机结果判定为通过的概率。 */
 const RANDOM_PASS_RATE = 0.65;
 
-/** 单行随机 Evidence 最多引用的图片数量。 */
-const MAX_RANDOM_IMAGE_COUNT = 2;
-
 /** 默认轮次 Mock 的可复现时间戳起点。 */
 const MOCK_TIMESTAMP_EPOCH_MS = Date.parse('2026-01-01T00:00:00.000Z');
 
@@ -67,6 +64,8 @@ const isRuntimeRow = (
   value: unknown
 ): value is CopyTestValidationRuntimeContext['selectedRows'][number] => {
   return isRecord(value)
+    && Number.isInteger(value.evidenceGroupId)
+    && Number(value.evidenceGroupId) >= 0
     && Number.isInteger(value.rowIndex)
     && Number(value.rowIndex) >= 0
     && typeof value.expectedText === 'string';
@@ -121,29 +120,38 @@ const getRandomInt = (
   return Math.floor(random() * (max - min + 1)) + min;
 };
 
-/** 从上传图片中随机选出不重复的 Evidence 文件名。 */
-const getRandomImageFileNames = (
-  fileNames: string[],
-  random: () => number
-): string[] => {
-  if (fileNames.length === 0) {
-    return [];
-  }
+/** Evidence 组选择图片时使用的分组位置与图片数量函数。 */
+type EvidenceImageIndexSelector = (groupPosition: number, imageCount: number) => number;
 
-  /** 当前行允许随机引用的最大图片数量。 */
-  const maxImageCount = Math.min(fileNames.length, MAX_RANDOM_IMAGE_COUNT);
-  /** 当前行随机生成的 Evidence 数量；存在上传图片时至少引用一张真实图片。 */
-  const imageCount = getRandomInt(1, maxImageCount, random);
-  /** 尚未被当前行选中的上传图片副本。 */
-  const availableFileNames = [...fileNames];
-  /** 当前行最终引用的唯一 Evidence 文件名。 */
-  const selectedFileNames: string[] = [];
-  while (selectedFileNames.length < imageCount) {
-    /** 当前从剩余图片中随机抽取的位置。 */
-    const imageIndex = getRandomInt(0, availableFileNames.length - 1, random);
-    selectedFileNames.push(availableFileNames.splice(imageIndex, 1)[0]);
+/** 读取待校验行中按首次出现顺序排列的 Evidence 组标识。 */
+const getEvidenceGroupIds = (
+  rows: CopyTestValidationRuntimeContext['selectedRows']
+): number[] => {
+  return Array.from(new Set(rows.map(row => row.evidenceGroupId)));
+};
+
+/** 为每个 Evidence 组选择一张共享截图。 */
+const buildGroupEvidenceMap = (
+  rows: CopyTestValidationRuntimeContext['selectedRows'],
+  fileNames: string[],
+  selectImageIndex: EvidenceImageIndexSelector
+): Map<number, string> => {
+  if (fileNames.length === 0) {
+    return new Map();
   }
-  return selectedFileNames;
+  return new Map(getEvidenceGroupIds(rows).map((groupId, groupPosition) => {
+    const imageIndex = selectImageIndex(groupPosition, fileNames.length);
+    return [groupId, fileNames[imageIndex]];
+  }));
+};
+
+/** 读取当前行所属组唯一共享的 Evidence 文件名。 */
+const getRowEvidenceFileNames = (
+  row: CopyTestValidationRuntimeContext['selectedRows'][number],
+  fileNameByGroupId: Map<number, string>
+): string[] => {
+  const fileName = fileNameByGroupId.get(row.evidenceGroupId);
+  return fileName ? [fileName] : [];
 };
 
 /** 从失败原因集合中随机选出一条真实问题说明。 */
@@ -171,11 +179,9 @@ const buildMockLanguageIssues = (
 /** 为一个选中行生成严格的逐行校验结果。 */
 const buildRandomValidationResult = (
   row: CopyTestValidationRuntimeContext['selectedRows'][number],
-  imageFileNames: string[],
+  evidenceImageFileNames: string[],
   random: () => number
 ): CopyTestValidationResult => {
-  /** 当前行随机选出的相关截图文件名。 */
-  const evidenceImageFileNames = getRandomImageFileNames(imageFileNames, random);
   /** 只有存在截图证据时才允许随机生成通过结果。 */
   const passed = evidenceImageFileNames.length > 0 && random() < RANDOM_PASS_RATE;
   return {
@@ -184,34 +190,6 @@ const buildRandomValidationResult = (
     evidenceImageFileNames,
     languageIssues: buildMockLanguageIssues(passed, evidenceImageFileNames, random),
   };
-};
-
-/** 按轮次和行位置选择顺序稳定、内容会变化的真实 Evidence。 */
-const getSequencedImageFileNames = (
-  fileNames: string[],
-  sequenceIndex: number,
-  rowPosition: number,
-  rowCount: number
-): string[] => {
-  if (fileNames.length === 0) {
-    return [];
-  }
-  /** 每行先分配一张不同图片，当前轮次变化时同步轮转起点。 */
-  const primaryIndex = (sequenceIndex + rowPosition) % fileNames.length;
-  /** 首轮分配后仍可被第二张 Evidence 覆盖的唯一图片数量。 */
-  const primaryImageCount = Math.min(fileNames.length, rowCount);
-  const additionalImageCount = Math.min(
-    fileNames.length - primaryImageCount,
-    rowCount
-  );
-  if (rowPosition >= additionalImageCount) {
-    return [fileNames[primaryIndex]];
-  }
-  /** 第二张图片延续轮转序列，避免与当前行第一张图片重复。 */
-  const secondaryIndex = (
-    sequenceIndex + primaryImageCount + rowPosition
-  ) % fileNames.length;
-  return [fileNames[primaryIndex], fileNames[secondaryIndex]];
 };
 
 /** 为确定性失败轮次生成可在 UI 中区分的 Mock 问题。 */
@@ -256,15 +234,9 @@ const buildSequencedValidationResult = (
   row: CopyTestValidationRuntimeContext['selectedRows'][number],
   rowPosition: number,
   rowCount: number,
-  imageFileNames: string[],
+  evidenceImageFileNames: string[],
   sequenceIndex: number
 ): CopyTestValidationResult => {
-  const evidenceImageFileNames = getSequencedImageFileNames(
-    imageFileNames,
-    sequenceIndex,
-    rowPosition,
-    rowCount
-  );
   const passed = shouldSequencedResultPass(
     evidenceImageFileNames.length > 0,
     rowCount,
@@ -291,6 +263,14 @@ const buildMockValidationResults = (
   options: CopyTestValidationResponseOptions
 ): CopyTestValidationResult[] => {
   const sequenceIndex = options.sequenceIndex;
+  /** 当前轮次为每个应用层分组锁定的唯一 Evidence。 */
+  const fileNameByGroupId = buildGroupEvidenceMap(
+    runtimeContext.selectedRows,
+    imageFileNames,
+    sequenceIndex === undefined
+      ? (_groupPosition, imageCount) => getRandomInt(0, imageCount - 1, options.random || Math.random)
+      : (groupPosition, imageCount) => (sequenceIndex + groupPosition) % imageCount
+  );
   if (sequenceIndex !== undefined) {
     const rowCount = runtimeContext.selectedRows.length;
     return runtimeContext.selectedRows.map((row, rowPosition) => {
@@ -298,14 +278,18 @@ const buildMockValidationResults = (
         row,
         rowPosition,
         rowCount,
-        imageFileNames,
+        getRowEvidenceFileNames(row, fileNameByGroupId),
         sequenceIndex
       );
     });
   }
   const random = options.random || Math.random;
   return runtimeContext.selectedRows.map(row => {
-    return buildRandomValidationResult(row, imageFileNames, random);
+    return buildRandomValidationResult(
+      row,
+      getRowEvidenceFileNames(row, fileNameByGroupId),
+      random
+    );
   });
 };
 

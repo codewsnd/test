@@ -37,9 +37,9 @@ const images = [
 ];
 
 const rows = [
-  { expected: '你好', rowIndex: 0 },
-  { expected: '我在', rowIndex: 1 },
-  { expected: '吃饭', rowIndex: 4 },
+  { evidenceGroupId: 0, expected: '你好', rowIndex: 0 },
+  { evidenceGroupId: 0, expected: '我在', rowIndex: 1 },
+  { evidenceGroupId: 4, expected: '吃饭', rowIndex: 4 },
 ];
 
 const buildValidResult = (
@@ -98,19 +98,19 @@ describe('copyTestApi strict validation contract', () => {
       role: 'system',
     }));
     expect(JSON.parse(request.messages[1].content)).toEqual({
-      selectedRows: [{ expectedText: '你好', rowIndex: 0 }],
+      selectedRows: [{ evidenceGroupId: 0, expectedText: '你好', rowIndex: 0 }],
       targetColumnName: 'Target',
       uploadedScreenshots: [{ fileName: 'screen-a.png' }],
     });
     expect(request.messages[1].role).toBe('user');
   });
 
-  it('accepts independent per-row image sets and excludes an unrelated screenshot', () => {
+  it('accepts one shared image per group and excludes an unrelated screenshot', () => {
     const content = buildContent([
       buildValidResult({ rowIndex: 0 }),
       buildValidResult({ rowIndex: 1 }),
       buildValidResult({
-        evidenceImageFileNames: ['screen-a.png', 'screen-b.png'],
+        evidenceImageFileNames: ['screen-b.png'],
         rowIndex: 4,
       }),
     ]);
@@ -119,7 +119,7 @@ describe('copyTestApi strict validation contract', () => {
       buildValidResult({ rowIndex: 0 }),
       buildValidResult({ rowIndex: 1 }),
       buildValidResult({
-        evidenceImageFileNames: ['screen-a.png', 'screen-b.png'],
+        evidenceImageFileNames: ['screen-b.png'],
         rowIndex: 4,
       }),
     ]);
@@ -127,7 +127,7 @@ describe('copyTestApi strict validation contract', () => {
     expect(parseCopyTestValidationResults(buildContent([]), images, [])).toEqual([]);
   });
 
-  it('accepts failed rows with or without related Evidence and parses the aiChat envelope', () => {
+  it('accepts failed singleton Evidence and allows empty Evidence only without uploads', () => {
     const results = [
       buildValidResult({
         evidenceImageFileNames: ['screen-b.png'],
@@ -152,7 +152,7 @@ describe('copyTestApi strict validation contract', () => {
       languageIssues: ['Expected copy is missing.'],
       passed: false,
       rowIndex: 0,
-    }]), images, [rows[0]])[0].evidenceImageFileNames).toEqual([]);
+    }]), [], [rows[0]])[0].evidenceImageFileNames).toEqual([]);
   });
 
   it('rejects response failures and empty aiChat content', () => {
@@ -243,6 +243,33 @@ describe('copyTestApi strict validation contract', () => {
         [rows[0]]
       )).toThrow();
     });
+  });
+
+  it('rejects multiple, empty, or inconsistent Evidence when screenshots were uploaded', () => {
+    expect(() => parseCopyTestValidationResults(buildContent([
+      buildValidResult({ evidenceImageFileNames: ['screen-a.png', 'screen-b.png'] }),
+    ]), images, [rows[0]])).toThrow('exactly one Evidence image');
+
+    expect(() => parseCopyTestValidationResults(buildContent([
+      buildValidResult({
+        evidenceImageFileNames: [],
+        languageIssues: ['Expected copy is missing.'],
+        passed: false,
+      }),
+    ]), images, [rows[0]])).toThrow('exactly one Evidence image');
+
+    expect(() => parseCopyTestValidationResults(buildContent([
+      buildValidResult({ rowIndex: 0 }),
+      buildValidResult({ evidenceImageFileNames: ['screen-b.png'], rowIndex: 1 }),
+    ]), images, rows.slice(0, 2))).toThrow('must share one Evidence image');
+  });
+
+  it('rejects invalid app-owned Evidence group identifiers', () => {
+    expect(() => parseCopyTestValidationResults(
+      buildContent([buildValidResult()]),
+      images,
+      [{ evidenceGroupId: -1, expected: 'copy', rowIndex: 0 }]
+    )).toThrow('evidenceGroupId');
   });
 
   it('rejects inconsistent pass semantics, missing rows, reordered rows, and duplicates', () => {

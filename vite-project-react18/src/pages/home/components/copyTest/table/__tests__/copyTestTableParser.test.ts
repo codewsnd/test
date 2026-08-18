@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildCopyTestEvidenceSections,
   buildCopyTestRowsForValidation,
   buildCopyTestRowGroups,
   findGeneratedColumnIndexes,
@@ -30,6 +31,18 @@ const middleMergedStorageHtml = [
   '<tr><td>2</td><td rowspan="2">copy 2 and 3</td></tr>',
   '<tr><td>3</td></tr>',
   '<tr><td>4</td><td>copy 4</td></tr>',
+  '</table>',
+].join('');
+
+/** 连续非空行由空白来源单元格分隔，且后一 section 内含 rowspan 原子组的表格。 */
+const blankSeparatedStorageHtml = [
+  '<table><tr><th>ID</th><th>Target</th></tr>',
+  '<tr><td>1</td><td>copy 1</td></tr>',
+  '<tr><td>2</td><td>copy 2</td></tr>',
+  '<tr><td>3</td><td>&nbsp;</td></tr>',
+  '<tr><td>4</td><td rowspan="2">copy 4 and 5</td></tr>',
+  '<tr><td>5</td></tr>',
+  '<tr><td>6</td><td>copy 6</td></tr>',
   '</table>',
 ].join('');
 
@@ -105,17 +118,60 @@ describe('copyTestTableParser', () => {
     expect(buildCopyTestRowGroups(crossingHeaderTable, 1)).toEqual([]);
   });
 
-  it('normalizes every selected row in a middle rowspan group to its anchor', () => {
+  it('expands any selected atom to every atom anchor in its continuous non-blank section', () => {
     const table = parseCopyTestStorageTables(middleMergedStorageHtml)[0];
     const context = getCopyTestColumnContext(table, 1);
 
     expect(context?.rowGroups.map(group => group.dataRowIndexes)).toEqual([[0], [1, 2], [3]]);
+    expect(context?.rowGroups.map(group => group.evidenceGroupId)).toEqual([0, 0, 0]);
     expect(getSelectableCopyTestRowIndexes(table, 1)).toEqual([0, 1, 3]);
     expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [3, 2, 1, 99, 0, 2]))
       .toEqual([0, 1, 3]);
     expect(buildCopyTestRowsForValidation(table, context, [2, 3, 1])).toEqual([
-      { expected: 'copy 2 and 3', rowIndex: 1 },
-      { expected: 'copy 4', rowIndex: 3 },
+      { evidenceGroupId: 0, expected: 'copy 1', rowIndex: 0 },
+      { evidenceGroupId: 0, expected: 'copy 2 and 3', rowIndex: 1 },
+      { evidenceGroupId: 0, expected: 'copy 4', rowIndex: 3 },
+    ]);
+  });
+
+  it('builds stable blank-separated Evidence sections while preserving rowspan atoms', () => {
+    const table = parseCopyTestStorageTables(blankSeparatedStorageHtml)[0];
+    const context = getCopyTestColumnContext(table, 1);
+    const sections = buildCopyTestEvidenceSections(table, 1);
+
+    expect(buildCopyTestRowGroups(table, 1).map(group => ({
+      dataRowIndexes: group.dataRowIndexes,
+      evidenceGroupId: group.evidenceGroupId,
+      rowSpan: group.rowSpan,
+    }))).toEqual([
+      { dataRowIndexes: [0], evidenceGroupId: 0, rowSpan: 1 },
+      { dataRowIndexes: [1], evidenceGroupId: 0, rowSpan: 1 },
+      { dataRowIndexes: [2], evidenceGroupId: undefined, rowSpan: 1 },
+      { dataRowIndexes: [3, 4], evidenceGroupId: 3, rowSpan: 2 },
+      { dataRowIndexes: [5], evidenceGroupId: 3, rowSpan: 1 },
+    ]);
+    expect(sections.map(section => ({
+      anchorRowIndex: section.anchorRowIndex,
+      dataRowIndexes: section.dataRowIndexes,
+      evidenceGroupId: section.evidenceGroupId,
+      rowSpan: section.rowSpan,
+    }))).toEqual([
+      { anchorRowIndex: 1, dataRowIndexes: [0, 1], evidenceGroupId: 0, rowSpan: 2 },
+      { anchorRowIndex: 4, dataRowIndexes: [3, 5], evidenceGroupId: 3, rowSpan: 3 },
+    ]);
+    expect(context?.evidenceSections.map(section => section.evidenceGroupId)).toEqual([0, 3]);
+    expect(getSelectableCopyTestRowIndexes(table, 1)).toEqual([0, 1, 3, 5]);
+    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [1])).toEqual([0, 1]);
+    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [4])).toEqual([3, 5]);
+    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [2])).toEqual([]);
+    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [1, 4])).toEqual([0, 1, 3, 5]);
+    expect(buildCopyTestRowsForValidation(table, context, [1])).toEqual([
+      { evidenceGroupId: 0, expected: 'copy 1', rowIndex: 0 },
+      { evidenceGroupId: 0, expected: 'copy 2', rowIndex: 1 },
+    ]);
+    expect(buildCopyTestRowsForValidation(table, context, [4])).toEqual([
+      { evidenceGroupId: 3, expected: 'copy 4 and 5', rowIndex: 3 },
+      { evidenceGroupId: 3, expected: 'copy 6', rowIndex: 5 },
     ]);
   });
 });

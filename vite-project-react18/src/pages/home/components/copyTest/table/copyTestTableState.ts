@@ -546,6 +546,41 @@ const findSnapshotEvidenceDeleteGroup = (
   }));
 };
 
+/** 读取调用方快照中目标结构组原始引用的全部 Evidence 文件名。 */
+const getSnapshotGroupEvidenceFileNames = (
+  snapshot: CopyTestValidationSnapshot,
+  group: EvidenceGroup
+): Set<string> => {
+  /** section 内每个来源原子组的业务锚点。 */
+  const rowIndexes = new Set(group.sourceRowGroups.flatMap(rowGroup => {
+    const rowIndex = rowGroup.dataRowIndexes[0];
+    return rowIndex === undefined ? [] : [rowIndex];
+  }));
+  return new Set(snapshot.results.flatMap(result => {
+    return rowIndexes.has(result.rowIndex) ? result.evidenceImageFileNames : [];
+  }));
+};
+
+/** 由未压缩的调用方快照关系构建目标 Evidence 实例顺序。 */
+const buildSnapshotGroupInstanceIds = (
+  snapshot: CopyTestValidationSnapshot,
+  group: EvidenceGroup,
+  sourceColumnKey: string
+): string[] | null => {
+  /** 目标 section 在快照结果中原始引用的全部文件名。 */
+  const referencedFileNames = getSnapshotGroupEvidenceFileNames(snapshot, group);
+  /** 按快照上传顺序保留且被目标 section 引用的图片。 */
+  const orderedImages = snapshot.images.filter(image => {
+    return referencedFileNames.has(image.fileName);
+  });
+  if (orderedImages.length !== referencedFileNames.size) {
+    return null;
+  }
+  return orderedImages.map(image => {
+    return `${sourceColumnKey}:${group.anchorRowIndex}:${image.fileName}`;
+  });
+};
+
 /** 判断调用方快照的目标连通块是否与当前 working DOM 完全对齐。 */
 const isSnapshotDeleteGroupCurrent = (
   table: CopyTestWorkingTable,
@@ -567,8 +602,15 @@ const isSnapshotDeleteGroupCurrent = (
     return false;
   }
 
-  /** 快照目标组按展示顺序生成的稳定实例标识。 */
-  const snapshotInstanceIds = snapshotGroup.screens.map(screen => screen.instanceId);
+  /** 未经唯一 winner 压缩的快照目标组实例；缺图关系必须失败关闭。 */
+  const snapshotInstanceIds = buildSnapshotGroupInstanceIds(
+    snapshot,
+    snapshotGroup,
+    getSourceColumnKey(selectedColumnIndex, selectedColumnLabel)
+  );
+  if (!snapshotInstanceIds) {
+    return false;
+  }
   return snapshotGroup.anchorRowIndex === currentGroup.anchorRowIndex
     && snapshotGroup.rowSpan === currentGroup.rowSpan
     && snapshotInstanceIds.length === currentGroup.instanceIds.length
@@ -735,8 +777,8 @@ const applyValidationResultsToEvidenceGroup = (
     return table;
   }
 
-  /** 目标连通块中所有不可拆分来源原子组。 */
-  const rowGroups: CopyTestRowGroup[] = targetGroup.rowGroups;
+  /** 目标 Evidence section 的完整来源结构，不因删除后无结果而缩小。 */
+  const rowGroups: CopyTestRowGroup[] = targetGroup.sourceRowGroups;
   /** 局部恢复 rowspan 后可安全重写目标连通块的上下文。 */
   const context = restoreGeneratedRows(
     ensured.context.tableElement.ownerDocument,
@@ -752,7 +794,9 @@ const applyValidationResultsToEvidenceGroup = (
   );
   /** 删除后仍有图片结果的来源锚点。 */
   const renderableAnchorRowIndexes = new Set(
-    evidenceGroups.flatMap(group => group.rowGroups.map(rowGroup => rowGroup.anchorRowIndex))
+    evidenceGroups.flatMap(group => group.rowGroups.flatMap(rowGroup => {
+      return rowGroup.screens.length > 0 ? [rowGroup.anchorRowIndex] : [];
+    }))
   );
   const doc = context.tableElement.ownerDocument;
   clearUnrenderedRows(doc, context, rowGroups, renderableAnchorRowIndexes);

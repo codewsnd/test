@@ -35,6 +35,7 @@ import {
 } from './copyTestTableParser';
 import {
   planCopyTestEvidenceGroups,
+  type CopyTestEvidenceRowResultPlan,
   type CopyTestEvidenceScreen,
   type CopyTestEvidenceSourceGroup,
 } from './copyTestEvidencePlanner';
@@ -155,6 +156,8 @@ export interface EvidenceGroup {
   screens: ScreenRef[];
   /** 合并组内不可拆分的来源行组、校验结果及其 Result Screen 子集。 */
   rowGroups: EvidenceGroupRow[];
+  /** Evidence section 内全部来源原子组；不因无结果、无图或删除而缩小。 */
+  sourceRowGroups: CopyTestRowGroup[];
 }
 
 /** 当前 working DOM 中待删除 Evidence 连通块的结构摘要。 */
@@ -527,6 +530,9 @@ const buildLogicalRowResults = (
 const buildEvidenceSourceGroups = (items: LogicalRowResult[]): CopyTestEvidenceSourceGroup[] => {
   return items.map(item => ({
     anchorRowIndex: item.rowGroup.anchorRowIndex,
+    evidenceGroupId: item.rowGroup.evidenceGroupId
+      ?? item.rowGroup.dataRowIndexes[0]
+      ?? item.rowGroup.anchorRowIndex,
     evidenceImages: item.result?.evidenceImages || [],
     hasResult: Boolean(item.result),
     rowSpan: item.rowGroup.rowSpan,
@@ -534,25 +540,15 @@ const buildEvidenceSourceGroups = (items: LogicalRowResult[]): CopyTestEvidenceS
   }));
 };
 
-/** 按文件名从组内共享 Screen 中筛选单行 Result 子集。 */
-const filterRowScreens = (
-  screens: ScreenRef[],
-  result: CopyTestValidationResultWithEvidence
-): ScreenRef[] => {
-  /** 当前逐行结果实际引用的 Evidence 文件名。 */
-  const fileNames = new Set(result.evidenceImages.map(image => image.fileName));
-  return screens.filter(screen => fileNames.has(screen.image.fileName));
-};
-
 /** 将 Planner 结果绑定回来源行组及其逐行校验结果。 */
 const buildEvidenceGroupRows = (
-  sourceGroups: CopyTestEvidenceSourceGroup[],
+  rowResults: CopyTestEvidenceRowResultPlan[],
   itemByAnchorRowIndex: Map<number, LogicalRowResult>,
   screens: ScreenRef[]
 ): EvidenceGroupRow[] => {
-  return sourceGroups.flatMap(sourceGroup => {
+  return rowResults.flatMap(rowResult => {
     /** 与 Planner 来源原子组锚点对应的逻辑行结果。 */
-    const item = itemByAnchorRowIndex.get(sourceGroup.anchorRowIndex);
+    const item = itemByAnchorRowIndex.get(rowResult.anchorRowIndex);
     if (!item?.result) {
       return [];
     }
@@ -560,8 +556,20 @@ const buildEvidenceGroupRows = (
     return [{
       ...item.rowGroup,
       result: item.result,
-      screens: filterRowScreens(screens, item.result),
+      screens,
     }];
+  });
+};
+
+/** 将 Planner 的完整结构成员绑定回来源原子组。 */
+const buildEvidenceSourceRowGroups = (
+  sourceGroups: CopyTestEvidenceSourceGroup[],
+  itemByAnchorRowIndex: Map<number, LogicalRowResult>
+): CopyTestRowGroup[] => {
+  return sourceGroups.flatMap(sourceGroup => {
+    /** 与 Planner 来源原子组锚点对应的原始结构。 */
+    const item = itemByAnchorRowIndex.get(sourceGroup.anchorRowIndex);
+    return item ? [item.rowGroup] : [];
   });
 };
 
@@ -581,9 +589,13 @@ export const buildEvidenceGroups = (
     const screens = createScreenRefs(plan.screens, plan.anchorRowIndex, sourceColumnKey);
     return {
       anchorRowIndex: plan.anchorRowIndex,
-      rowGroups: buildEvidenceGroupRows(plan.sourceGroups, itemByAnchorRowIndex, screens),
+      rowGroups: buildEvidenceGroupRows(plan.rowResults, itemByAnchorRowIndex, screens),
       rowSpan: plan.rowSpan,
       screens,
+      sourceRowGroups: buildEvidenceSourceRowGroups(
+        plan.sourceGroups,
+        itemByAnchorRowIndex
+      ),
     };
   });
 };
@@ -793,7 +805,9 @@ export const applyCopyTestValidationResults = (
   );
   /** 本次实际拥有可渲染图片 Result 的来源物理锚点集合。 */
   const renderableAnchorRowIndexes = new Set(
-    evidenceGroups.flatMap(group => group.rowGroups.map(rowGroup => rowGroup.anchorRowIndex))
+    evidenceGroups.flatMap(group => group.rowGroups.flatMap(rowGroup => {
+      return rowGroup.screens.length > 0 ? [rowGroup.anchorRowIndex] : [];
+    }))
   );
   clearUnrenderedRows(doc, context, rowGroups, renderableAnchorRowIndexes);
   writeValidationResultCells(doc, context, rowGroups, results, evidenceGroups);

@@ -20,6 +20,7 @@ import {
   type CopyTestTableModel,
 } from './tableModel';
 import {
+  buildCopyTestEvidenceSections,
   findGeneratedColumnIndexes,
   getSourceColumnDisplayLabel,
   getSourceColumnKey,
@@ -264,6 +265,58 @@ export const syncGeneratedColumnSpans = (
   );
 };
 
+/** 将 Evidence 列投影为空行分隔的永久 section rowspan。 */
+const syncEvidenceSectionSpans = (
+  doc: Document,
+  model: CopyTestTableModel,
+  selectedColumnIndex: number,
+  evidenceColumnIndex: number,
+  sourceColumnKey: string
+): void => {
+  /** 当前所选列中全部连续非空 Evidence section。 */
+  const sections = buildCopyTestEvidenceSections(
+    { headers: model.headers, model },
+    selectedColumnIndex
+  );
+  sections.forEach(section => {
+    /** section 首行对应的可写 Evidence 单元格。 */
+    const cell = ensureWritableGeneratedCell(
+      doc,
+      model,
+      section.anchorRowIndex,
+      evidenceColumnIndex,
+      COPY_TEST_GENERATED_EVIDENCE_TYPE,
+      sourceColumnKey
+    );
+    /** section 内除首行外已有的 Evidence 单元格，内容必须迁移后再移除。 */
+    const coveredCells = section.rowGroups.slice(1).flatMap(rowGroup => {
+      /** 当前来源原子组锚点直接拥有的 Evidence 单元格。 */
+      const slot = model.rows[rowGroup.anchorRowIndex]?.slots[evidenceColumnIndex];
+      return slot?.owned && isGeneratedCellForSource(
+        slot.cell,
+        COPY_TEST_GENERATED_EVIDENCE_TYPE,
+        sourceColumnKey
+      ) ? [slot.cell.element] : [];
+    });
+    coveredCells.forEach(coveredCell => {
+      /** 待迁移节点快照，避免移动过程中修改 live NodeList。 */
+      const childNodes = Array.from(coveredCell.childNodes);
+      if (cell.childNodes.length > 0 && childNodes.length > 0) {
+        cell.appendChild(doc.createElement('br'));
+      }
+      childNodes.forEach(childNode => cell.appendChild(childNode));
+    });
+    applyCellRowSpan(cell, section.rowSpan);
+    removeCoveredGeneratedCells(
+      model,
+      section.anchorRowIndex,
+      section.rowSpan,
+      COPY_TEST_GENERATED_EVIDENCE_TYPE,
+      sourceColumnKey
+    );
+  });
+};
+
 /** 确保当前 Comparison Column 的 Result/Evidence 两列存在。 */
 export const ensureCopyTestGeneratedColumns = (
   tableHtml: string,
@@ -343,16 +396,23 @@ export const ensureCopyTestGeneratedColumns = (
       sourceColumnKey
     );
   }
-  if (evidenceColumnCreated) {
-    syncGeneratedColumnSpans(
-      doc,
-      model,
-      selectedColumnIndex,
-      indexes.evidence,
-      COPY_TEST_GENERATED_EVIDENCE_TYPE,
-      sourceColumnKey
-    );
-  }
+  /** Evidence 先恢复来源原子跨度，确保历史 Pair 的空行边界也拥有独立单元格。 */
+  syncGeneratedColumnSpans(
+    doc,
+    model,
+    selectedColumnIndex,
+    indexes.evidence,
+    COPY_TEST_GENERATED_EVIDENCE_TYPE,
+    sourceColumnKey
+  );
+  /** 原子恢复可能新建单元格，因此必须基于最新模型投影永久 section。 */
+  syncEvidenceSectionSpans(
+    doc,
+    parseTableModel(tableElement),
+    selectedColumnIndex,
+    indexes.evidence,
+    sourceColumnKey
+  );
 
   /** 完成 metadata 与 rowspan 同步后的最终模型。 */
   const syncedModel = parseTableModel(tableElement);

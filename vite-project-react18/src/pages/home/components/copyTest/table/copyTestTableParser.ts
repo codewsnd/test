@@ -34,7 +34,23 @@ export interface CopyTestRowGroup {
   anchorRowIndex: number;
   /** 合并组覆盖的业务数据行下标。 */
   dataRowIndexes: number[];
+  /** 非空 Evidence section 首个原子组的零基业务行下标；空行边界不属于 section。 */
+  evidenceGroupId?: number;
   /** 合并组覆盖的物理行数。 */
+  rowSpan: number;
+}
+
+/** 由所选列空白单元格分隔的连续非空 Evidence section。 */
+export interface CopyTestEvidenceSection {
+  /** section 首个原子组所在的物理行下标。 */
+  anchorRowIndex: number;
+  /** section 内每个原子组的零基业务锚点行下标。 */
+  dataRowIndexes: number[];
+  /** section 首个原子组的零基业务锚点，作为稳定 Evidence 分组 ID。 */
+  evidenceGroupId: number;
+  /** section 内仍保持 rowspan 原子语义的有序行组。 */
+  rowGroups: CopyTestRowGroup[];
+  /** section 中所有原子组覆盖的物理行总数。 */
   rowSpan: number;
 }
 
@@ -42,6 +58,8 @@ export interface CopyTestRowGroup {
 export interface CopyTestColumnContext {
   /** Comparison Column 按 rowspan 划分出的原子行组。 */
   rowGroups: CopyTestRowGroup[];
+  /** Comparison Column 中以空白单元格为边界的连续非空 Evidence section。 */
+  evidenceSections: CopyTestEvidenceSection[];
   /** 当前 Comparison Column 的逻辑列下标。 */
   selectedColumnIndex: number;
   /** 当前 Comparison Column 的表头。 */
@@ -174,8 +192,8 @@ const buildModelRowGroups = (table: CopyTestTableStructure, selectedColumnIndex:
     );
 };
 
-/** 构建当前 Comparison Column 的逻辑行组。 */
-export const buildCopyTestRowGroups = (
+/** 只按来源列 rowspan 构建不可拆分原子行组。 */
+const buildAtomicCopyTestRowGroups = (
   table: CopyTestTableStructure,
   selectedColumnIndex: number
 ): CopyTestRowGroup[] => {
@@ -211,6 +229,114 @@ export const buildCopyTestRowGroups = (
   }
 };
 
+/** 判断原子行组在所选列中是否是空白 section 边界。 */
+const isBlankEvidenceBoundary = (
+  table: CopyTestTableStructure,
+  selectedColumnIndex: number,
+  group: CopyTestRowGroup
+): boolean => {
+  /** 原子组锚点在所选列中直接拥有的来源单元格。 */
+  const cell = table.model.rows[group.anchorRowIndex]?.slots[selectedColumnIndex]?.cell;
+  return !cell || cell.text.trim() === '';
+};
+
+/** 判断一个新原子组是否与当前 section 物理连续。 */
+const isContinuousEvidenceSection = (
+  section: CopyTestEvidenceSection,
+  group: CopyTestRowGroup
+): boolean => {
+  return section.anchorRowIndex + section.rowSpan === group.anchorRowIndex;
+};
+
+/** 从首个非空原子组创建 Evidence section 及带分组 ID 的原子组。 */
+const createEvidenceSection = (
+  group: CopyTestRowGroup
+): { rowGroup: CopyTestRowGroup; section: CopyTestEvidenceSection } => {
+  /** 原子组对外使用的零基业务锚点。 */
+  const evidenceGroupId = group.dataRowIndexes[0];
+  /** 每个数据原子组都必然至少覆盖一行。 */
+  if (evidenceGroupId === undefined || evidenceGroupId < 0) {
+    throw new Error('Evidence section requires a non-negative data row anchor');
+  }
+  /** 保留 rowspan 原子结构并附加 section 稳定 ID 的新行组。 */
+  const rowGroup = { ...group, evidenceGroupId };
+  return {
+    rowGroup,
+    section: {
+      anchorRowIndex: group.anchorRowIndex,
+      dataRowIndexes: [evidenceGroupId],
+      evidenceGroupId,
+      rowGroups: [rowGroup],
+      rowSpan: group.rowSpan,
+    },
+  };
+};
+
+/** 将物理连续的非空原子组加入现有 Evidence section。 */
+const appendEvidenceSectionRowGroup = (
+  section: CopyTestEvidenceSection,
+  group: CopyTestRowGroup
+): CopyTestRowGroup => {
+  /** 使用 section 首行稳定 ID 的原子行组。 */
+  const rowGroup = { ...group, evidenceGroupId: section.evidenceGroupId };
+  /** 当前原子组的零基业务锚点。 */
+  const dataRowIndex = group.dataRowIndexes[0];
+  if (dataRowIndex !== undefined) {
+    section.dataRowIndexes.push(dataRowIndex);
+  }
+  section.rowGroups.push(rowGroup);
+  section.rowSpan += group.rowSpan;
+  return rowGroup;
+};
+
+/** 同时构建 rowspan 原子组与空行分隔的 Evidence section。 */
+const buildCopyTestRowGrouping = (
+  table: CopyTestTableStructure,
+  selectedColumnIndex: number
+): { evidenceSections: CopyTestEvidenceSection[]; rowGroups: CopyTestRowGroup[] } => {
+  /** 不改变 rowspan 语义的来源列原子组。 */
+  const atomicRowGroups = buildAtomicCopyTestRowGroups(table, selectedColumnIndex);
+  /** 附加 Evidence 分组 ID 后仍与原子组一一对应的结果。 */
+  const rowGroups: CopyTestRowGroup[] = [];
+  /** 由空白来源单元格分隔的连续非空 section。 */
+  const evidenceSections: CopyTestEvidenceSection[] = [];
+  /** 当前可继续追加的非空 section。 */
+  let currentSection: CopyTestEvidenceSection | undefined;
+  atomicRowGroups.forEach(group => {
+    if (isBlankEvidenceBoundary(table, selectedColumnIndex, group)) {
+      rowGroups.push(group);
+      currentSection = undefined;
+      return;
+    }
+    if (!currentSection || !isContinuousEvidenceSection(currentSection, group)) {
+      /** 一个新连续非空区域的首个原子组和 section。 */
+      const created = createEvidenceSection(group);
+      currentSection = created.section;
+      evidenceSections.push(currentSection);
+      rowGroups.push(created.rowGroup);
+      return;
+    }
+    rowGroups.push(appendEvidenceSectionRowGroup(currentSection, group));
+  });
+  return { evidenceSections, rowGroups };
+};
+
+/** 构建当前 Comparison Column 的 rowspan 原子行组。 */
+export const buildCopyTestRowGroups = (
+  table: CopyTestTableStructure,
+  selectedColumnIndex: number
+): CopyTestRowGroup[] => {
+  return buildCopyTestRowGrouping(table, selectedColumnIndex).rowGroups;
+};
+
+/** 构建当前 Comparison Column 中由空白单元格分隔的 Evidence section。 */
+export const buildCopyTestEvidenceSections = (
+  table: CopyTestTableStructure,
+  selectedColumnIndex: number
+): CopyTestEvidenceSection[] => {
+  return buildCopyTestRowGrouping(table, selectedColumnIndex).evidenceSections;
+};
+
 /** 构建当前 Comparison Column 上下文。 */
 export const getCopyTestColumnContext = (
   table: CopyTestWorkingTable | undefined,
@@ -229,8 +355,11 @@ export const getCopyTestColumnContext = (
     return null;
   }
 
+  /** 一次构建保证原子组和 Evidence section 共享同一批分组 ID。 */
+  const grouping = buildCopyTestRowGrouping(table, selectedColumnIndex);
   return {
-    rowGroups: buildCopyTestRowGroups(table, selectedColumnIndex),
+    evidenceSections: grouping.evidenceSections,
+    rowGroups: grouping.rowGroups,
     selectedColumnIndex,
     selectedHeader,
     sourceColumnKey: getSourceColumnKey(selectedColumnIndex, selectedHeader.label),
@@ -239,44 +368,64 @@ export const getCopyTestColumnContext = (
 
 /** 读取当前可校验的行下标。 */
 export const getSelectableCopyTestRowIndexes = (
-  table: CopyTestWorkingTable | undefined,
+  table: CopyTestTableStructure | undefined,
   selectedColumnIndex: number | undefined
 ): number[] => {
   if (!table || selectedColumnIndex === undefined) {
     return [];
   }
 
-  return (
-    getCopyTestColumnContext(table, selectedColumnIndex)
-      ?.rowGroups.filter(
-        /** 只保留锚点单元格 Expected Copy 非空的原子行组。 */
-        group => {
-          /** 行组锚点所在的物理表格行。 */
-          const row = table.model.rows[group.anchorRowIndex];
-          return row?.slots[selectedColumnIndex]?.cell.text.trim() !== '';
-        }
-      )
-      .map(
-        /** 以行组首个业务行下标代表整个不可拆分选择单元。 */
-        group => group.dataRowIndexes[0]
-      ) || []
-  );
+  return buildCopyTestEvidenceSections(table, selectedColumnIndex)
+    .flatMap(section => section.dataRowIndexes);
 };
 
-/** 将来源原子组内任意行下标规范为锚点，并按表格顺序去重。 */
+/** 按 Evidence 分组 ID 将原子组收集为顺序稳定的 section。 */
+const groupRowGroupsByEvidenceId = (
+  rowGroups: CopyTestRowGroup[]
+): CopyTestRowGroup[][] => {
+  /** 保持首次出现顺序的 section 原子组索引。 */
+  const groupsById = new Map<number, CopyTestRowGroup[]>();
+  rowGroups.forEach(group => {
+    if (group.evidenceGroupId === undefined) {
+      return;
+    }
+    /** 当前 Evidence section 已经收集的原子组。 */
+    const groupedRows = groupsById.get(group.evidenceGroupId) || [];
+    groupedRows.push(group);
+    groupsById.set(group.evidenceGroupId, groupedRows);
+  });
+  return Array.from(groupsById.values());
+};
+
+/** 将来源 section 内任意行下标扩展为整组全部原子锚点，并保持表格顺序。 */
 export const normalizeCopyTestSelectedRowIndexes = (
   rowGroups: CopyTestRowGroup[],
   selectedRowIndexes: number[]
 ): number[] => {
-  /** 便于快速判断某个原子组是否含有任意已选物理行。 */
+  /** 便于快速判断某个 section 是否含有任意已选数据行。 */
   const selectedRows = new Set(selectedRowIndexes);
-  return rowGroups.flatMap(group => {
-    /** 当前来源原子组对外唯一使用的业务锚点下标。 */
-    const anchorRowIndex = group.dataRowIndexes[0];
-    /** 组内任意行被选中时，整个原子组统一映射为锚点。 */
-    const groupSelected = group.dataRowIndexes.some(rowIndex => selectedRows.has(rowIndex));
-    return anchorRowIndex === undefined || !groupSelected ? [] : [anchorRowIndex];
+  return groupRowGroupsByEvidenceId(rowGroups).flatMap(sectionRowGroups => {
+    /** section 内所有 rowspan 原子组的完整物理数据行。 */
+    const coveredDataRowIndexes = sectionRowGroups.flatMap(group => group.dataRowIndexes);
+    /** section 内任意物理行被选中时，整组所有原子锚点一起生效。 */
+    const sectionSelected = coveredDataRowIndexes.some(rowIndex => selectedRows.has(rowIndex));
+    return sectionSelected
+      ? sectionRowGroups.flatMap(group => group.dataRowIndexes.slice(0, 1))
+      : [];
   });
+};
+
+/** 为校验输入行按原子锚点建立稳定 Evidence 分组 ID 索引。 */
+const buildEvidenceGroupIdByRowIndex = (
+  rowGroups: CopyTestRowGroup[]
+): Map<number, number> => {
+  return new Map(rowGroups.flatMap(group => {
+    /** 当前非空原子组的业务锚点。 */
+    const rowIndex = group.dataRowIndexes[0];
+    return rowIndex === undefined || group.evidenceGroupId === undefined
+      ? []
+      : [[rowIndex, group.evidenceGroupId] as const];
+  }));
 };
 
 /** 构建发给校验接口的行输入。 */
@@ -291,5 +440,11 @@ export const buildCopyTestRowsForValidation = (
 
   /** 只包含来源原子组锚点且按表格顺序排列的选中下标。 */
   const normalizedRowIndexes = normalizeCopyTestSelectedRowIndexes(context.rowGroups, selectedRowIndexes);
-  return buildRowsForValidation(table, context.selectedColumnIndex, normalizedRowIndexes);
+  /** 每个校验行锚点所属的稳定 Evidence section ID。 */
+  const evidenceGroupIdByRowIndex = buildEvidenceGroupIdByRowIndex(context.rowGroups);
+  return buildRowsForValidation(table, context.selectedColumnIndex, normalizedRowIndexes).flatMap(row => {
+    /** 当前非空校验行所属 section 的稳定 ID。 */
+    const evidenceGroupId = evidenceGroupIdByRowIndex.get(row.rowIndex);
+    return evidenceGroupId === undefined ? [] : [{ ...row, evidenceGroupId }];
+  });
 };

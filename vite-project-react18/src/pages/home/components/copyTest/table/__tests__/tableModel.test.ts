@@ -41,8 +41,8 @@ describe('tableModel', () => {
     expect(getGeneratedColumnLabel(COPY_TEST_GENERATED_EVIDENCE_TYPE, 'A')).toBe('Test Evidence - A');
     expect(tables[0].headers[2].generatedType).toBe(COPY_TEST_GENERATED_RESULT_TYPE);
     expect(buildRowsForValidation(tables[0], 1, [0, 2])).toEqual([
-      { expected: '你好', rowIndex: 0 },
-      { expected: '提交', rowIndex: 2 },
+      { evidenceGroupId: 0, expected: '你好', rowIndex: 0 },
+      { evidenceGroupId: 2, expected: '提交', rowIndex: 2 },
     ]);
     expect(parseSingleTable('no table')).toBeNull();
   });

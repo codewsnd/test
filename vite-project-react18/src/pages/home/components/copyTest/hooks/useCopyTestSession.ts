@@ -17,7 +17,6 @@ import {
   ensureCopyTestWorkingColumns,
   hydrateCopyTestValidationSnapshot,
   setCopyTestResultStatus,
-  type CopyTestResultScreenStatus,
   type CopyTestValidationSnapshot,
 } from '../table/copyTestTableEditor';
 import { isGeneratedCellForSource } from '../table/copyTestTableColumns';
@@ -138,7 +137,7 @@ interface BuildMergedValidationSnapshotParams {
   columnLabel: string;
   /** 本次 Validate 实际可用的内存图片。 */
   currentImages: CopyTestImage[];
-  /** 本次 Validate 返回且应累计到同 rowIndex 历史 Screen 的结果。 */
+  /** 本次 Validate 返回且应替换同 rowIndex 历史 Evidence 的结果。 */
   currentResults: CopyTestValidationResultWithEvidence[];
   /** 最近一次导入时成功加载的 Evidence 图片。 */
   importedImages: CopyTestImage[];
@@ -222,49 +221,7 @@ const getManagedPairPreviewImages = (
   return images.filter(image => fileNames.has(image.fileName));
 };
 
-/** 将行级 AI 结果补齐为可独立累计的逐 Screen 状态。 */
-const buildCopyTestResultScreenStatuses = (
-  result: CopyTestValidationResultWithEvidence
-): CopyTestResultScreenStatus[] => {
-  /** DOM 恢复结果中可能包含人工调整后的显式 Screen 状态。 */
-  const explicitStatusByImageId = new Map(
-    (result.screenStatuses || []).map(status => [status.imageId, status])
-  );
-  return result.evidenceImageFileNames.map(imageId => {
-    /** 当前图片已有的人工或历史状态。 */
-    const explicitStatus = explicitStatusByImageId.get(imageId);
-    if (explicitStatus) {
-      return {
-        ...explicitStatus,
-        languageIssues: [...explicitStatus.languageIssues],
-      };
-    }
-    return {
-      imageId,
-      languageIssues: [...result.languageIssues],
-      passed: result.passed,
-    };
-  });
-};
-
-/** 按图片身份累计 Screen，并优先保留历史人工状态。 */
-const mergeCopyTestResultScreenStatuses = (
-  historicalStatuses: CopyTestResultScreenStatus[],
-  currentStatuses: CopyTestResultScreenStatus[]
-): CopyTestResultScreenStatus[] => {
-  /** 保持历史图片在前、本批新图片在后的稳定顺序。 */
-  const statusByImageId = new Map(
-    historicalStatuses.map(status => [status.imageId, status])
-  );
-  currentStatuses.forEach(status => {
-    if (!statusByImageId.has(status.imageId)) {
-      statusByImageId.set(status.imageId, status);
-    }
-  });
-  return Array.from(statusByImageId.values());
-};
-
-/** 将同一来源行的历史与本批 Evidence 合并为完整结果。 */
+/** 用本批唯一 Evidence 替换同一来源行的历史结果；无命中时保留已有 Evidence。 */
 const mergeCopyTestValidationRowResult = (
   historicalResult: CopyTestValidationResultWithEvidence,
   currentResult: CopyTestValidationResultWithEvidence
@@ -274,35 +231,15 @@ const mergeCopyTestValidationRowResult = (
   if (!currentHasEvidence) {
     return historicalHasEvidence ? historicalResult : currentResult;
   }
-  if (!historicalHasEvidence) {
-    return currentResult;
-  }
-  /** 每张旧图保留原状态，每张新图继承本轮 AI 行级状态。 */
-  const screenStatuses = mergeCopyTestResultScreenStatuses(
-    buildCopyTestResultScreenStatuses(historicalResult),
-    buildCopyTestResultScreenStatuses(currentResult)
-  );
-  return {
-    ...currentResult,
-    evidenceImageFileNames: screenStatuses.map(status => status.imageId),
-    evidenceImages: mergeCopyTestImageIdentities(
-      historicalResult.evidenceImages,
-      currentResult.evidenceImages
-    ),
-    languageIssues: Array.from(new Set(
-      screenStatuses.flatMap(status => status.languageIssues)
-    )),
-    passed: screenStatuses.some(status => status.passed),
-    screenStatuses,
-  };
+  return currentResult;
 };
 
-/** 按 rowIndex 累计本次与历史 Screen，并保持物理数据行顺序。 */
+/** 按 rowIndex 合并本次与历史结果，并保持物理数据行顺序。 */
 const mergeCopyTestValidationResults = (
   historicalResults: CopyTestValidationResultWithEvidence[],
   currentResults: CopyTestValidationResultWithEvidence[]
 ): CopyTestValidationResultWithEvidence[] => {
-  /** 每个业务锚点行当前累计生效的校验结果。 */
+  /** 每个业务锚点行当前生效的校验结果。 */
   const resultByRowIndex = new Map<number, CopyTestValidationResultWithEvidence>();
   historicalResults.forEach(result => resultByRowIndex.set(result.rowIndex, result));
   currentResults.forEach(result => {
@@ -328,7 +265,7 @@ const getReferencedValidationImageFileNames = (
   return new Set(results.flatMap(result => result.evidenceImageFileNames));
 };
 
-/** 从 working DOM 恢复历史结果，并累计本次 Screen 后构建完整快照。 */
+/** 从 working DOM 恢复历史结果，并用本批唯一 Evidence 构建完整快照。 */
 const buildMergedValidationSnapshot = ({
   columnIndex,
   columnLabel,
@@ -356,7 +293,7 @@ const buildMergedValidationSnapshot = ({
     historicalSnapshot?.results || [],
     availableImages
   );
-  /** 本次 Screen 累计到历史值后的完整逐行结果。 */
+  /** 本批有命中时替换历史 Evidence 后的完整逐行结果。 */
   const mergedResults = mergeCopyTestValidationResults(historicalResults, currentResults);
   /** 完整结果当前仍实际引用的 Evidence 文件名。 */
   const referencedFileNames = getReferencedValidationImageFileNames(mergedResults);

@@ -527,6 +527,7 @@ export const buildRowsForValidation = (
     .map(
       /** 将物理行下标转换为接口使用的零起始数据行下标。 */
       row => ({
+        evidenceGroupId: row.index - 1,
         expected: getCellText(row, selectedColumnIndex),
         rowIndex: row.index - 1,
       })

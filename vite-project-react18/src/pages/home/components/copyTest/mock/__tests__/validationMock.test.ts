@@ -11,8 +11,8 @@ import {
 const buildRequest = (
   imageFileNames: string[] = ['screen-a.png', 'screen-b.png'],
   rows = [
-    { expected: '你好', rowIndex: 0 },
-    { expected: '我在', rowIndex: 1 },
+    { evidenceGroupId: 0, expected: '你好', rowIndex: 0 },
+    { evidenceGroupId: 0, expected: '我在', rowIndex: 1 },
   ]
 ): AiChatRequest => ({
   documents: [{ base64url: [], type: 'image' }],
@@ -68,11 +68,14 @@ describe('validationMock aiChat boundary', () => {
     });
   });
 
-  it('can create a failed row with multiple related images', () => {
-    const randomValues = [0.99, 0, 0, 0.9, 0.5];
+  it('can create a failed row with one group-selected image', () => {
+    const randomValues = [0, 0.99, 0.5];
     const random = vi.fn(() => randomValues.shift() || 0);
     const response = buildMockCopyTestAiChatResponse(
-      buildRequest(['screen-a.png', 'screen-b.png'], [{ expected: '吃饭', rowIndex: 4 }]),
+      buildRequest(
+        ['screen-a.png', 'screen-b.png'],
+        [{ evidenceGroupId: 4, expected: '吃饭', rowIndex: 4 }]
+      ),
       {
         now: () => new Date('2026-07-14T00:00:00.000Z'),
         random,
@@ -82,7 +85,7 @@ describe('validationMock aiChat boundary', () => {
     expect(JSON.parse(response.data?.content || '')).toEqual({
       results: [
         {
-          evidenceImageFileNames: ['screen-a.png', 'screen-b.png'],
+          evidenceImageFileNames: ['screen-a.png'],
           languageIssues: ['Screenshot contains related text, but the visible wording is different.'],
           passed: false,
           rowIndex: 4,
@@ -97,7 +100,7 @@ describe('validationMock aiChat boundary', () => {
     });
     const request = buildRequest(
       ['screen-a.png', 'screen-b.png'],
-      [{ expected: 'copy', rowIndex: 3 }]
+      [{ evidenceGroupId: 3, expected: 'copy', rowIndex: 3 }]
     );
 
     const first = JSON.parse((await mockAiChat(request)).data?.content || '');
@@ -106,13 +109,13 @@ describe('validationMock aiChat boundary', () => {
     const fourth = JSON.parse((await mockAiChat(request)).data?.content || '');
 
     expect(first.results[0]).toEqual({
-      evidenceImageFileNames: ['screen-a.png', 'screen-b.png'],
+      evidenceImageFileNames: ['screen-a.png'],
       languageIssues: [],
       passed: true,
       rowIndex: 3,
     });
     expect(second.results[0]).toEqual({
-      evidenceImageFileNames: ['screen-b.png', 'screen-a.png'],
+      evidenceImageFileNames: ['screen-b.png'],
       languageIssues: [
         'Mock validation round 2: Expected copy was not found in the uploaded screenshots.',
       ],
@@ -120,7 +123,7 @@ describe('validationMock aiChat boundary', () => {
       rowIndex: 3,
     });
     expect(third.results[0]).toEqual({
-      evidenceImageFileNames: ['screen-a.png', 'screen-b.png'],
+      evidenceImageFileNames: ['screen-a.png'],
       languageIssues: [
         'Mock validation round 3: Screenshot contains related text, but the visible wording is different.',
       ],
@@ -128,7 +131,7 @@ describe('validationMock aiChat boundary', () => {
       rowIndex: 3,
     });
     expect(fourth.results[0]).toEqual({
-      evidenceImageFileNames: ['screen-b.png', 'screen-a.png'],
+      evidenceImageFileNames: ['screen-b.png'],
       languageIssues: [
         'Mock validation round 4: The expected copy is incomplete or truncated in the screenshot.',
       ],
@@ -142,19 +145,19 @@ describe('validationMock aiChat boundary', () => {
 
   it('keeps each round request-scoped and resets the default sequence', async () => {
     const requests = [
-      buildRequest(['round-1.png'], [{ expected: 'one', rowIndex: 10 }]),
+      buildRequest(['round-1.png'], [{ evidenceGroupId: 10, expected: 'one', rowIndex: 10 }]),
       buildRequest(
         ['round-2-a.png', 'round-2-b.png'],
-        [{ expected: 'two', rowIndex: 20 }]
+        [{ evidenceGroupId: 20, expected: 'two', rowIndex: 20 }]
       ),
       buildRequest(
         ['round-3-a.png', 'round-3-b.png', 'round-3-c.png'],
         [
-          { expected: 'three', rowIndex: 30 },
-          { expected: 'three-b', rowIndex: 31 },
+          { evidenceGroupId: 30, expected: 'three', rowIndex: 30 },
+          { evidenceGroupId: 30, expected: 'three-b', rowIndex: 31 },
         ]
       ),
-      buildRequest(['round-4.png'], [{ expected: 'four', rowIndex: 40 }]),
+      buildRequest(['round-4.png'], [{ evidenceGroupId: 40, expected: 'four', rowIndex: 40 }]),
     ];
 
     const responses = [];
@@ -175,7 +178,7 @@ describe('validationMock aiChat boundary', () => {
       },
       {
         results: [{
-          evidenceImageFileNames: ['round-2-b.png', 'round-2-a.png'],
+          evidenceImageFileNames: ['round-2-b.png'],
           languageIssues: [
             'Mock validation round 2: Expected copy was not found in the uploaded screenshots.',
           ],
@@ -186,13 +189,13 @@ describe('validationMock aiChat boundary', () => {
       {
         results: [
           {
-            evidenceImageFileNames: ['round-3-c.png', 'round-3-b.png'],
+            evidenceImageFileNames: ['round-3-c.png'],
             languageIssues: [],
             passed: true,
             rowIndex: 30,
           },
           {
-            evidenceImageFileNames: ['round-3-a.png'],
+            evidenceImageFileNames: ['round-3-c.png'],
             languageIssues: [
               'Mock validation round 3: The expected copy is incomplete or truncated in the screenshot.',
             ],
@@ -231,13 +234,14 @@ describe('validationMock aiChat boundary', () => {
     expect(resetResponse).toEqual(responses[0]);
   });
 
-  it('covers as many current-round images as the row Evidence capacity allows', () => {
+  it('shares one image inside a group and rotates different groups independently', () => {
     const response = buildMockCopyTestAiChatResponse(
       buildRequest(
         ['screen-a.png', 'screen-b.png', 'screen-c.png', 'screen-d.png'],
         [
-          { expected: 'first', rowIndex: 0 },
-          { expected: 'second', rowIndex: 1 },
+          { evidenceGroupId: 0, expected: 'first', rowIndex: 0 },
+          { evidenceGroupId: 0, expected: 'second', rowIndex: 1 },
+          { evidenceGroupId: 2, expected: 'third', rowIndex: 2 },
         ]
       ),
       { sequenceIndex: 0 }
@@ -251,16 +255,15 @@ describe('validationMock aiChat boundary', () => {
 
     expect(evidenceFileNames).toEqual([
       'screen-a.png',
-      'screen-c.png',
+      'screen-a.png',
       'screen-b.png',
-      'screen-d.png',
     ]);
-    expect(new Set(evidenceFileNames).size).toBe(4);
+    expect(new Set(evidenceFileNames).size).toBe(2);
   });
 
   it('uses empty Evidence and an accurate boundary issue when no screenshots exist', () => {
     const response = buildMockCopyTestAiChatResponse(
-      buildRequest([], [{ expected: 'copy', rowIndex: 7 }]),
+      buildRequest([], [{ evidenceGroupId: 7, expected: 'copy', rowIndex: 7 }]),
       {
         now: () => new Date('2026-07-14T00:00:00.000Z'),
         random: () => 0,
@@ -281,7 +284,10 @@ describe('validationMock aiChat boundary', () => {
 
   it('always references a real uploaded screenshot even at the minimum random boundary', () => {
     const response = buildMockCopyTestAiChatResponse(
-      buildRequest(['screen-a.png', 'screen-b.png'], [{ expected: 'copy', rowIndex: 3 }]),
+      buildRequest(
+        ['screen-a.png', 'screen-b.png'],
+        [{ evidenceGroupId: 3, expected: 'copy', rowIndex: 3 }]
+      ),
       {
         now: () => new Date('2026-07-14T00:00:00.000Z'),
         random: () => 0,
@@ -335,7 +341,17 @@ describe('validationMock aiChat boundary', () => {
     expect(() => buildMockCopyTestAiChatResponse({
       messages: [{
         content: JSON.stringify({
-          selectedRows: [{ expectedText: 'copy', rowIndex: -1 }],
+          selectedRows: [{ expectedText: 'copy', rowIndex: 0 }],
+          targetColumnName: 'Target',
+          uploadedScreenshots: [],
+        }),
+        role: 'user',
+      }],
+    })).toThrow('invalid runtime JSON');
+    expect(() => buildMockCopyTestAiChatResponse({
+      messages: [{
+        content: JSON.stringify({
+          selectedRows: [{ evidenceGroupId: 0, expectedText: 'copy', rowIndex: -1 }],
           targetColumnName: 'Target',
           uploadedScreenshots: [],
         }),
@@ -356,8 +372,8 @@ describe('validationMock aiChat boundary', () => {
       messages: [{
         content: JSON.stringify({
           selectedRows: [
-            { expectedText: 'first', rowIndex: 1 },
-            { expectedText: 'second', rowIndex: 1 },
+            { evidenceGroupId: 1, expectedText: 'first', rowIndex: 1 },
+            { evidenceGroupId: 1, expectedText: 'second', rowIndex: 1 },
           ],
           targetColumnName: 'Target',
           uploadedScreenshots: [],
