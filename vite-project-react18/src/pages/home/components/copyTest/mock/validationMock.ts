@@ -120,35 +120,52 @@ const getRandomInt = (
   return Math.floor(random() * (max - min + 1)) + min;
 };
 
-/** Evidence 组选择图片时使用的分组位置与图片数量函数。 */
-type EvidenceImageIndexSelector = (groupPosition: number, imageCount: number) => number;
-
-/** 读取待校验行中按首次出现顺序排列的 Evidence 组标识。 */
-const getEvidenceGroupIds = (
+/** 判断待校验行之间是否没有空行边界。 */
+const hasContinuousRowIndexes = (
   rows: CopyTestValidationRuntimeContext['selectedRows']
-): number[] => {
-  return Array.from(new Set(rows.map(row => row.evidenceGroupId)));
+): boolean => {
+  return rows.every((row, index) => {
+    return index === 0 || row.rowIndex === rows[index - 1].rowIndex + 1;
+  });
 };
 
-/** 为每个 Evidence 组选择一张共享截图。 */
-const buildGroupEvidenceMap = (
-  rows: CopyTestValidationRuntimeContext['selectedRows'],
+/** 按当前轮次和分组位置选择一张真实上传截图。 */
+const selectEvidenceFileName = (
   fileNames: string[],
-  selectImageIndex: EvidenceImageIndexSelector
-): Map<number, string> => {
+  options: CopyTestValidationResponseOptions,
+  groupPosition: number
+): string | undefined => {
   if (fileNames.length === 0) {
-    return new Map();
+    return undefined;
   }
-  return new Map(getEvidenceGroupIds(rows).map((groupId, groupPosition) => {
-    const imageIndex = selectImageIndex(groupPosition, fileNames.length);
-    return [groupId, fileNames[imageIndex]];
+  const imageIndex = options.sequenceIndex === undefined
+    ? getRandomInt(0, fileNames.length - 1, options.random || Math.random)
+    : (options.sequenceIndex + groupPosition) % fileNames.length;
+  return fileNames[imageIndex];
+};
+
+/** 按空行边界为各 Evidence 组锁定本轮唯一截图。 */
+const buildEvidenceFileNameByGroupId = (
+  runtimeContext: CopyTestValidationRuntimeContext,
+  fileNames: string[],
+  options: CopyTestValidationResponseOptions
+): Map<number, string | undefined> => {
+  const groupIds = Array.from(new Set(
+    runtimeContext.selectedRows.map(row => row.evidenceGroupId)
+  ));
+  if (hasContinuousRowIndexes(runtimeContext.selectedRows)) {
+    const fileName = selectEvidenceFileName(fileNames, options, 0);
+    return new Map(groupIds.map(groupId => [groupId, fileName]));
+  }
+  return new Map(groupIds.map((groupId, groupPosition) => {
+    return [groupId, selectEvidenceFileName(fileNames, options, groupPosition)];
   }));
 };
 
-/** 读取当前行所属组唯一共享的 Evidence 文件名。 */
+/** 读取当前行所在结构组的 singleton Evidence。 */
 const getRowEvidenceFileNames = (
   row: CopyTestValidationRuntimeContext['selectedRows'][number],
-  fileNameByGroupId: Map<number, string>
+  fileNameByGroupId: Map<number, string | undefined>
 ): string[] => {
   const fileName = fileNameByGroupId.get(row.evidenceGroupId);
   return fileName ? [fileName] : [];
@@ -263,13 +280,11 @@ const buildMockValidationResults = (
   options: CopyTestValidationResponseOptions
 ): CopyTestValidationResult[] => {
   const sequenceIndex = options.sequenceIndex;
-  /** 当前轮次为每个应用层分组锁定的唯一 Evidence。 */
-  const fileNameByGroupId = buildGroupEvidenceMap(
-    runtimeContext.selectedRows,
+  /** 按行连续性和应用层分组锁定的本轮 Evidence。 */
+  const fileNameByGroupId = buildEvidenceFileNameByGroupId(
+    runtimeContext,
     imageFileNames,
-    sequenceIndex === undefined
-      ? (_groupPosition, imageCount) => getRandomInt(0, imageCount - 1, options.random || Math.random)
-      : (groupPosition, imageCount) => (sequenceIndex + groupPosition) % imageCount
+    options
   );
   if (sequenceIndex !== undefined) {
     const rowCount = runtimeContext.selectedRows.length;

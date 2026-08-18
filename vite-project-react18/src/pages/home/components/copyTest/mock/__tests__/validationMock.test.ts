@@ -237,7 +237,7 @@ describe('validationMock aiChat boundary', () => {
     expect(resetResponse).toEqual(responses[0]);
   });
 
-  it('shares one image inside a group and rotates different groups independently', () => {
+  it('locks one singleton winner across every group when row indexes are continuous', () => {
     const response = buildMockCopyTestAiChatResponse(
       buildRequest(
         ['screen-a.png', 'screen-b.png', 'screen-c.png', 'screen-d.png'],
@@ -259,9 +259,35 @@ describe('validationMock aiChat boundary', () => {
     expect(evidenceFileNames).toEqual([
       'screen-a.png',
       'screen-a.png',
-      'screen-b.png',
+      'screen-a.png',
     ]);
-    expect(new Set(evidenceFileNames).size).toBe(2);
+    expect(new Set(evidenceFileNames).size).toBe(1);
+    for (const result of payload.results) {
+      expect(result.evidenceImageFileNames).toHaveLength(1);
+    }
+  });
+
+  it('selects one singleton winner per structural group across a row-index gap', () => {
+    const response = buildMockCopyTestAiChatResponse(
+      buildRequest(
+        ['screen-a.png', 'screen-b.png', 'screen-c.png'],
+        [
+          { evidenceGroupId: 0, expected: 'first', rowIndex: 0 },
+          { evidenceGroupId: 0, expected: 'second', rowIndex: 1 },
+          { evidenceGroupId: 4, expected: 'fourth', rowIndex: 4 },
+        ]
+      ),
+      { sequenceIndex: 0 }
+    );
+    const payload = JSON.parse(response.data?.content || '');
+
+    expect(payload.results.map(
+      (result: { evidenceImageFileNames: string[] }) => result.evidenceImageFileNames
+    )).toEqual([
+      ['screen-a.png'],
+      ['screen-a.png'],
+      ['screen-b.png'],
+    ]);
   });
 
   it('uses empty Evidence and an accurate boundary issue when no screenshots exist', () => {
