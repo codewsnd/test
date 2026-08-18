@@ -106,25 +106,28 @@ With uploads, select exactly one screenshot per evidenceGroupId even if no candi
 </group_screenshot_selection>
 
 <failure_message_contract>
-For a failed row, languageIssues must contain exactly one natural, actionable English explanation. Make it useful by naming the correction and a human-readable location when the pixels support both. Make it safe by reporting only the smallest verified difference.
+For a failed row, languageIssues must contain exactly one natural, actionable explanation written in English, except for literal source fragments. Every failure must present Original before Expected. Original always means the screenshot's locked visible side; Expected always means the expectedText side. Never reverse the labels.
 
 1. Only when the complete copy unit is readable, compute the shortest contiguous edit hunks between the normalized strings. Preserve a mapping from every normalized span back to its corresponding raw expectedText and lockedVisibleText spans. Keep insertions, deletions, and substitutions separate when unchanged text lies between them.
-2. Remove every unchanged prefix, suffix, and inter-edit context. Never quote a full expectedText or full visible copy merely to show context.
-3. Every quoted expected fragment must be the exact raw span mapped from that edit hunk in expectedText. Every quoted visible fragment must be the exact raw span mapped from that edit hunk in the locked pixel transcription. A coincidental occurrence elsewhere in either source is not valid provenance. If the mapping is not unique, describe only the category and location. Never quote inferred, autocorrected, translated, normalized, or uncertain text.
+2. Remove every unchanged prefix, suffix, and inter-edit context. Return only the two raw spans that differ, never a full expectedText or full visible copy merely to show context.
+3. Every quoted expected fragment must be the exact raw span mapped from that edit hunk in expectedText. Every quoted visible fragment must be the exact raw span mapped from that edit hunk in the locked pixel transcription. A coincidental occurrence elsewhere in either source is not valid provenance. If a raw mapping is not unique, use [fragment omitted] on that side. Never quote inferred, autocorrected, translated, normalized, or uncertain text.
    Never invent or fabricate a quoted difference.
-4. Quote a raw edit hunk only when it is non-empty, no longer than 12 Unicode grapheme clusters, and does not reproduce an entire expected or visible copy unit. Never truncate a longer hunk. For a longer or whole-unit hunk, report its insertion, deletion, or substitution category and reliable location without quoting it.
+4. Quote a raw edit hunk only when it is non-empty, no longer than 12 Unicode grapheme clusters, and does not reproduce an entire expected or visible copy unit. Never truncate a longer hunk. Use [fragment omitted] for a long or non-unique raw span and [whole unit omitted] when a quote would reproduce that side's complete copy unit.
 5. Use locations such as "at the beginning", "at the end", "in the final punctuation", "before the slash", or "after the slash" only when that location is visually certain.
-6. When the complete unit is readable, report every verified edit hunk; do not stop after the first. For multiple disjoint hunks, combine their minimal corrections in one sentence with semicolons. Do not add unchanged words for readability.
-7. If any required part of the selected copy unit is unreadable, return the relevant unreadable message and do not infer or quote edit hunks from that row.
+6. Format each readable edit hunk as: "<Location if reliable> — Original: <originalSide>; Expected: <expectedSide>". For multiple disjoint hunks, repeat the complete clause in source order and join clauses with " | " inside the same languageIssues string. Do not stop after the first or add unchanged words for readability.
+7. A non-empty side uses its exact raw hunk in single quotes. An absent side uses [empty]. For a verified whitespace-only boundary hunk, use [one space] and [no space] instead of invisible quoted whitespace. All bracketed tokens are unquoted display metadata, not source text.
+8. If any required part of the selected copy unit is unreadable, use [unreadable] for Original and do not infer a visible hunk. Quote Expected only when its corresponding raw span is uniquely aligned and independently known; otherwise use [corresponding fragment unavailable].
+
+The only allowed unquoted side tokens are [empty], [one space], [no space], [fragment omitted], [whole unit omitted], [unreadable], [corresponding fragment unavailable], [not found], [no screenshot], and [not evaluated].
 
 Canonical fallback messages:
-- unreadable Chinese: "A Chinese character in the target copy is too unclear to verify."
-- unreadable punctuation: "The final punctuation is too unclear to verify."
-- target absent: "The expected copy was not found in the selected screenshot."
-- no upload: "No screenshot was uploaded for validation."
-- whole-unit replacement: "The entire visible copy differs from the expected wording."
+- unreadable Chinese without a reliable alignment: "At the unreadable Chinese character — Original: [unreadable]; Expected: [corresponding fragment unavailable]"
+- unreadable punctuation without a reliable alignment: "At the unreadable punctuation — Original: [unreadable]; Expected: [corresponding fragment unavailable]"
+- target absent: "Target copy — Original: [not found]; Expected: [whole unit omitted]"
+- no upload: "Target copy — Original: [no screenshot]; Expected: [not evaluated]"
+- whole-unit replacement: "Whole unit — Original: [whole unit omitted]; Expected: [whole unit omitted]"
 
-Do not include filenames, image identifiers, upload indexes, full source strings, unchanged context, reasoning, confidence, Unicode code points, internal field names, or text from a non-selected screenshot.
+Every failed issue must contain both "Original:" and "Expected:" exactly as written, including fallback cases. Do not include filenames, image identifiers, upload indexes, full source strings, unchanged context, reasoning, confidence, Unicode code points, internal field names, or text from a non-selected screenshot.
 </failure_message_contract>
 
 <decision_examples>
@@ -132,35 +135,35 @@ These examples target known OCR failure modes. visualEvidence explains screensho
 
 ## D01 — One group winner supplies singleton Evidence to every row
 Input: {"selectedRows":[{"evidenceGroupId":7,"rowIndex":0,"expectedText":"Email"},{"evidenceGroupId":7,"rowIndex":1,"expectedText":"Password"}],"visualEvidence":[{"fileName":"partial.png","copyUnits":["Email"]},{"fileName":"complete.png","copyUnits":["Email","Passwrod"]}]}
-Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["complete.png"],"languageIssues":[]},{"rowIndex":1,"passed":false,"evidenceImageFileNames":["complete.png"],"languageIssues":["In the middle, use 'or' instead of 'ro'."]}]}
+Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["complete.png"],"languageIssues":[]},{"rowIndex":1,"passed":false,"evidenceImageFileNames":["complete.png"],"languageIssues":["In the middle — Original: 'ro'; Expected: 'or'"]}]}
 
 ## D02 — Simplified and Traditional differences use only verified edit hunks
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"输入您的信息","visualEvidence":[{"fileName":"traditional.png","fullCopyUnit":"輸入您的資料"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["traditional.png"],"languageIssues":["At the beginning, use '输' instead of '輸'; near the end, use '信息' instead of '資料'."]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["traditional.png"],"languageIssues":["At the beginning — Original: '輸'; Expected: '输' | Near the end — Original: '資料'; Expected: '信息'"]}]}
 
 ## D03 — Unclear Han glyphs are never invented
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"请输入密码","visualEvidence":[{"fileName":"blurred-han.png","targetRegion":"the target is present but one required Han glyph is not distinguishable"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["blurred-han.png"],"languageIssues":["A Chinese character in the target copy is too unclear to verify."]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["blurred-han.png"],"languageIssues":["At the unreadable Chinese character — Original: [unreadable]; Expected: [corresponding fragment unavailable]"]}]}
 
 ## D04 — Period forms are literal punctuation
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"付款成功.","visualEvidence":[{"fileName":"ideographic-stop.png","fullCopyUnit":"付款成功。","finalGlyphObservation":"outlined ideographic full stop"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["ideographic-stop.png"],"languageIssues":["At the end, use '.' instead of '。'."]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["ideographic-stop.png"],"languageIssues":["At the end — Original: '。'; Expected: '.'"]}]}
 
 ## D05 — CJK comma forms are not inferred from language
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"继续，完成设置","visualEvidence":[{"fileName":"list-comma.png","fullCopyUnit":"继续、完成设置"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["list-comma.png"],"languageIssues":["In the middle, use '，' instead of '、'."]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["list-comma.png"],"languageIssues":["In the middle — Original: '、'; Expected: '，'"]}]}
 
-## D06 — Slash normalization never invents spaces
-Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"国家/地区","visualEvidence":[{"fileName":"slash-tight.png","fullCopyUnit":"国家／地区","slashBoundaryObservation":"NO_SPACE/NO_SPACE"}]}
-Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["slash-tight.png"],"languageIssues":[]}]}
+## D06 — Missing content uses an explicit empty Original side
+Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"继续。","visualEvidence":[{"fileName":"missing-stop.png","fullCopyUnit":"继续"}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["missing-stop.png"],"languageIssues":["At the end — Original: [empty]; Expected: '。'"]}]}
 
 ## D07 — Slash spacing reports only the boundary edit
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"国家/地区","visualEvidence":[{"fileName":"slash-spaces.png","fullCopyUnit":"国家 / 地区","slashBoundaryObservation":"SPACE/SPACE"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["slash-spaces.png"],"languageIssues":["Remove the spaces on both sides of the slash."]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["slash-spaces.png"],"languageIssues":["Before the slash — Original: [one space]; Expected: [no space] | After the slash — Original: [one space]; Expected: [no space]"]}]}
 
 ## D08 — Unchanged context is omitted from a suffix edit
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"Alamat bat1","visualEvidence":[{"fileName":"digit.png","fullCopyUnit":"Alamat bat12"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["digit.png"],"languageIssues":["Remove the extra '2' at the end."]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["digit.png"],"languageIssues":["At the end — Original: '2'; Expected: [empty]"]}]}
 </decision_examples>
 
 <output_contract>

@@ -46,6 +46,16 @@ interface GraphemeSegmenterConstructor {
   ): GraphemeSegmenter;
 }
 
+interface DifferenceSide {
+  literal?: string;
+  token?: string;
+}
+
+interface DifferencePair {
+  expected: DifferenceSide;
+  original: DifferenceSide;
+}
+
 const countGraphemeClusters = (value: string): number => {
   const Segmenter = (Intl as typeof Intl & {
     Segmenter?: GraphemeSegmenterConstructor;
@@ -54,6 +64,38 @@ const countGraphemeClusters = (value: string): number => {
     return Array.from(value).length;
   }
   return [...new Segmenter(undefined, { granularity: 'grapheme' }).segment(value)].length;
+};
+
+const SAFE_DIFFERENCE_TOKENS = new Set([
+  '[corresponding fragment unavailable]',
+  '[empty]',
+  '[fragment omitted]',
+  '[no screenshot]',
+  '[no space]',
+  '[not found]',
+  '[not evaluated]',
+  '[one space]',
+  '[unreadable]',
+  '[whole unit omitted]',
+]);
+
+const DIFFERENCE_PAIR_PATTERN = /Original: (?:'([^']+)'|(\[[a-z ]+\])); Expected: (?:'([^']+)'|(\[[a-z ]+\]))/g;
+
+const READABLE_MISMATCH_EXAMPLE_IDS = ['D01', 'D02', 'D04', 'D05', 'D06', 'D07', 'D08'];
+
+const CANONICAL_SAFE_ISSUES = [
+  'At the unreadable Chinese character — Original: [unreadable]; Expected: [corresponding fragment unavailable]',
+  'At the unreadable punctuation — Original: [unreadable]; Expected: [corresponding fragment unavailable]',
+  'Target copy — Original: [not found]; Expected: [whole unit omitted]',
+  'Target copy — Original: [no screenshot]; Expected: [not evaluated]',
+  'Whole unit — Original: [whole unit omitted]; Expected: [whole unit omitted]',
+];
+
+const readDifferencePairs = (issue: string): DifferencePair[] => {
+  return Array.from(issue.matchAll(DIFFERENCE_PAIR_PATTERN), match => ({
+    expected: { literal: match[3], token: match[4] },
+    original: { literal: match[1], token: match[2] },
+  }));
 };
 
 const readPromptSection = (sectionName: string): string => {
@@ -129,6 +171,52 @@ const getSelectedObservedCopy = (
   return selectedEvidence?.copyUnits?.[rowPosition];
 };
 
+const assertDifferenceSide = (side: DifferenceSide, rawSource?: string): void => {
+  if (side.literal) {
+    expect(rawSource).toBeDefined();
+    expect(rawSource?.includes(side.literal)).toBe(true);
+    expect(side.literal).not.toBe(rawSource);
+    expect(countGraphemeClusters(side.literal)).toBeLessThanOrEqual(12);
+    return;
+  }
+  expect(SAFE_DIFFERENCE_TOKENS).toContain(side.token);
+};
+
+const assertReadableMismatchResult = (
+  input: DecisionExampleInput,
+  result: DecisionExampleResult
+): void => {
+  const row = getDecisionExampleRow(input, result.rowIndex);
+  const issue = result.languageIssues[0];
+  const observedCopy = getSelectedObservedCopy(input, result);
+  const differencePairs = readDifferencePairs(issue);
+
+  expect(result.passed).toBe(false);
+  expect(result.languageIssues).toHaveLength(1);
+  expect(differencePairs.length).toBeGreaterThan(0);
+  expect(issue.match(/Original:/g) || []).toHaveLength(differencePairs.length);
+  expect(issue.match(/Expected:/g) || []).toHaveLength(differencePairs.length);
+  expect(issue).not.toContain(row.expectedText);
+  if (observedCopy) {
+    expect(issue).not.toContain(observedCopy);
+  }
+  differencePairs.forEach(pair => {
+    assertDifferenceSide(pair.original, observedCopy);
+    assertDifferenceSide(pair.expected, row.expectedText);
+  });
+};
+
+const assertCanonicalSafeIssue = (issue: string): void => {
+  const differencePairs = readDifferencePairs(issue);
+
+  expect(differencePairs).toHaveLength(1);
+  expect(issue.match(/Original:/g) || []).toHaveLength(1);
+  expect(issue.match(/Expected:/g) || []).toHaveLength(1);
+  expect(issue).not.toMatch(/'[^']+'/);
+  expect(SAFE_DIFFERENCE_TOKENS).toContain(differencePairs[0].original.token);
+  expect(SAFE_DIFFERENCE_TOKENS).toContain(differencePairs[0].expected.token);
+};
+
 describe('copyTestValidationPrompt strict contract', () => {
   it('uses GPT-5.6 Terra and serializes only runtime inputs', () => {
     expect(COPY_TEST_VALIDATION_MODEL).toBe('gpt-5.6-terra');
@@ -193,7 +281,7 @@ describe('copyTestValidationPrompt strict contract', () => {
       },
       {
         evidenceImageFileNames: ['complete.png'],
-        languageIssues: ["In the middle, use 'or' instead of 'ro'."],
+        languageIssues: ["In the middle — Original: 'ro'; Expected: 'or'"],
         passed: false,
         rowIndex: 1,
       },
@@ -223,14 +311,16 @@ describe('copyTestValidationPrompt strict contract', () => {
     expect(scriptMismatchResult).toEqual({
       evidenceImageFileNames: ['traditional.png'],
       languageIssues: [
-        "At the beginning, use '输' instead of '輸'; near the end, use '信息' instead of '資料'.",
+        "At the beginning — Original: '輸'; Expected: '输' | Near the end — Original: '資料'; Expected: '信息'",
       ],
       passed: false,
       rowIndex: 0,
     });
     expect(unreadableResult).toMatchObject({
       evidenceImageFileNames: ['blurred-han.png'],
-      languageIssues: ['A Chinese character in the target copy is too unclear to verify.'],
+      languageIssues: [
+        'At the unreadable Chinese character — Original: [unreadable]; Expected: [corresponding fragment unavailable]',
+      ],
       passed: false,
     });
   });
@@ -240,7 +330,7 @@ describe('copyTestValidationPrompt strict contract', () => {
     const normalizationContract = readPromptSection('allowed_normalization');
     const periodResult = readDecisionExampleOutput('D04').results[0];
     const commaResult = readDecisionExampleOutput('D05').results[0];
-    const normalizedSlashResult = readDecisionExampleOutput('D06').results[0];
+    const missingPunctuationResult = readDecisionExampleOutput('D06').results[0];
     const spacedSlashResult = readDecisionExampleOutput('D07').results[0];
 
     expect(punctuationContract).toMatch(/Punctuation is literal visual content/i);
@@ -251,24 +341,28 @@ describe('copyTestValidationPrompt strict contract', () => {
     expect(punctuationContract).toMatch(/mark the pair unreadable/i);
     expect(normalizationContract).toMatch(/Do not normalize any other punctuation/i);
     expect(periodResult.languageIssues).toEqual([
-      "At the end, use '.' instead of '。'.",
+      "At the end — Original: '。'; Expected: '.'",
     ]);
     expect(commaResult.languageIssues).toEqual([
-      "In the middle, use '，' instead of '、'.",
+      "In the middle — Original: '、'; Expected: '，'",
     ]);
-    expect(normalizedSlashResult).toMatchObject({ languageIssues: [], passed: true });
+    expect(missingPunctuationResult.languageIssues).toEqual([
+      "At the end — Original: [empty]; Expected: '。'",
+    ]);
     expect(spacedSlashResult.languageIssues).toEqual([
-      'Remove the spaces on both sides of the slash.',
+      'Before the slash — Original: [one space]; Expected: [no space] | After the slash — Original: [one space]; Expected: [no space]',
     ]);
   });
 
-  it('limits failures to minimal, traceable expected or observed fragments', () => {
+  it('defines minimal raw-hunk pairs and safe fallback tokens for every failure', () => {
     const roleContract = readPromptSection('role_and_goal');
     const failureContract = readPromptSection('failure_message_contract');
-    const unreadableIssue = readDecisionExampleOutput('D03').results[0].languageIssues[0];
 
     expect(roleContract).toMatch(/passes if and only if/i);
     expect(roleContract).toMatch(/readable mismatch, an unreadable required detail, or a missing target fails/i);
+    expect(failureContract).toMatch(/Every failure must present Original before Expected/i);
+    expect(failureContract).toMatch(/Original always means the screenshot's locked visible side/i);
+    expect(failureContract).toMatch(/Expected always means the expectedText side/i);
     expect(failureContract).toMatch(/Only when the complete copy unit is readable/i);
     expect(failureContract).toMatch(/shortest contiguous edit hunks/i);
     expect(failureContract).toMatch(
@@ -282,48 +376,110 @@ describe('copyTestValidationPrompt strict contract', () => {
       /quoted visible fragment.*exact raw span mapped from that edit hunk in the locked pixel transcription/i
     );
     expect(failureContract).toMatch(/coincidental occurrence elsewhere.*not valid provenance/i);
-    expect(failureContract).toMatch(/mapping is not unique, describe only the category and location/i);
+    expect(failureContract).toMatch(/raw mapping is not unique, use \[fragment omitted\]/i);
     expect(failureContract).toMatch(
       /Never quote inferred, autocorrected, translated, normalized, or uncertain text/i
     );
     expect(failureContract).toMatch(/Never invent or fabricate a quoted difference/i);
     expect(failureContract).toMatch(/no longer than 12 Unicode grapheme clusters/i);
     expect(failureContract).toMatch(/Never truncate a longer hunk/i);
-    expect(failureContract).toMatch(/longer or whole-unit hunk.*without quoting it/i);
+    expect(failureContract).toMatch(/\[fragment omitted\] for a long or non-unique raw span/i);
+    expect(failureContract).toMatch(/\[whole unit omitted\].*complete copy unit/i);
+    expect(failureContract).toMatch(/Original: <originalSide>; Expected: <expectedSide>/i);
+    expect(failureContract).toMatch(/multiple disjoint hunks.*join clauses with " \| "/i);
+    expect(failureContract).toMatch(/absent side uses \[empty\]/i);
+    expect(failureContract).toMatch(/whitespace-only boundary hunk.*\[one space\].*\[no space\]/i);
     expect(failureContract).toMatch(
-      /If any required part.*unreadable.*unreadable message and do not infer or quote edit hunks/i
+      /If any required part.*unreadable, use \[unreadable\] for Original and do not infer a visible hunk/i
     );
+    expect(failureContract).toMatch(
+      /Quote Expected only when.*raw span is uniquely aligned.*otherwise use \[corresponding fragment unavailable\]/i
+    );
+    SAFE_DIFFERENCE_TOKENS.forEach(token => {
+      expect(failureContract).toContain(token);
+    });
+    expect(failureContract).toMatch(/Every failed issue must contain both "Original:" and "Expected:"/i);
     expect(failureContract).toMatch(/Do not include.*full source strings, unchanged context/i);
-    expect(unreadableIssue.match(/'[^']+'/g)).toBeNull();
     expect(countGraphemeClusters('e\u0301')).toBe(1);
     expect(countGraphemeClusters('🇨🇳')).toBe(1);
     expect(countGraphemeClusters('👩‍💻')).toBe(1);
 
-    getDecisionExampleIds().forEach(id => {
+    CANONICAL_SAFE_ISSUES.forEach(issue => {
+      expect(failureContract).toContain(`"${issue}"`);
+      assertCanonicalSafeIssue(issue);
+    });
+  });
+
+  it('formats readable substitutions, multiple hunks, insertions, and deletions as raw pairs', () => {
+    const groupMismatch = readDecisionExampleOutput('D01').results[1];
+    const chineseMismatch = readDecisionExampleOutput('D02').results[0];
+    const periodMismatch = readDecisionExampleOutput('D04').results[0];
+    const commaMismatch = readDecisionExampleOutput('D05').results[0];
+    const insertion = readDecisionExampleOutput('D06').results[0];
+    const spacingMismatch = readDecisionExampleOutput('D07').results[0];
+    const deletion = readDecisionExampleOutput('D08').results[0];
+
+    expect(readDifferencePairs(groupMismatch.languageIssues[0])).toEqual([{
+      expected: { literal: 'or', token: undefined },
+      original: { literal: 'ro', token: undefined },
+    }]);
+    expect(readDifferencePairs(chineseMismatch.languageIssues[0])).toEqual([
+      {
+        expected: { literal: '输', token: undefined },
+        original: { literal: '輸', token: undefined },
+      },
+      {
+        expected: { literal: '信息', token: undefined },
+        original: { literal: '資料', token: undefined },
+      },
+    ]);
+    expect(chineseMismatch.languageIssues[0]).toContain(' | ');
+    expect(readDifferencePairs(periodMismatch.languageIssues[0])).toEqual([{
+      expected: { literal: '.', token: undefined },
+      original: { literal: '。', token: undefined },
+    }]);
+    expect(readDifferencePairs(commaMismatch.languageIssues[0])).toEqual([{
+      expected: { literal: '，', token: undefined },
+      original: { literal: '、', token: undefined },
+    }]);
+    expect(readDifferencePairs(insertion.languageIssues[0])).toEqual([{
+      expected: { literal: '。', token: undefined },
+      original: { literal: undefined, token: '[empty]' },
+    }]);
+    expect(readDifferencePairs(spacingMismatch.languageIssues[0])).toEqual([
+      {
+        expected: { literal: undefined, token: '[no space]' },
+        original: { literal: undefined, token: '[one space]' },
+      },
+      {
+        expected: { literal: undefined, token: '[no space]' },
+        original: { literal: undefined, token: '[one space]' },
+      },
+    ]);
+    expect(readDifferencePairs(deletion.languageIssues[0])).toEqual([{
+      expected: { literal: undefined, token: '[empty]' },
+      original: { literal: '2', token: undefined },
+    }]);
+
+    READABLE_MISMATCH_EXAMPLE_IDS.forEach(id => {
       const input = readDecisionExampleInput(id);
       readDecisionExampleOutput(id).results.forEach(result => {
         if (result.passed) {
           return;
         }
-        const row = getDecisionExampleRow(input, result.rowIndex);
-        const issue = result.languageIssues[0];
-        const observedCopy = getSelectedObservedCopy(input, result);
-        const allowedLiteralSources = [row.expectedText, observedCopy].filter(
-          (source): source is string => Boolean(source)
-        );
-        const quotedFragments = Array.from(issue.matchAll(/'([^']+)'/g), match => match[1]);
+        assertReadableMismatchResult(input, result);
+      });
+    });
 
-        expect(result.languageIssues).toHaveLength(1);
-        expect(issue).not.toContain(row.expectedText);
-        if (observedCopy) {
-          expect(issue).not.toContain(observedCopy);
+    getDecisionExampleIds().forEach(id => {
+      readDecisionExampleOutput(id).results.forEach(result => {
+        if (result.passed) {
+          return;
         }
-        quotedFragments.forEach(fragment => {
-          expect(fragment.length).toBeGreaterThan(0);
-          expect(countGraphemeClusters(fragment)).toBeLessThanOrEqual(12);
-          expect(allowedLiteralSources.some(source => source.includes(fragment))).toBe(true);
-          expect(allowedLiteralSources).not.toContain(fragment);
-        });
+        const issue = result.languageIssues[0];
+        expect(issue).toContain('Original:');
+        expect(issue).toContain('Expected:');
+        expect(readDifferencePairs(issue).length).toBeGreaterThan(0);
       });
     });
   });
