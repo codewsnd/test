@@ -52,19 +52,9 @@ interface DifferenceSide {
 }
 
 interface DifferencePair {
-  expected: DifferenceSide;
-  original: DifferenceSide;
+  copy: DifferenceSide;
+  image: DifferenceSide;
 }
-
-const countGraphemeClusters = (value: string): number => {
-  const Segmenter = (Intl as typeof Intl & {
-    Segmenter?: GraphemeSegmenterConstructor;
-  }).Segmenter;
-  if (!Segmenter) {
-    return Array.from(value).length;
-  }
-  return [...new Segmenter(undefined, { granularity: 'grapheme' }).segment(value)].length;
-};
 
 const SAFE_DIFFERENCE_TOKENS = new Set([
   '[corresponding fragment unavailable]',
@@ -79,23 +69,16 @@ const SAFE_DIFFERENCE_TOKENS = new Set([
   '[whole unit omitted]',
 ]);
 
-const DIFFERENCE_PAIR_PATTERN = /Original: (?:'([^']+)'|(\[[a-z ]+\])); Expected: (?:'([^']+)'|(\[[a-z ]+\]))/g;
+const DIFFERENCE_PAIR_PATTERN = /Copy: (?:'([^']+)'|(\[[a-z ]+\])); Image: (?:'([^']+)'|(\[[a-z ]+\]))/g;
 
-const READABLE_MISMATCH_EXAMPLE_IDS = ['D01', 'D02', 'D04', 'D05', 'D06', 'D07', 'D08'];
-
-const CANONICAL_SAFE_ISSUES = [
-  'At the unreadable Chinese character — Original: [unreadable]; Expected: [corresponding fragment unavailable]',
-  'At the unreadable punctuation — Original: [unreadable]; Expected: [corresponding fragment unavailable]',
-  'Target copy — Original: [not found]; Expected: [whole unit omitted]',
-  'Target copy — Original: [no screenshot]; Expected: [not evaluated]',
-  'Whole unit — Original: [whole unit omitted]; Expected: [whole unit omitted]',
-];
-
-const readDifferencePairs = (issue: string): DifferencePair[] => {
-  return Array.from(issue.matchAll(DIFFERENCE_PAIR_PATTERN), match => ({
-    expected: { literal: match[3], token: match[4] },
-    original: { literal: match[1], token: match[2] },
-  }));
+const countGraphemeClusters = (value: string): number => {
+  const Segmenter = (Intl as typeof Intl & {
+    Segmenter?: GraphemeSegmenterConstructor;
+  }).Segmenter;
+  if (!Segmenter) {
+    return Array.from(value).length;
+  }
+  return [...new Segmenter(undefined, { granularity: 'grapheme' }).segment(value)].length;
 };
 
 const readPromptSection = (sectionName: string): string => {
@@ -154,7 +137,7 @@ const getDecisionExampleRow = (
   return row;
 };
 
-const getSelectedObservedCopy = (
+const getSelectedImageCopy = (
   input: DecisionExampleInput,
   result: DecisionExampleResult
 ): string | undefined => {
@@ -171,6 +154,13 @@ const getSelectedObservedCopy = (
   return selectedEvidence?.copyUnits?.[rowPosition];
 };
 
+const readDifferencePairs = (issue: string): DifferencePair[] => {
+  return Array.from(issue.matchAll(DIFFERENCE_PAIR_PATTERN), match => ({
+    copy: { literal: match[1], token: match[2] },
+    image: { literal: match[3], token: match[4] },
+  }));
+};
+
 const assertDifferenceSide = (side: DifferenceSide, rawSource?: string): void => {
   if (side.literal) {
     expect(rawSource).toBeDefined();
@@ -182,42 +172,43 @@ const assertDifferenceSide = (side: DifferenceSide, rawSource?: string): void =>
   expect(SAFE_DIFFERENCE_TOKENS).toContain(side.token);
 };
 
-const assertReadableMismatchResult = (
+const assertMinimalIssue = (
+  issue: string,
+  copyText?: string,
+  imageText?: string
+): void => {
+  const differencePairs = readDifferencePairs(issue);
+
+  expect(differencePairs).toHaveLength(1);
+  expect(issue.match(/Copy:/g) || []).toHaveLength(1);
+  expect(issue.match(/Image:/g) || []).toHaveLength(1);
+  expect(issue).not.toContain(' | ');
+  if (copyText) {
+    expect(issue).not.toContain(copyText);
+  }
+  if (imageText) {
+    expect(issue).not.toContain(imageText);
+  }
+  assertDifferenceSide(differencePairs[0].copy, copyText);
+  assertDifferenceSide(differencePairs[0].image, imageText);
+};
+
+const assertFailedExampleResult = (
   input: DecisionExampleInput,
   result: DecisionExampleResult
 ): void => {
   const row = getDecisionExampleRow(input, result.rowIndex);
-  const issue = result.languageIssues[0];
-  const observedCopy = getSelectedObservedCopy(input, result);
-  const differencePairs = readDifferencePairs(issue);
+  const imageText = getSelectedImageCopy(input, result);
 
   expect(result.passed).toBe(false);
-  expect(result.languageIssues).toHaveLength(1);
-  expect(differencePairs.length).toBeGreaterThan(0);
-  expect(issue.match(/Original:/g) || []).toHaveLength(differencePairs.length);
-  expect(issue.match(/Expected:/g) || []).toHaveLength(differencePairs.length);
-  expect(issue).not.toContain(row.expectedText);
-  if (observedCopy) {
-    expect(issue).not.toContain(observedCopy);
-  }
-  differencePairs.forEach(pair => {
-    assertDifferenceSide(pair.original, observedCopy);
-    assertDifferenceSide(pair.expected, row.expectedText);
+  expect(result.languageIssues.length).toBeGreaterThan(0);
+  expect(new Set(result.languageIssues).size).toBe(result.languageIssues.length);
+  result.languageIssues.forEach(issue => {
+    assertMinimalIssue(issue, row.expectedText, imageText);
   });
 };
 
-const assertCanonicalSafeIssue = (issue: string): void => {
-  const differencePairs = readDifferencePairs(issue);
-
-  expect(differencePairs).toHaveLength(1);
-  expect(issue.match(/Original:/g) || []).toHaveLength(1);
-  expect(issue.match(/Expected:/g) || []).toHaveLength(1);
-  expect(issue).not.toMatch(/'[^']+'/);
-  expect(SAFE_DIFFERENCE_TOKENS).toContain(differencePairs[0].original.token);
-  expect(SAFE_DIFFERENCE_TOKENS).toContain(differencePairs[0].expected.token);
-};
-
-describe('copyTestValidationPrompt strict contract', () => {
+describe('copyTestValidationPrompt production contract', () => {
   it('uses GPT-5.6 Terra and serializes only runtime inputs', () => {
     expect(COPY_TEST_VALIDATION_MODEL).toBe('openai/gpt-5.6-terra');
     expect(COPY_TEST_MAX_OUTPUT_TOKENS).toBe(128_000);
@@ -249,28 +240,25 @@ describe('copyTestValidationPrompt strict contract', () => {
     });
   });
 
-  it('keeps application groups indivisible and selects one shared screenshot per group', () => {
-    const inputContract = readPromptSection('input_contract');
+  it('keeps a lean stable prompt, immutable groups, and one Evidence winner', () => {
+    const inputContract = readPromptSection('input_and_boundaries');
     const selectionContract = readPromptSection('group_screenshot_selection');
     const groupInput = readDecisionExampleInput('D01');
     const groupOutput = readDecisionExampleOutput('D01');
+    const promptWordCount = COPY_TEST_VALIDATION_SYSTEM_PROMPT.trim().split(/\s+/).length;
 
-    expect(inputContract).toMatch(/same evidenceGroupId are indivisible/i);
+    expect(promptWordCount).toBeLessThan(1_500);
+    expect(inputContract).toMatch(/Rows sharing an evidenceGroupId are indivisible/i);
     expect(inputContract).toMatch(/Never create, split, merge, or renumber groups/i);
     expect(inputContract).toMatch(/application owns table structure/i);
     expect(inputContract).toMatch(/Never return or decide rowspan, merged cells/i);
     expect(selectionContract).toMatch(/every group row against every uploaded screenshot/i);
     expect(selectionContract).toMatch(/Earlier upload order.*final tie-break/i);
     expect(selectionContract).toMatch(/exactly one screenshot per evidenceGroupId/i);
-    expect(selectionContract).toMatch(/single Evidence item for every row in the group/i);
-    expect(selectionContract).toMatch(/With no uploads, return no Evidence/i);
+    expect(selectionContract).toMatch(/singleton Evidence/i);
     expect(getDecisionExampleRows(groupInput)).toEqual([
       { evidenceGroupId: 7, expectedText: 'Email', rowIndex: 0 },
       { evidenceGroupId: 7, expectedText: 'Password', rowIndex: 1 },
-    ]);
-    expect(groupInput.visualEvidence).toEqual([
-      { copyUnits: ['Email'], fileName: 'partial.png' },
-      { copyUnits: ['Email', 'Passwrod'], fileName: 'complete.png' },
     ]);
     expect(groupOutput.results).toEqual([
       {
@@ -281,210 +269,129 @@ describe('copyTestValidationPrompt strict contract', () => {
       },
       {
         evidenceImageFileNames: ['complete.png'],
-        languageIssues: ["In the middle — Original: 'ro'; Expected: 'or'"],
+        languageIssues: ["In the middle — Copy: 'or'; Image: 'ro'"],
         passed: false,
         rowIndex: 1,
       },
     ]);
-    groupOutput.results.forEach(result => {
-      expect(Object.keys(result).sort()).toEqual([
-        'evidenceImageFileNames',
-        'languageIssues',
-        'passed',
-        'rowIndex',
-      ]);
-    });
   });
 
-  it('compares Simplified and Traditional Chinese by readable glyphs without guessing', () => {
-    const chineseContract = readPromptSection('chinese_glyph_rules');
-    const scriptMismatchResult = readDecisionExampleOutput('D02').results[0];
-    const unreadableResult = readDecisionExampleOutput('D03').results[0];
+  it('treats slash variants and slash-adjacent whitespace as equivalent only', () => {
+    const comparisonContract = readPromptSection('canonical_comparison');
+    const equivalentSlash = readDecisionExampleOutput('D03').results[0];
+    const missingSegment = readDecisionExampleOutput('D04').results[0];
+    const extraEmptySegment = readDecisionExampleOutput('D07').results[0];
 
-    expect(chineseContract).toMatch(/exact visible glyph sequence, not by meaning/i);
-    expect(chineseContract).toMatch(/Simplified and Traditional forms are different characters/i);
-    expect(chineseContract).toMatch(/Never convert between them/i);
-    expect(chineseContract).toMatch(/must come from a glyph that is actually readable/i);
-    expect(chineseContract).toMatch(/Never invent a likely Traditional\/Simplified counterpart/i);
-    expect(chineseContract).toMatch(/do not quote a guessed glyph/i);
-    expect(chineseContract).toMatch(/Identical visible strings pass/i);
-    expect(scriptMismatchResult).toEqual({
-      evidenceImageFileNames: ['traditional.png'],
+    expect(comparisonContract).toMatch(/Map only "\/", "／", "⁄", and "∕" to "\/"/i);
+    expect(comparisonContract).toMatch(
+      /remove the entire run of Unicode whitespace immediately before it and immediately after it/i
+    );
+    expect(comparisonContract).toMatch(/whitespace presence and position are meaningful/i);
+    expect(comparisonContract).toMatch(/exact length of one whitespace run is not/i);
+    expect(comparisonContract).toMatch(/Preserve slash count and empty segments/i);
+    expect(comparisonContract).toContain('"XXX/XXX/XXX", "XXX / XXX / XXX", and "XXX/ XXX /XXX" are equal');
+    expect(comparisonContract).toContain('"XXX//XXX/XXX"');
+    expect(equivalentSlash).toEqual({
+      evidenceImageFileNames: ['slash-spacing.png'],
+      languageIssues: [],
+      passed: true,
+      rowIndex: 0,
+    });
+    expect(missingSegment).toEqual({
+      evidenceImageFileNames: ['missing-segment.png'],
       languageIssues: [
-        "At the beginning — Original: '輸'; Expected: '输' | Near the end — Original: '資料'; Expected: '信息'",
+        "At the end — Copy: '/CCC'; Image: [empty]",
       ],
       passed: false,
       rowIndex: 0,
     });
-    expect(unreadableResult).toMatchObject({
-      evidenceImageFileNames: ['blurred-han.png'],
+    expect(extraEmptySegment).toEqual({
+      evidenceImageFileNames: ['extra-slash.png'],
       languageIssues: [
-        'At the unreadable Chinese character — Original: [unreadable]; Expected: [corresponding fragment unavailable]',
+        "At the extra empty segment — Copy: [empty]; Image: '/'",
       ],
       passed: false,
+      rowIndex: 0,
     });
   });
 
-  it('treats punctuation forms as exact visual characters', () => {
-    const punctuationContract = readPromptSection('punctuation_and_spacing_rules');
-    const normalizationContract = readPromptSection('allowed_normalization');
-    const periodResult = readDecisionExampleOutput('D04').results[0];
-    const commaResult = readDecisionExampleOutput('D05').results[0];
-    const missingPunctuationResult = readDecisionExampleOutput('D06').results[0];
-    const spacedSlashResult = readDecisionExampleOutput('D07').results[0];
+  it('returns every minimal difference as its own languageIssues element', () => {
+    const failureContract = readPromptSection('failure_issues');
+    const chineseMismatch = readDecisionExampleOutput('D02').results[0];
 
-    expect(punctuationContract).toMatch(/Punctuation is literal visual content/i);
-    expect(punctuationContract).toMatch(/Distinguish ASCII, full-width, CJK, Arabic, and curly forms/i);
-    expect(punctuationContract).toMatch(/keep "\.", "．", "。", and "｡" distinct/i);
-    expect(punctuationContract).toMatch(/keep ",", "，", and "、" distinct/i);
-    expect(punctuationContract).toMatch(/Language convention and expectedText are not visual evidence/i);
-    expect(punctuationContract).toMatch(/mark the pair unreadable/i);
-    expect(normalizationContract).toMatch(/Do not normalize any other punctuation/i);
-    expect(periodResult.languageIssues).toEqual([
-      "At the end — Original: '。'; Expected: '.'",
+    expect(failureContract).toMatch(/every hunk.*separate languageIssues array element/i);
+    expect(failureContract).toMatch(/Never combine multiple hunks into one string/i);
+    expect(failureContract).toMatch(/Each element describes exactly one hunk/i);
+    expect(failureContract).toMatch(/Copy always means expectedText/i);
+    expect(failureContract).toMatch(/Image always means the locked transcription/i);
+    expect(failureContract).toMatch(/Remove all unchanged prefix, suffix, and inter-hunk context/i);
+    expect(failureContract).toMatch(/each independently located unreadable region.*separate/i);
+    expect(failureContract).toMatch(/Still return every independently verified readable hunk/i);
+    expect(failureContract).toMatch(/Only when the complete unit cannot be segmented or aligned/i);
+    expect(failureContract).toMatch(/locally unreadable glyph never suppresses other verified hunks/i);
+    expect(failureContract).toMatch(/Every failed issue contains exactly one "Copy:" label/i);
+    expect(failureContract).not.toContain('Original:');
+    expect(failureContract).not.toContain('Expected:');
+    expect(failureContract).not.toContain(' | ');
+    expect(chineseMismatch.languageIssues).toEqual([
+      "At the beginning — Copy: '输'; Image: '輸'",
+      "Near the end — Copy: '信息'; Image: '資料'",
     ]);
-    expect(commaResult.languageIssues).toEqual([
-      "In the middle — Original: '、'; Expected: '，'",
+    expect(readDifferencePairs(chineseMismatch.languageIssues[0])).toEqual([{
+      copy: { literal: '输', token: undefined },
+      image: { literal: '輸', token: undefined },
+    }]);
+    expect(readDifferencePairs(chineseMismatch.languageIssues[1])).toEqual([{
+      copy: { literal: '信息', token: undefined },
+      image: { literal: '資料', token: undefined },
+    }]);
+  });
+
+  it('keeps Chinese glyphs and punctuation literal without inventing image text', () => {
+    const visualContract = readPromptSection('visual_reading');
+    const punctuationMismatch = readDecisionExampleOutput('D05').results[0];
+    const unreadableChinese = readDecisionExampleOutput('D06').results[0];
+
+    expect(visualContract).toMatch(/Read Han characters by visible glyph shape/i);
+    expect(visualContract).toMatch(/Simplified and Traditional forms.*differ/i);
+    expect(visualContract).toMatch(/Never invent a likely character/i);
+    expect(visualContract).toMatch(/Treat punctuation as literal pixels/i);
+    expect(visualContract).toMatch(/"\.", "．", "。", and "｡" differ/i);
+    expect(punctuationMismatch.languageIssues).toEqual([
+      "In the final punctuation — Copy: '.'; Image: '。'",
     ]);
-    expect(missingPunctuationResult.languageIssues).toEqual([
-      "At the end — Original: [empty]; Expected: '。'",
-    ]);
-    expect(spacedSlashResult.languageIssues).toEqual([
-      'Before the slash — Original: [one space]; Expected: [no space] | After the slash — Original: [one space]; Expected: [no space]',
+    expect(unreadableChinese.languageIssues).toEqual([
+      'At the unreadable Chinese character — Copy: [corresponding fragment unavailable]; Image: [unreadable]',
     ]);
   });
 
-  it('defines minimal raw-hunk pairs and safe fallback tokens for every failure', () => {
-    const roleContract = readPromptSection('role_and_goal');
-    const failureContract = readPromptSection('failure_message_contract');
+  it('uses only minimal raw fragments or safe fallback tokens', () => {
+    const failureContract = readPromptSection('failure_issues');
 
-    expect(roleContract).toMatch(/passes if and only if/i);
-    expect(roleContract).toMatch(/readable mismatch, an unreadable required detail, or a missing target fails/i);
-    expect(failureContract).toMatch(/Every failure must present Original before Expected/i);
-    expect(failureContract).toMatch(/Original always means the screenshot's locked visible side/i);
-    expect(failureContract).toMatch(/Expected always means the expectedText side/i);
-    expect(failureContract).toMatch(/Only when the complete copy unit is readable/i);
-    expect(failureContract).toMatch(/shortest contiguous edit hunks/i);
-    expect(failureContract).toMatch(
-      /mapping from every normalized span back to its corresponding raw expectedText and lockedVisibleText spans/i
-    );
-    expect(failureContract).toMatch(/Remove every unchanged prefix, suffix, and inter-edit context/i);
-    expect(failureContract).toMatch(
-      /quoted expected fragment.*exact raw span mapped from that edit hunk in expectedText/i
-    );
-    expect(failureContract).toMatch(
-      /quoted visible fragment.*exact raw span mapped from that edit hunk in the locked pixel transcription/i
-    );
-    expect(failureContract).toMatch(/coincidental occurrence elsewhere.*not valid provenance/i);
-    expect(failureContract).toMatch(/raw mapping is not unique, use \[fragment omitted\]/i);
-    expect(failureContract).toMatch(
-      /Never quote inferred, autocorrected, translated, normalized, or uncertain text/i
-    );
-    expect(failureContract).toMatch(/Never invent or fabricate a quoted difference/i);
-    expect(failureContract).toMatch(/no longer than 12 Unicode grapheme clusters/i);
-    expect(failureContract).toMatch(/Never truncate a longer hunk/i);
-    expect(failureContract).toMatch(/\[fragment omitted\] for a long or non-unique raw span/i);
-    expect(failureContract).toMatch(/\[whole unit omitted\].*complete copy unit/i);
-    expect(failureContract).toMatch(/Original: <originalSide>; Expected: <expectedSide>/i);
-    expect(failureContract).toMatch(/multiple disjoint hunks.*join clauses with " \| "/i);
-    expect(failureContract).toMatch(/absent side uses \[empty\]/i);
-    expect(failureContract).toMatch(/whitespace-only boundary hunk.*\[one space\].*\[no space\]/i);
-    expect(failureContract).toMatch(
-      /If any required part.*unreadable, use \[unreadable\] for Original and do not infer a visible hunk/i
-    );
-    expect(failureContract).toMatch(
-      /Quote Expected only when.*raw span is uniquely aligned.*otherwise use \[corresponding fragment unavailable\]/i
-    );
+    expect(failureContract).toMatch(/at most 12 Unicode grapheme clusters/i);
+    expect(failureContract).toMatch(/Never truncate/i);
+    expect(failureContract).toMatch(/Never report whitespace removed by slash normalization/i);
+    expect(failureContract).toMatch(/Do not include.*full source strings, unchanged context/i);
     SAFE_DIFFERENCE_TOKENS.forEach(token => {
       expect(failureContract).toContain(token);
     });
-    expect(failureContract).toMatch(/Every failed issue must contain both "Original:" and "Expected:"/i);
-    expect(failureContract).toMatch(/Do not include.*full source strings, unchanged context/i);
     expect(countGraphemeClusters('e\u0301')).toBe(1);
     expect(countGraphemeClusters('🇨🇳')).toBe(1);
     expect(countGraphemeClusters('👩‍💻')).toBe(1);
 
-    CANONICAL_SAFE_ISSUES.forEach(issue => {
-      expect(failureContract).toContain(`"${issue}"`);
-      assertCanonicalSafeIssue(issue);
-    });
-  });
-
-  it('formats readable substitutions, multiple hunks, insertions, and deletions as raw pairs', () => {
-    const groupMismatch = readDecisionExampleOutput('D01').results[1];
-    const chineseMismatch = readDecisionExampleOutput('D02').results[0];
-    const periodMismatch = readDecisionExampleOutput('D04').results[0];
-    const commaMismatch = readDecisionExampleOutput('D05').results[0];
-    const insertion = readDecisionExampleOutput('D06').results[0];
-    const spacingMismatch = readDecisionExampleOutput('D07').results[0];
-    const deletion = readDecisionExampleOutput('D08').results[0];
-
-    expect(readDifferencePairs(groupMismatch.languageIssues[0])).toEqual([{
-      expected: { literal: 'or', token: undefined },
-      original: { literal: 'ro', token: undefined },
-    }]);
-    expect(readDifferencePairs(chineseMismatch.languageIssues[0])).toEqual([
-      {
-        expected: { literal: '输', token: undefined },
-        original: { literal: '輸', token: undefined },
-      },
-      {
-        expected: { literal: '信息', token: undefined },
-        original: { literal: '資料', token: undefined },
-      },
-    ]);
-    expect(chineseMismatch.languageIssues[0]).toContain(' | ');
-    expect(readDifferencePairs(periodMismatch.languageIssues[0])).toEqual([{
-      expected: { literal: '.', token: undefined },
-      original: { literal: '。', token: undefined },
-    }]);
-    expect(readDifferencePairs(commaMismatch.languageIssues[0])).toEqual([{
-      expected: { literal: '，', token: undefined },
-      original: { literal: '、', token: undefined },
-    }]);
-    expect(readDifferencePairs(insertion.languageIssues[0])).toEqual([{
-      expected: { literal: '。', token: undefined },
-      original: { literal: undefined, token: '[empty]' },
-    }]);
-    expect(readDifferencePairs(spacingMismatch.languageIssues[0])).toEqual([
-      {
-        expected: { literal: undefined, token: '[no space]' },
-        original: { literal: undefined, token: '[one space]' },
-      },
-      {
-        expected: { literal: undefined, token: '[no space]' },
-        original: { literal: undefined, token: '[one space]' },
-      },
-    ]);
-    expect(readDifferencePairs(deletion.languageIssues[0])).toEqual([{
-      expected: { literal: undefined, token: '[empty]' },
-      original: { literal: '2', token: undefined },
-    }]);
-
-    READABLE_MISMATCH_EXAMPLE_IDS.forEach(id => {
+    getDecisionExampleIds().forEach(id => {
       const input = readDecisionExampleInput(id);
       readDecisionExampleOutput(id).results.forEach(result => {
         if (result.passed) {
+          expect(result.languageIssues).toEqual([]);
           return;
         }
-        assertReadableMismatchResult(input, result);
-      });
-    });
-
-    getDecisionExampleIds().forEach(id => {
-      readDecisionExampleOutput(id).results.forEach(result => {
-        if (result.passed) {
-          return;
-        }
-        const issue = result.languageIssues[0];
-        expect(issue).toContain('Original:');
-        expect(issue).toContain('Expected:');
-        expect(readDifferencePairs(issue).length).toBeGreaterThan(0);
+        assertFailedExampleResult(input, result);
       });
     });
   });
 
-  it('keeps every example on the four-field response schema without group or rowspan output', () => {
+  it('keeps every example on the exact four-field response schema', () => {
     const outputContract = readPromptSection('output_contract');
     const declaredFields = outputContract
       .split('\n')
@@ -492,7 +399,7 @@ describe('copyTestValidationPrompt strict contract', () => {
       .filter(line => /^- (rowIndex|passed|evidenceImageFileNames|languageIssues):/.test(line))
       .map(line => line.slice(2, line.indexOf(':')));
 
-    expect(getDecisionExampleIds()).toEqual(expect.arrayContaining([
+    expect(getDecisionExampleIds()).toEqual([
       'D01',
       'D02',
       'D03',
@@ -500,10 +407,11 @@ describe('copyTestValidationPrompt strict contract', () => {
       'D05',
       'D06',
       'D07',
-      'D08',
-    ]));
+    ]);
     expect(outputContract).toMatch(/root object contains exactly one field: results/i);
     expect(outputContract).toMatch(/exactly these four fields/i);
+    expect(outputContract).toMatch(/one or more unique strings/i);
+    expect(outputContract).toMatch(/exactly one independently reportable minimal hunk per array element/i);
     expect(declaredFields).toEqual([
       'rowIndex',
       'passed',
@@ -523,19 +431,22 @@ describe('copyTestValidationPrompt strict contract', () => {
       output.results.forEach(result => {
         const row = getDecisionExampleRow(input, result.rowIndex);
 
-        expect(Object.keys(result).sort()).toEqual([
+        expect(Object.keys(result)).toEqual([
+          'rowIndex',
+          'passed',
           'evidenceImageFileNames',
           'languageIssues',
-          'passed',
-          'rowIndex',
         ]);
         expect(result).not.toHaveProperty('evidenceGroupId');
         expect(result).not.toHaveProperty('rowspan');
-        expect(result).not.toHaveProperty('evidenceRowSpan');
         expect(result.rowIndex).toBe(row.rowIndex);
         expect(result.evidenceImageFileNames).toHaveLength(1);
         expect(uploadedFileNames).toContain(result.evidenceImageFileNames[0]);
-        expect(result.languageIssues).toHaveLength(result.passed ? 0 : 1);
+        if (result.passed) {
+          expect(result.languageIssues).toEqual([]);
+        } else {
+          expect(result.languageIssues.length).toBeGreaterThan(0);
+        }
       });
     });
   });

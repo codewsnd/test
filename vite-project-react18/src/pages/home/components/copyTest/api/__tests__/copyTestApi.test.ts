@@ -128,11 +128,14 @@ describe('copyTestApi strict validation contract', () => {
     expect(parseCopyTestValidationResults(buildContent([]), images, [])).toEqual([]);
   });
 
-  it('accepts failed singleton Evidence and allows empty Evidence only without uploads', () => {
+  it('accepts one issue per mismatch and allows empty Evidence only without uploads', () => {
     const results = [
       buildValidResult({
         evidenceImageFileNames: ['screen-b.png'],
-        languageIssues: ['Visible wording differs.'],
+        languageIssues: [
+          "At the beginning — Copy: '输'; Image: '輸'",
+          "Near the end — Copy: '信息'; Image: '資料'",
+        ],
         passed: false,
       }),
     ];
