@@ -47,6 +47,8 @@ const PUNCTUATION_REVIEW_WARNING_SELECTOR =
 const PUNCTUATION_REVIEW_WARNING_TEXT =
   'Punctuation recognition may be inaccurate. Please review.';
 const SELECTION_CHECKBOX_ATTRIBUTE = 'data-copy-test-selection-checkbox';
+const SELECTION_GROUP_LABEL_ATTRIBUTE = 'data-copy-test-selection-group-label';
+const SELECTION_GROUP_MODE_ATTRIBUTE = 'data-copy-test-selection-group-mode';
 const SELECTION_ROW_INDEXES_ATTRIBUTE = 'data-copy-test-selection-row-indexes';
 const SELECTION_SELECT_ALL_ATTRIBUTE = 'data-copy-test-selection-all';
 
@@ -98,7 +100,7 @@ const mergedTableHtml = [
 ].join('');
 const mergedTable = parseCopyTestStorageTables(mergedTableHtml)[0];
 
-/** Copy 1/2 同时被前后空白行包围的 Evidence section 选择表格。 */
+/** Copy 1/2 与 Copy 4 之间存在内部空行的 Evidence section 选择表格。 */
 const blankSeparatedSelectionTable = parseCopyTestStorageTables([
   '<table><tr><th>Target</th>',
   `<th ${COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"`,
@@ -112,6 +114,15 @@ const blankSeparatedSelectionTable = parseCopyTestStorageTables([
   '<tr><td>Copy 2</td><td></td><td></td></tr>',
   '<tr><td><br /></td><td></td><td></td></tr>',
   '<tr><td>Copy 4</td><td></td><td></td></tr>',
+  '</table>',
+].join(''))[0];
+
+/** 两个单行非空块之间存在内部空行的最小 Group 表格。 */
+const singletonBlankSeparatedSelectionTable = parseCopyTestStorageTables([
+  '<table><tr><th>Target</th></tr>',
+  '<tr><td>Copy 1</td></tr>',
+  '<tr><td><br /></td></tr>',
+  '<tr><td>Copy 3</td></tr>',
   '</table>',
 ].join(''))[0];
 
@@ -418,7 +429,7 @@ describe('TablePreview', () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview-1');
   });
 
-  it('gives every row checkbox in one non-blank section the same linked anchors', () => {
+  it('shows ordered Group labels for non-blank blocks separated by an internal blank row', () => {
     const handlers = createHandlers();
     render(
       <TablePreview
@@ -446,6 +457,17 @@ describe('TablePreview', () => {
     })).toEqual(['[0]', '[1,2]', '[1,2]', '[3]', '[4]']);
     expect(rowCheckboxes.map(checkbox => checkbox.disabled)).toEqual([true, false, false, true, false]);
     expect(selectAll?.getAttribute(SELECTION_ROW_INDEXES_ATTRIBUTE)).toBe('[1,2,4]');
+    expect(selectAll?.nextElementSibling?.textContent).toBe('Group');
+    expect(rowCheckboxes.map(checkbox => {
+      return checkbox.nextElementSibling?.textContent || null;
+    })).toEqual([null, 'Group 1', 'Group 1', null, 'Group 2']);
+    expect(frameDocument.querySelectorAll(`[${SELECTION_GROUP_LABEL_ATTRIBUTE}]`)).toHaveLength(4);
+    expect(frameDocument.querySelector('table')?.getAttribute(SELECTION_GROUP_MODE_ATTRIBUTE))
+      .toBe('true');
+    expect(readPreviewColumnLayout(frameDocument)[0]).toEqual({
+      role: 'selection',
+      width: '112',
+    });
 
     fireEvent(window, new MessageEvent('message', {
       data: {
@@ -458,6 +480,34 @@ describe('TablePreview', () => {
       source: iframe.contentWindow,
     }));
     expect(handlers.onRowsChange).toHaveBeenCalledWith([4]);
+  });
+
+  it('shows Group labels even when both blank-separated groups contain one row', () => {
+    const handlers = createHandlers();
+    render(
+      <TablePreview
+        onEvidenceImageDelete={handlers.onDelete}
+        onEvidenceImagePreview={handlers.onPreview}
+        onResultStatusChange={handlers.onStatus}
+        onSelectedRowIndexesChange={handlers.onRowsChange}
+        previewRevision={1}
+        selectedColumnIndex={0}
+        selectedRowIndexes={[0, 2]}
+        table={singletonBlankSeparatedSelectionTable}
+      />
+    );
+    const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
+    const frameDocument = parseFrameDocument(iframe);
+    const rowCheckboxes = Array.from(frameDocument.querySelectorAll<HTMLInputElement>(
+      `[${SELECTION_CHECKBOX_ATTRIBUTE}]:not([${SELECTION_SELECT_ALL_ATTRIBUTE}])`
+    ));
+
+    expect(rowCheckboxes.map(checkbox => checkbox.disabled)).toEqual([false, true, false]);
+    expect(rowCheckboxes.map(checkbox => checkbox.nextElementSibling?.textContent || null))
+      .toEqual(['Group 1', null, 'Group 2']);
+    expect(frameDocument.querySelector<HTMLInputElement>(
+      `[${SELECTION_SELECT_ALL_ATTRIBUTE}]`
+    )?.nextElementSibling?.textContent).toBe('Group');
   });
 
   it('keeps adjacent row checkboxes independent when the column has no blank boundary', () => {
@@ -489,6 +539,13 @@ describe('TablePreview', () => {
     })).toEqual(['[0]', '[1]', '[3]']);
     expect(rowCheckboxes.every(checkbox => !checkbox.disabled)).toBe(true);
     expect(selectAll?.getAttribute(SELECTION_ROW_INDEXES_ATTRIBUTE)).toBe('[0,1,3]');
+    expect(frameDocument.querySelector(`[${SELECTION_GROUP_LABEL_ATTRIBUTE}]`)).toBeNull();
+    expect(frameDocument.querySelector('table')?.getAttribute(SELECTION_GROUP_MODE_ATTRIBUTE))
+      .toBeNull();
+    expect(readPreviewColumnLayout(frameDocument)[0]).toEqual({
+      role: 'selection',
+      width: '42',
+    });
 
     fireEvent(window, new MessageEvent('message', {
       data: {

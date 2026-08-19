@@ -43,7 +43,7 @@ const SCREEN_A: CopyTestImage = {
   originalFileName: 'Screen A.png',
 };
 
-/** 第二批追加并扩展动态分组的唯一 winner。 */
+/** 第二批覆盖并扩展动态分组的唯一 winner。 */
 const SCREEN_B: CopyTestImage = {
   base64: 'data:image/png;base64,REVG',
   fileName: 'screen-b.png',
@@ -165,8 +165,9 @@ const expectFreshPartialPayload = (
     return logicalSlots.length === 4 && logicalSlots.every(Boolean);
   })).toBe(true);
   expect(context.rowGroups.map(group => group.evidenceGroupId)).toEqual([0, 0, 0, 3, 4]);
-  expect(normalizeCopyTestSelectedRowIndexes(context.rowGroups, [1])).toEqual([0, 1, 2]);
-  expect(normalizeCopyTestSelectedRowIndexes(context.rowGroups, [3, 4])).toEqual([3, 4]);
+  expect(context.selectionRowGroups.map(group => group.evidenceGroupId)).toEqual([0, 1, 2, 3, 4]);
+  expect(normalizeCopyTestSelectedRowIndexes(context.selectionRowGroups, [1])).toEqual([1]);
+  expect(normalizeCopyTestSelectedRowIndexes(context.selectionRowGroups, [3, 4])).toEqual([3, 4]);
   expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1)))
     .toEqual([3, 1, 1]);
   expect(getEvidenceImageIds(evidenceCells[0])).toEqual([SCREEN_A.fileName]);
@@ -228,7 +229,7 @@ describe('CopyTest dynamic Evidence integration', () => {
     expect(evidenceCells[4].textContent).toContain('Trailing blank evidence');
   });
 
-  it('merges equal current winners and appends the next batch while monotonically expanding', () => {
+  it('merges equal current winners and keeps only the next winner while expanding', () => {
     const working = buildNoBlankWorkingTable();
 
     expect(buildCopyTestRowGroups(working, 1).map(group => group.evidenceGroupId)).toEqual([0, 1, 2]);
@@ -253,35 +254,27 @@ describe('CopyTest dynamic Evidence integration', () => {
       .toEqual([2, 1]);
     expect(getEvidenceImageIds(firstBatchEvidenceCells[0])).toEqual([SCREEN_A.fileName]);
 
-    const cumulativeResults = bindResultImages([
-      buildPassedResult(0, [SCREEN_A.fileName, SCREEN_B.fileName]),
-      buildPassedResult(1, [SCREEN_A.fileName, SCREEN_B.fileName]),
-      buildPassedResult(2, [SCREEN_B.fileName]),
-    ], [SCREEN_A, SCREEN_B]);
-    const currentBatch = bindResultImages([
+    const secondBatch = bindResultImages([
       buildPassedResult(0, [SCREEN_B.fileName]),
       buildPassedResult(1, [SCREEN_B.fileName]),
       buildPassedResult(2, [SCREEN_B.fileName]),
     ], [SCREEN_B]);
     const afterSecondBatch = applyCopyTestValidationResults(
       afterFirstBatch,
-      cumulativeResults,
+      secondBatch,
       1,
       'Target',
-      [SCREEN_A, SCREEN_B],
-      currentBatch
+      [SCREEN_B],
+      secondBatch
     );
     const secondBatchEvidenceCells = getOwnedEvidenceCells(afterSecondBatch);
 
     expect(secondBatchEvidenceCells).toHaveLength(1);
     expect(Number(secondBatchEvidenceCells[0].getAttribute('rowspan') || 1)).toBe(3);
-    expect(getEvidenceImageIds(secondBatchEvidenceCells[0])).toEqual([
-      SCREEN_A.fileName,
-      SCREEN_B.fileName,
-    ]);
+    expect(getEvidenceImageIds(secondBatchEvidenceCells[0])).toEqual([SCREEN_B.fileName]);
   });
 
-  it('preserves canonical group IDs and linked selection after ensure and reparse', () => {
+  it('preserves canonical visual group IDs without restoring linked selection', () => {
     const working = buildNoBlankWorkingTable();
     const currentBatch = bindResultImages([
       buildPassedResult(0, [SCREEN_A.fileName]),
@@ -301,8 +294,53 @@ describe('CopyTest dynamic Evidence integration', () => {
     const context = getCopyTestColumnContext(ensured, 1);
 
     expect(context?.rowGroups.map(group => group.evidenceGroupId)).toEqual([0, 0, 0]);
-    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [1])).toEqual([0, 1, 2]);
-    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [])).toEqual([]);
+    expect(context?.selectionRowGroups.map(group => group.evidenceGroupId)).toEqual([0, 1, 2]);
+    expect(normalizeCopyTestSelectedRowIndexes(context?.selectionRowGroups || [], [1])).toEqual([1]);
+    expect(normalizeCopyTestSelectedRowIndexes(context?.selectionRowGroups || [], [])).toEqual([]);
+  });
+
+  it('revalidates one row independently and replans its touched dynamic group', () => {
+    const working = buildNoBlankWorkingTable();
+    const firstBatch = bindResultImages([
+      buildPassedResult(0, [SCREEN_A.fileName]),
+      buildPassedResult(1, [SCREEN_A.fileName]),
+      buildPassedResult(2, [SCREEN_A.fileName]),
+    ], [SCREEN_A]);
+    const merged = applyCopyTestValidationResults(
+      working,
+      firstBatch,
+      1,
+      'Target',
+      [SCREEN_A],
+      firstBatch
+    );
+    const overwrittenResults = bindResultImages([
+      buildPassedResult(0, [SCREEN_A.fileName]),
+      buildPassedResult(1, [SCREEN_B.fileName]),
+      buildPassedResult(2, [SCREEN_A.fileName]),
+    ], [SCREEN_A, SCREEN_B]);
+    const currentBatch = bindResultImages([
+      buildPassedResult(1, [SCREEN_B.fileName]),
+    ], [SCREEN_B]);
+    const revalidated = applyCopyTestValidationResults(
+      merged,
+      overwrittenResults,
+      1,
+      'Target',
+      [SCREEN_A, SCREEN_B],
+      currentBatch
+    );
+    const evidenceCells = getOwnedEvidenceCells(revalidated);
+
+    expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1)))
+      .toEqual([1, 1, 1]);
+    expect(evidenceCells.map(getEvidenceImageIds)).toEqual([
+      [SCREEN_A.fileName],
+      [SCREEN_B.fileName],
+      [SCREEN_A.fileName],
+    ]);
+    expect(buildCopyTestRowGroups(revalidated, 1).map(group => group.evidenceGroupId))
+      .toEqual([0, 1, 2]);
   });
 
   it('does not merge across a row missing from the current batch', () => {
@@ -365,7 +403,8 @@ describe('CopyTest dynamic Evidence integration', () => {
     const evidenceCells = getOwnedEvidenceCells(ensured);
 
     expect(context?.rowGroups.map(group => group.evidenceGroupId)).toEqual([0, 0, 2]);
-    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [1])).toEqual([0, 1]);
+    expect(context?.selectionRowGroups.map(group => group.evidenceGroupId)).toEqual([0, 1, 2]);
+    expect(normalizeCopyTestSelectedRowIndexes(context?.selectionRowGroups || [], [1])).toEqual([1]);
     expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1)))
       .toEqual([2, 1]);
     expect(getEvidenceImageIds(evidenceCells[0])).toEqual([SCREEN_A.fileName]);
@@ -462,6 +501,9 @@ describe('CopyTest dynamic Evidence integration', () => {
     const finalEvidenceCells = getOwnedEvidenceCells(finalImported);
     expect(getCopyTestColumnContext(finalImported, 1)?.rowGroups.map(group => group.evidenceGroupId))
       .toEqual([0, 0, 0, 3, 3]);
+    expect(getCopyTestColumnContext(finalImported, 1)?.selectionRowGroups.map(group => {
+      return group.evidenceGroupId;
+    })).toEqual([0, 1, 2, 3, 4]);
     expect(finalEvidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1)))
       .toEqual([3, 2]);
     expect(getEvidenceImageIds(finalEvidenceCells[0])).toEqual([SCREEN_A.fileName]);

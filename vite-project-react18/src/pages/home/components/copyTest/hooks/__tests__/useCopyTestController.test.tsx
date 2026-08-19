@@ -288,7 +288,7 @@ describe('useCopyTestController', () => {
     expect(result.current.tableState.getCurrentPreviewImages()).toEqual([betaImage]);
   });
 
-  it('appends each batch winner and ignores an uploaded image with repeated content', async () => {
+  it('keeps only the latest batch winner even when its content repeats', async () => {
     hoisted.storageApi.mockResolvedValue({ storage: storageHtml });
     hoisted.attachmentsApi.mockResolvedValue({ images: [] });
     hoisted.uuid
@@ -343,12 +343,12 @@ describe('useCopyTestController', () => {
     expect(hoisted.validationApi.mock.calls[2][0].map(
       (uploadedImage: { fileName: string }) => uploadedImage.fileName
     )).toEqual(['uuid-c.png']);
-    expect(result.current.tableState.selectedTable?.workingHtml).toContain('uuid-a.png');
-    expect(result.current.tableState.selectedTable?.workingHtml).toContain('uuid-b.png');
-    expect(result.current.tableState.selectedTable?.workingHtml).not.toContain('uuid-c.png');
+    expect(result.current.tableState.selectedTable?.workingHtml).not.toContain('uuid-a.png');
+    expect(result.current.tableState.selectedTable?.workingHtml).not.toContain('uuid-b.png');
+    expect(result.current.tableState.selectedTable?.workingHtml).toContain('uuid-c.png');
     expect(result.current.tableState.getCurrentValidationImages().map(
       uploadedImage => uploadedImage.fileName
-    )).toEqual(['uuid-a.png', 'uuid-b.png']);
+    )).toEqual(['uuid-c.png']);
   });
 
   it('locks Result status changes throughout Confluence export preparation', async () => {

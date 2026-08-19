@@ -35,6 +35,12 @@ const thirdImage = {
   fileName: 'screen-c.png',
   originalFileName: '第三批截图.PNG',
 };
+/** 覆盖已导入首行 winner 的新图片。 */
+const replacementImage = {
+  base64: 'data:image/png;base64,SktM',
+  fileName: 'screen-d.png',
+  originalFileName: 'Replacement.png',
+};
 const storageHtml = [
   '<table>',
   '<tr><th>Reference</th><th>Target</th></tr>',
@@ -211,7 +217,7 @@ describe('useCopyTestSession', () => {
     expect(result.current.selectedColumnIndex).toBeUndefined();
   });
 
-  it('appends A/B/C batch winners in order and preserves them for an empty batch', () => {
+  it('keeps only the latest batch winner and clears it for an empty result', () => {
     const { result } = renderHook(() => useCopyTestSession());
     act(() => {
       result.current.applyLoadedStorage(storageHtml);
@@ -241,32 +247,23 @@ describe('useCopyTestSession', () => {
       result.current.selectedTable?.workingHtml || '',
       'text/html'
     );
-    expect(getEvidenceImageIds(afterSecondBatchDocument)).toEqual([
-      image.fileName,
-      secondImage.fileName,
-    ]);
+    expect(getEvidenceImageIds(afterSecondBatchDocument)).toEqual([secondImage.fileName]);
     expect(getStatusGroupImageIds(
       afterSecondBatchDocument,
       COPY_TEST_RESULT_PASSED_GROUP_VALUE
-    )).toEqual([image.fileName]);
+    )).toEqual([]);
     expect(getStatusGroupImageIds(
       afterSecondBatchDocument,
       COPY_TEST_RESULT_FAILED_GROUP_VALUE
     )).toEqual([secondImage.fileName]);
-    expect(getEvidenceScreenLabels(afterSecondBatchDocument)).toEqual([
-      'This is just test',
-      'Second upload',
-    ]);
-    expect(getResultScreenLabels(afterSecondBatchDocument)).toEqual([
-      'This is just test',
-      'Second upload',
-    ]);
+    expect(getEvidenceScreenLabels(afterSecondBatchDocument)).toEqual(['Second upload']);
+    expect(getResultScreenLabels(afterSecondBatchDocument)).toEqual(['Second upload']);
     expect(afterSecondBatchDocument.querySelector(
       `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="${secondImage.fileName}"]`
     )?.textContent).toContain('Second screenshot differs.');
-    expect(result.current.getCurrentValidationImages()).toEqual([image, secondImage]);
+    expect(result.current.getCurrentValidationImages()).toEqual([secondImage]);
 
-    /** 第三批唯一 winner 继续按历史顺序追加。 */
+    /** 第三批唯一 winner 覆盖第二批。 */
     act(() => {
       result.current.applyValidationResults([{
         evidenceImageFileNames: [thirdImage.fileName],
@@ -280,31 +277,19 @@ describe('useCopyTestSession', () => {
       result.current.selectedTable?.workingHtml || '',
       'text/html'
     );
-    expect(getEvidenceImageIds(afterThirdBatchDocument)).toEqual([
-      image.fileName,
-      secondImage.fileName,
-      thirdImage.fileName,
-    ]);
+    expect(getEvidenceImageIds(afterThirdBatchDocument)).toEqual([thirdImage.fileName]);
     expect(getStatusGroupImageIds(
       afterThirdBatchDocument,
       COPY_TEST_RESULT_PASSED_GROUP_VALUE
-    )).toEqual([image.fileName, thirdImage.fileName]);
+    )).toEqual([thirdImage.fileName]);
     expect(getStatusGroupImageIds(
       afterThirdBatchDocument,
       COPY_TEST_RESULT_FAILED_GROUP_VALUE
-    )).toEqual([secondImage.fileName]);
-    expect(getEvidenceScreenLabels(afterThirdBatchDocument)).toEqual([
-      'This is just test',
-      'Second upload',
-      '第三批截图',
-    ]);
-    expect(result.current.getCurrentValidationImages()).toEqual([
-      image,
-      secondImage,
-      thirdImage,
-    ]);
+    )).toEqual([]);
+    expect(getEvidenceScreenLabels(afterThirdBatchDocument)).toEqual(['第三批截图']);
+    expect(result.current.getCurrentValidationImages()).toEqual([thirdImage]);
 
-    /** 本批没有相关 Evidence 时，保留全部历史 winner。 */
+    /** 本批没有 Evidence 时覆盖并清空目标行。 */
     act(() => {
       result.current.applyValidationResults([{
         evidenceImageFileNames: [],
@@ -318,22 +303,14 @@ describe('useCopyTestSession', () => {
       result.current.selectedTable?.workingHtml || '',
       'text/html'
     );
-    expect(getEvidenceImageIds(afterEmptyBatchDocument)).toEqual([
-      image.fileName,
-      secondImage.fileName,
-      thirdImage.fileName,
-    ]);
+    expect(getEvidenceImageIds(afterEmptyBatchDocument)).toEqual([]);
     expect(afterEmptyBatchDocument.body.textContent).not.toContain(
       'Newest screenshot did not match this row.'
     );
-    expect(result.current.getCurrentValidationImages()).toEqual([
-      image,
-      secondImage,
-      thirdImage,
-    ]);
+    expect(result.current.getCurrentValidationImages()).toEqual([]);
   });
 
-  it('preserves historical manual Screen status and issues when a new winner is appended', () => {
+  it('drops historical manual Screen state when a new winner overwrites it', () => {
     const { result } = renderHook(() => useCopyTestSession());
     act(() => {
       result.current.applyLoadedStorage(storageHtml);
@@ -375,27 +352,27 @@ describe('useCopyTestSession', () => {
       }], [secondImage], 1, 'Target', 0);
     });
 
-    const appendedDocument = new DOMParser().parseFromString(
+    const overwrittenDocument = new DOMParser().parseFromString(
       result.current.selectedTable?.workingHtml || '',
       'text/html'
     );
     expect(getStatusGroupImageIds(
-      appendedDocument,
+      overwrittenDocument,
       COPY_TEST_RESULT_PASSED_GROUP_VALUE
-    )).toEqual([image.fileName]);
+    )).toEqual([]);
     expect(getStatusGroupImageIds(
-      appendedDocument,
+      overwrittenDocument,
       COPY_TEST_RESULT_FAILED_GROUP_VALUE
     )).toEqual([secondImage.fileName]);
-    expect(appendedDocument.querySelector(
+    expect(overwrittenDocument.querySelector(
       `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="${secondImage.fileName}"]`
     )?.textContent).toContain('New screenshot issue.');
-    expect(appendedDocument.querySelector(
+    expect(overwrittenDocument.querySelector(
       `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="${image.fileName}"]`
-    )?.textContent).not.toContain('Historical screenshot issue.');
-    expect(result.current.getCurrentValidationImages()).toEqual([image, secondImage]);
+    )).toBeNull();
+    expect(result.current.getCurrentValidationImages()).toEqual([secondImage]);
 
-    /** 旧 winner 的稳定实例仍可独立移回 Failed，并恢复原问题。 */
+    /** 已被覆盖的旧 winner 不再接受状态更新。 */
     act(() => {
       expect(result.current.setResultStatus({
         imageId: image.fileName,
@@ -405,19 +382,8 @@ describe('useCopyTestSession', () => {
         rowIndex: 0,
         sourceColumnKey: '1:Target',
         tableIndex: 0,
-      })).toBe(true);
+      })).toBe(false);
     });
-    const restoredDocument = new DOMParser().parseFromString(
-      result.current.selectedTable?.workingHtml || '',
-      'text/html'
-    );
-    expect(getStatusGroupImageIds(
-      restoredDocument,
-      COPY_TEST_RESULT_FAILED_GROUP_VALUE
-    )).toEqual([image.fileName, secondImage.fileName]);
-    expect(restoredDocument.querySelector(
-      `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}="${image.fileName}"]`
-    )?.textContent).toContain('Historical screenshot issue.');
   });
 
   it('moves the singleton Screen, rejects invalid identities, and restores its failure details', () => {
@@ -724,6 +690,49 @@ describe('useCopyTestSession', () => {
     expect(result.current.buildSelectedRowsForValidation()).toEqual(expectedValidationRows);
   });
 
+  it('overwrites a linked group with one latest Evidence image', () => {
+    const { result } = renderHook(() => useCopyTestSession());
+    act(() => {
+      result.current.applyLoadedStorage(blankSeparatedStorageHtml);
+    });
+    act(() => {
+      result.current.handleComparisonColumnChange(1);
+    });
+    act(() => {
+      result.current.setSelectedRowIndexes([1]);
+    });
+    act(() => {
+      result.current.applyValidationResults([1, 2].map(rowIndex => ({
+        evidenceImageFileNames: [image.fileName],
+        evidenceImages: [image],
+        languageIssues: [],
+        passed: true,
+        rowIndex,
+      })), [image], 1, 'Target', 0);
+    });
+    act(() => {
+      result.current.applyValidationResults([1, 2].map(rowIndex => ({
+        evidenceImageFileNames: [secondImage.fileName],
+        evidenceImages: [secondImage],
+        languageIssues: [],
+        passed: true,
+        rowIndex,
+      })), [secondImage], 1, 'Target', 0);
+    });
+
+    const document = new DOMParser().parseFromString(
+      result.current.selectedTable?.workingHtml || '',
+      'text/html'
+    );
+    const evidenceImage = document.querySelector(
+      `[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}="${secondImage.fileName}"]`
+    );
+    expect(getEvidenceImageIds(document)).toEqual([secondImage.fileName]);
+    expect(evidenceImage?.closest('td')?.getAttribute('rowspan')).toBe('2');
+    expect(getResultScreenLabels(document)).toEqual(['Second upload', 'Second upload']);
+    expect(result.current.getCurrentValidationImages()).toEqual([secondImage]);
+  });
+
   it('keeps rowspan atoms independently selectable when the column has no blank boundary', () => {
     const { result } = renderHook(() => useCopyTestSession());
     act(() => {
@@ -760,7 +769,36 @@ describe('useCopyTestSession', () => {
     ]);
   });
 
-  it('does not restore an empty historical row while appending to the validated row', () => {
+  it('does not restore linked selection from a persisted no-blank dynamic merge', () => {
+    const { result } = renderHook(() => useCopyTestSession());
+    act(() => {
+      result.current.applyLoadedStorage(middleMergedStorageHtml);
+    });
+    act(() => {
+      result.current.handleComparisonColumnChange(1);
+    });
+    act(() => {
+      result.current.applyValidationResults([0, 1].map(rowIndex => ({
+        evidenceImageFileNames: [secondImage.fileName],
+        evidenceImages: [secondImage],
+        languageIssues: [],
+        passed: true,
+        rowIndex,
+      })), [secondImage], 1, 'Target', 0);
+    });
+    act(() => {
+      result.current.setSelectedRowIndexes([1]);
+    });
+
+    expect(result.current.selectedColumnContext?.rowGroups.map(group => group.evidenceGroupId))
+      .toEqual([0, 0, 3]);
+    expect(result.current.selectedRowIndexes).toEqual([1]);
+    expect(result.current.buildSelectedRowsForValidation()).toEqual([
+      { evidenceGroupId: 1, expected: 'copy 2 and 3', rowIndex: 1 },
+    ]);
+  });
+
+  it('overwrites the validated imported row without restoring an empty historical row', () => {
     /** 先提交同时包含无图失败结果和有图通过结果的 AI 响应。 */
     const generated = renderHook(() => useCopyTestSession());
     act(() => {
@@ -808,15 +846,15 @@ describe('useCopyTestSession', () => {
       }], [secondImage], 1, 'Target', 0);
     });
 
-    /** 仅追加第二个独立原子组，不恢复首组的无图历史 Result。 */
+    /** 只保留第二个独立原子组的本轮 winner，不恢复无图历史 Result。 */
     const updatedHtml = imported.result.current.selectedTable?.workingHtml || '';
     expect(updatedHtml).not.toContain('Historical missing copy');
-    expect(updatedHtml).toContain('screen-a.png');
+    expect(updatedHtml).not.toContain('screen-a.png');
     expect(updatedHtml).toContain('screen-b.png');
-    expect(imported.result.current.getCurrentValidationImages()).toEqual([image, secondImage]);
+    expect(imported.result.current.getCurrentValidationImages()).toEqual([secondImage]);
   });
 
-  it('preserves independent atom winners and rowspans during partial validation after import', () => {
+  it('overwrites only the selected imported atom and preserves other winners and rowspans', () => {
     /** 先为四个物理行、三个来源原子组生成完整校验结果。 */
     const generated = renderHook(() => useCopyTestSession());
     act(() => {
@@ -866,22 +904,22 @@ describe('useCopyTestSession', () => {
 
     act(() => {
       imported.result.current.applyValidationResults([{
-        evidenceImageFileNames: [],
-        evidenceImages: [],
-        languageIssues: ['Updated first row only'],
-        passed: false,
+        evidenceImageFileNames: [replacementImage.fileName],
+        evidenceImages: [replacementImage],
+        languageIssues: [],
+        passed: true,
         rowIndex: 0,
-      }], [], 1, 'Target', 0);
+      }], [replacementImage], 1, 'Target', 0);
     });
 
-    /** 本次首行无新 Evidence，三个独立原子组的历史 winner 均保留。 */
+    /** 首行被新 winner 覆盖，其他独立原子组保持历史。 */
     const updatedHtml = imported.result.current.selectedTable?.workingHtml || '';
-    expect(updatedHtml).not.toContain('Updated first row only');
-    expect(updatedHtml).toContain('screen-a.png');
+    expect(updatedHtml).not.toContain('screen-a.png');
     expect(updatedHtml).toContain('screen-b.png');
     expect(updatedHtml).toContain('screen-c.png');
+    expect(updatedHtml).toContain('screen-d.png');
     expect(imported.result.current.getCurrentValidationImages()).toEqual([
-      image,
+      replacementImage,
       secondImage,
       thirdImage,
     ]);

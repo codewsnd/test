@@ -29,7 +29,7 @@ import {
   type CopyTestGeneratedColumnType,
 } from './tableModel';
 import {
-  buildCopyTestRowGroups,
+  buildCopyTestValidationRowGroups,
   refreshWorkingTable,
   type CopyTestRowGroup,
   type CopyTestWorkingTable,
@@ -623,7 +623,7 @@ export const buildEvidenceGroups = (
 };
 
 /** 将最终 Evidence 结构组 ID 写入始终保持原子跨度的 managed Result 单元格。 */
-const writeEvidenceGroupMetadata = (
+export const writeEvidenceGroupMetadata = (
   doc: Document,
   context: GeneratedColumnContext,
   rowGroups: CopyTestRowGroup[],
@@ -861,8 +861,12 @@ export const applyCopyTestValidationResults = (
     table,
     toConfluenceStorageHtml(context.tableElement.outerHTML)
   );
-  /** 当前 Comparison Column 按来源 rowspan 划分的原子行组。 */
-  const rowGroups = buildCopyTestRowGroups(restoredTable, selectedColumnIndex);
+  /** 本轮触及的动态连通块回到来源基础组，其他已持久化布局保持不变。 */
+  const rowGroups = buildCopyTestValidationRowGroups(
+    restoredTable,
+    selectedColumnIndex,
+    currentResults.map(result => result.rowIndex)
+  );
   /** 逐行关系经过图片顺序与连续性规则计算出的全部 Evidence 组。 */
   const evidenceGroups = buildEvidenceGroups(
     rowGroups,

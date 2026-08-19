@@ -129,15 +129,15 @@ type ValidationResultSnapshotMap = Record<string, CopyTestValidationResultWithEv
 /** 未产生校验图片时复用稳定空数组。 */
 const EMPTY_VALIDATION_IMAGES: CopyTestImage[] = [];
 
-/** 构建局部校验合并快照所需的上下文。 */
-interface BuildMergedValidationSnapshotParams {
+/** 构建局部校验覆盖快照所需的上下文。 */
+interface BuildOverwrittenValidationSnapshotParams {
   /** 当前 Comparison Column 的逻辑列下标。 */
   columnIndex: number;
   /** 当前 Comparison Column 的原始表头文本。 */
   columnLabel: string;
   /** 本次 Validate 实际可用的内存图片。 */
   currentImages: CopyTestImage[];
-  /** 本次 Validate 返回且应追加到同 rowIndex 历史 Evidence 的结果。 */
+  /** 本次 Validate 返回且应覆盖同 rowIndex 历史 Result/Evidence 的结果。 */
   currentResults: CopyTestValidationResultWithEvidence[];
   /** 最近一次导入时成功加载的 Evidence 图片。 */
   importedImages: CopyTestImage[];
@@ -228,128 +228,8 @@ const getManagedPairPreviewImages = (
   return images.filter(image => fileNames.has(image.fileName));
 };
 
-/** 把行级 AI 结果投影为可独立往返的逐 Screen 状态。 */
-const buildCopyTestScreenStatuses = (
-  result: CopyTestValidationResultWithEvidence,
-  fileNames = result.evidenceImageFileNames
-): NonNullable<CopyTestValidationResultWithEvidence['screenStatuses']> => {
-  /** 已持久化的人工 Screen 状态索引。 */
-  const statusByImageId = new Map(
-    (result.screenStatuses || []).map(status => [status.imageId, status])
-  );
-  return fileNames.map(imageId => {
-    return statusByImageId.get(imageId) || {
-      imageId,
-      languageIssues: result.languageIssues,
-      passed: result.passed,
-    };
-  });
-};
-
-/** 读取结果中与附件文件名对应的已绑定图片。 */
-const findResultImage = (
-  result: CopyTestValidationResultWithEvidence,
-  fileName: string
-): CopyTestImage | undefined => {
-  return result.evidenceImages.find(image => image.fileName === fileName);
-};
-
-/** 判断本批图片是否与同行历史 Evidence 共享文件名或非空内容。 */
-const hasHistoricalEvidenceIdentity = (
-  historicalFileNames: string[],
-  historicalImages: CopyTestImage[],
-  currentResult: CopyTestValidationResultWithEvidence,
-  currentFileName: string
-): boolean => {
-  if (historicalFileNames.includes(currentFileName)) {
-    return true;
-  }
-  /** 本批附件已绑定的实际内容。 */
-  const currentImage = findResultImage(currentResult, currentFileName);
-  if (!currentImage || !hasCopyTestImageContent(currentImage)) {
-    return false;
-  }
-  return historicalImages.some(image => {
-    return hasCopyTestImageContent(image) && image.base64 === currentImage.base64;
-  });
-};
-
-/** 按模型顺序读取本批真正新增的 Evidence 文件名。 */
-const getUniqueCurrentEvidenceFileNames = (
-  historicalResult: CopyTestValidationResultWithEvidence,
-  currentResult: CopyTestValidationResultWithEvidence
-): string[] => {
-  /** 参与本批内部去重的已接受文件名。 */
-  const acceptedFileNames = [...historicalResult.evidenceImageFileNames];
-  /** 参与非空 base64 去重的已接受图片。 */
-  const acceptedImages = [...historicalResult.evidenceImages];
-  return currentResult.evidenceImageFileNames.filter(fileName => {
-    if (hasHistoricalEvidenceIdentity(
-      acceptedFileNames,
-      acceptedImages,
-      currentResult,
-      fileName
-    )) {
-      return false;
-    }
-    acceptedFileNames.push(fileName);
-    /** 本批唯一 winner 实际绑定的图片。 */
-    const image = findResultImage(currentResult, fileName);
-    if (image) {
-      acceptedImages.push(image);
-    }
-    return true;
-  });
-};
-
-/** 合并逐 Screen 问题并保持首次出现顺序。 */
-const mergeScreenLanguageIssues = (
-  statuses: NonNullable<CopyTestValidationResultWithEvidence['screenStatuses']>
-): string[] => {
-  return Array.from(new Set(statuses.flatMap(status => status.languageIssues)));
-};
-
-/** 把本批唯一 Evidence 追加到同一来源行，并忽略重复图片。 */
-const mergeCopyTestValidationRowResult = (
-  historicalResult: CopyTestValidationResultWithEvidence,
-  currentResult: CopyTestValidationResultWithEvidence
-): CopyTestValidationResultWithEvidence => {
-  if (currentResult.evidenceImageFileNames.length === 0) {
-    return historicalResult;
-  }
-  /** 本批按文件名或非空内容去重后仍需追加的 Evidence。 */
-  const currentFileNames = getUniqueCurrentEvidenceFileNames(
-    historicalResult,
-    currentResult
-  );
-  if (currentFileNames.length === 0) {
-    return historicalResult;
-  }
-  /** 历史人工状态与本批 AI 状态组成的完整 Screen 序列。 */
-  const screenStatuses = [
-    ...buildCopyTestScreenStatuses(historicalResult),
-    ...buildCopyTestScreenStatuses(currentResult, currentFileNames),
-  ];
-  /** 本批新增文件名快速索引。 */
-  const currentFileNameSet = new Set(currentFileNames);
-  return {
-    ...currentResult,
-    evidenceImageFileNames: [
-      ...historicalResult.evidenceImageFileNames,
-      ...currentFileNames,
-    ],
-    evidenceImages: [
-      ...historicalResult.evidenceImages,
-      ...currentResult.evidenceImages.filter(image => currentFileNameSet.has(image.fileName)),
-    ],
-    languageIssues: mergeScreenLanguageIssues(screenStatuses),
-    passed: screenStatuses.some(status => status.passed),
-    screenStatuses,
-  };
-};
-
-/** 按 rowIndex 合并本次与历史结果，并保持物理数据行顺序。 */
-const mergeCopyTestValidationResults = (
+/** 按 rowIndex 用本次结果覆盖历史结果，并保持物理数据行顺序。 */
+const overwriteCopyTestValidationResults = (
   historicalResults: CopyTestValidationResultWithEvidence[],
   currentResults: CopyTestValidationResultWithEvidence[]
 ): CopyTestValidationResultWithEvidence[] => {
@@ -357,14 +237,7 @@ const mergeCopyTestValidationResults = (
   const resultByRowIndex = new Map<number, CopyTestValidationResultWithEvidence>();
   historicalResults.forEach(result => resultByRowIndex.set(result.rowIndex, result));
   currentResults.forEach(result => {
-    /** 同一业务行从 working DOM 恢复出的历史结果。 */
-    const historicalResult = resultByRowIndex.get(result.rowIndex);
-    resultByRowIndex.set(
-      result.rowIndex,
-      historicalResult
-        ? mergeCopyTestValidationRowResult(historicalResult, result)
-        : result
-    );
+    resultByRowIndex.set(result.rowIndex, result);
   });
   return Array.from(resultByRowIndex.values()).sort(
     /** 按业务数据行下标恢复从上到下的稳定顺序。 */
@@ -372,15 +245,15 @@ const mergeCopyTestValidationResults = (
   );
 };
 
-/** 读取合并结果仍实际引用的全部 Evidence 文件名。 */
+/** 读取当前结果仍实际引用的全部 Evidence 文件名。 */
 const getReferencedValidationImageFileNames = (
   results: CopyTestValidationResultWithEvidence[]
 ): Set<string> => {
   return new Set(results.flatMap(result => result.evidenceImageFileNames));
 };
 
-/** 从 working DOM 恢复历史结果，并用本批唯一 Evidence 构建完整快照。 */
-const buildMergedValidationSnapshot = ({
+/** 从 working DOM 恢复历史结果，并用本批结果覆盖目标行。 */
+const buildOverwrittenValidationSnapshot = ({
   columnIndex,
   columnLabel,
   currentImages,
@@ -388,34 +261,37 @@ const buildMergedValidationSnapshot = ({
   importedImages,
   previousImages,
   table,
-}: BuildMergedValidationSnapshotParams): CopyTestValidationSnapshot => {
+}: BuildOverwrittenValidationSnapshotParams): CopyTestValidationSnapshot => {
   /** working DOM 中当前仍真实存在的历史 Result/Evidence 关系。 */
   const historicalSnapshot = hydrateCopyTestValidationSnapshot(
     table,
     columnIndex,
     columnLabel
   );
-  /** 用已有内存内容补齐 DOM 恢复出的轻量图片身份。 */
+  /** 本轮图片优先，再用已有内存内容补齐 DOM 恢复出的轻量图片身份。 */
   const availableImages = mergeCopyTestImageIdentities(
+    currentImages,
     historicalSnapshot?.images || [],
     previousImages,
-    importedImages,
-    currentImages
+    importedImages
   );
   /** 重新绑定真实图片后的历史逐行结果。 */
   const historicalResults = bindResultImages(
     historicalSnapshot?.results || [],
     availableImages
   );
-  /** 本批有命中时追加历史 Evidence 后的完整逐行结果。 */
-  const mergedResults = mergeCopyTestValidationResults(historicalResults, currentResults);
+  /** 本批结果覆盖同行历史后的完整逐行结果。 */
+  const overwrittenResults = overwriteCopyTestValidationResults(
+    historicalResults,
+    currentResults
+  );
   /** 完整结果当前仍实际引用的 Evidence 文件名。 */
-  const referencedFileNames = getReferencedValidationImageFileNames(mergedResults);
+  const referencedFileNames = getReferencedValidationImageFileNames(overwrittenResults);
   /** 仅保存仍被结果引用的图片，并优先沿用真实 base64。 */
-  const mergedImages = availableImages.filter(image => referencedFileNames.has(image.fileName));
+  const referencedImages = availableImages.filter(image => referencedFileNames.has(image.fileName));
   return {
-    images: mergedImages,
-    results: bindResultImages(mergedResults, mergedImages),
+    images: referencedImages,
+    results: bindResultImages(overwrittenResults, referencedImages),
   };
 };
 
@@ -750,8 +626,8 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
 
     /** 当前表格与来源列共用的校验快照键。 */
     const snapshotKey = buildSnapshotKey(tableIndex, columnIndex, columnLabel);
-    /** working DOM 历史与本次局部结果合并后的完整 Pair 快照。 */
-    const mergedSnapshot = buildMergedValidationSnapshot({
+    /** working DOM 历史由本次局部结果覆盖后的完整 Pair 快照。 */
+    const overwrittenSnapshot = buildOverwrittenValidationSnapshot({
       columnIndex,
       columnLabel,
       currentImages: images,
@@ -764,13 +640,13 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
       previousImages: validationImageSnapshotsRef.current[snapshotKey] || [],
       table: targetTable,
     });
-    /** 写入完整合并校验结果后的工作表格。 */
+    /** 写入完整覆盖校验结果后的工作表格。 */
     const nextTable = applyCopyTestValidationResults(
       targetTable,
-      mergedSnapshot.results,
+      overwrittenSnapshot.results,
       columnIndex,
       columnLabel,
-      mergedSnapshot.images,
+      overwrittenSnapshot.images,
       results
     );
     /** 以 Planner 已写入的规范 Screen 身份作为快照唯一真相。 */
@@ -778,7 +654,7 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
       nextTable,
       columnIndex,
       columnLabel,
-      mergedSnapshot.images
+      overwrittenSnapshot.images
     );
     /** 校验结果即使为空也必须作为可回写的 Pair 变更保存。 */
     const pendingExportPairKey = buildPendingExportPairKey(
@@ -942,9 +818,9 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
 
   /** 更新当前选中的来源原子组首行。 */
   const setSelectedRowIndexes = (value: number[]): void => {
-    /** 将组内任意行统一映射到来源原子组锚点的规范化下标。 */
+    /** 只按来源空行 Group 规范化，不恢复持久化动态组的联动选择。 */
     const normalizedRowIndexes = normalizeCopyTestSelectedRowIndexes(
-      selectedColumnContext?.rowGroups || [],
+      selectedColumnContext?.selectionRowGroups || [],
       value
     );
     dispatch({ selectedRowIndexes: normalizedRowIndexes, type: 'ROWS_SELECTED' });

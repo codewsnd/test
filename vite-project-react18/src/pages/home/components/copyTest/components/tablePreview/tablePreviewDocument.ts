@@ -2,7 +2,7 @@
  * 文件作用：把 working table HTML 转换为可交互的安全预览文档副本。
  */
 import {
-  buildCopyTestEvidenceSections,
+  buildBaseCopyTestRowGrouping,
   buildCopyTestRowGroups,
   findGeneratedColumnIndexes,
   getSelectableCopyTestRowIndexes,
@@ -45,6 +45,7 @@ import {
   PREVIEW_DOCUMENT_STYLE,
   PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE,
   PREVIEW_FIXED_WIDTH_TABLE_ATTRIBUTE,
+  PREVIEW_GROUPED_SELECTION_COLUMN_WIDTH,
   PREVIEW_HEADER_COLUMN_ROLE,
   PREVIEW_IMAGE_ALT_ATTRIBUTE,
   PREVIEW_IMAGE_ID_ATTRIBUTE,
@@ -64,6 +65,8 @@ import {
   RESULT_STATUS_SOURCE_COLUMN_KEY_ATTRIBUTE,
   SELECTION_CHECKBOX_ATTRIBUTE,
   SELECTION_COLUMN_ATTRIBUTE,
+  SELECTION_GROUP_LABEL_ATTRIBUTE,
+  SELECTION_GROUP_MODE_ATTRIBUTE,
   SELECTION_ROW_INDEXES_ATTRIBUTE,
   SELECTION_SELECTABLE_ATTRIBUTE,
   SELECTION_SELECT_ALL_ATTRIBUTE,
@@ -237,9 +240,13 @@ const applyPreviewColumnWidths = (
   const definitions = getPreviewBusinessColumnIndexes(table, visibleColumnIndexes)
     .map(columnIndex => getPreviewColumnDefinition(table, columnIndex));
   if (equalBusinessColumns) {
+    /** Group 标签模式需要为选择列保留额外文本宽度。 */
+    const selectionColumnWidth = tableElement.hasAttribute(SELECTION_GROUP_MODE_ATTRIBUTE)
+      ? PREVIEW_GROUPED_SELECTION_COLUMN_WIDTH
+      : PREVIEW_SELECTION_COLUMN_WIDTH;
     definitions.unshift({
       role: PREVIEW_SELECTION_COLUMN_ROLE,
-      width: PREVIEW_SELECTION_COLUMN_WIDTH,
+      width: selectionColumnWidth,
     });
   }
 
@@ -268,16 +275,40 @@ const getSelectableAnchorRowIndexes = (
   return getSelectableCopyTestRowIndexes(table, selectedColumnIndex);
 };
 
-/** 为每个非空原子组锚点建立其 Evidence section 全部成员锚点索引。 */
-const buildEvidenceSectionSelectionIndex = (
+/** 单个非空原子锚点对应的选择范围和可见组名。 */
+interface EvidenceSectionSelection {
+  /** 当前 Evidence section 的顺序显示名；无联动分组时不展示。 */
+  groupLabel?: string;
+  /** 当前 section 内全部可选择业务锚点。 */
+  rowIndexes: number[];
+}
+
+/** 当前列选择范围索引和 Group 标签显示状态。 */
+interface EvidenceSectionSelectionContext {
+  /** 来源列中存在“非空块 / 空行 / 非空块”固定分组。 */
+  showGroupLabels: boolean;
+  /** 每个非空原子组锚点到其 section 选择信息的索引。 */
+  selectionByAnchor: Map<number, EvidenceSectionSelection>;
+}
+
+/** 为每个非空原子组锚点建立其 Evidence section 选择信息。 */
+const buildEvidenceSectionSelectionContext = (
   table: CopyTestTableEntry,
   selectedColumnIndex: number
-): Map<number, number[]> => {
-  return new Map(buildCopyTestEvidenceSections(table, selectedColumnIndex).flatMap(section => {
+): EvidenceSectionSelectionContext => {
+  /** checkbox 只使用来源空行基础结构，不恢复动态合并的联动选择。 */
+  const grouping = buildBaseCopyTestRowGrouping(table, selectedColumnIndex);
+  const sections = grouping.evidenceSections;
+  const showGroupLabels = grouping.hasBlankSeparatedGroups;
+  const selectionByAnchor = new Map(sections.flatMap((section, sectionIndex) => {
     return section.rowGroups.map(rowGroup => {
-      return [rowGroup.anchorRowIndex, section.dataRowIndexes] as const;
+      return [rowGroup.anchorRowIndex, {
+        groupLabel: showGroupLabels ? `Group ${sectionIndex + 1}` : undefined,
+        rowIndexes: section.dataRowIndexes,
+      }] as const;
     });
   }));
+  return { selectionByAnchor, showGroupLabels };
 };
 
 /** 创建选择列 checkbox。 */
@@ -299,10 +330,31 @@ const createSelectionCheckbox = (
   return checkbox;
 };
 
+/** 把 checkbox 与其右侧可选 Group 文本写入选择单元格。 */
+const appendSelectionControl = (
+  doc: Document,
+  cell: HTMLTableCellElement,
+  checkbox: HTMLInputElement,
+  groupLabel?: string
+): void => {
+  if (!groupLabel) {
+    cell.appendChild(checkbox);
+    return;
+  }
+  /** label 保证点击 Group 文本时仍操作对应 checkbox。 */
+  const control = doc.createElement('label');
+  const label = doc.createElement('span');
+  label.setAttribute(SELECTION_GROUP_LABEL_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
+  label.textContent = groupLabel;
+  control.append(checkbox, label);
+  cell.appendChild(control);
+};
+
 /** 创建选择列表头单元格。 */
 const createSelectionHeaderCell = (
   doc: Document,
-  rowIndexes: number[]
+  rowIndexes: number[],
+  showGroupLabel: boolean
 ): HTMLTableCellElement => {
   /** 容纳全选复选框的表头单元格。 */
   const cell = doc.createElement('th');
@@ -314,7 +366,7 @@ const createSelectionHeaderCell = (
   );
   checkbox.setAttribute(SELECTION_SELECT_ALL_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
   cell.setAttribute(SELECTION_COLUMN_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
-  cell.appendChild(checkbox);
+  appendSelectionControl(doc, cell, checkbox, showGroupLabel ? 'Group' : undefined);
   return cell;
 };
 
@@ -323,7 +375,8 @@ const createSelectionDataCell = (
   doc: Document,
   rowIndexes: number[],
   rowSpan: number,
-  selectable: boolean
+  selectable: boolean,
+  groupLabel?: string
 ): HTMLTableCellElement => {
   /** 容纳单行选择框的数据单元格。 */
   const cell = doc.createElement('td');
@@ -333,7 +386,7 @@ const createSelectionDataCell = (
   if (rowSpan > 1) {
     cell.setAttribute('rowspan', String(rowSpan));
   }
-  cell.appendChild(checkbox);
+  appendSelectionControl(doc, cell, checkbox, groupLabel);
   return cell;
 };
 
@@ -355,8 +408,13 @@ const applyPreviewRowSelection = (
 
   /** 当前 Comparison Column 中可选的逻辑行首行。 */
   const selectableRows = getSelectableAnchorRowIndexes(table, selectedColumnIndex);
-  /** 非空 Evidence section 中每个原子锚点到全部成员锚点的索引。 */
-  const selectionRowsByAnchor = buildEvidenceSectionSelectionIndex(table, selectedColumnIndex);
+  /** 非空 Evidence section 的选择范围、顺序组名和显示模式。 */
+  const selectionContext = buildEvidenceSectionSelectionContext(table, selectedColumnIndex);
+  if (selectionContext.showGroupLabels) {
+    tableElement.setAttribute(SELECTION_GROUP_MODE_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
+  } else {
+    tableElement.removeAttribute(SELECTION_GROUP_MODE_ATTRIBUTE);
+  }
   /** 排除嵌套表格后的顶层预览行。 */
   const previewRows = Array.from(tableElement.querySelectorAll<HTMLTableRowElement>('tr'))
     .filter(row => row.closest('table') === tableElement);
@@ -367,7 +425,10 @@ const applyPreviewRowSelection = (
       return;
     }
     if (row.index === 0) {
-      previewRow.insertBefore(createSelectionHeaderCell(doc, selectableRows), previewRow.firstChild);
+      previewRow.insertBefore(
+        createSelectionHeaderCell(doc, selectableRows, selectionContext.showGroupLabels),
+        previewRow.firstChild
+      );
       return;
     }
 
@@ -378,15 +439,16 @@ const applyPreviewRowSelection = (
     }
 
     /** 当前原子组所属 Evidence section 的全部业务锚点。 */
-    const sectionRowIndexes = selectionRowsByAnchor.get(row.index);
+    const sectionSelection = selectionContext.selectionByAnchor.get(row.index);
     /** 空白单元格不属于任何 Evidence section，因此不可选。 */
-    const selectable = sectionRowIndexes !== undefined;
+    const selectable = sectionSelection !== undefined;
     /** 与原始单元格合并范围对齐的选择单元格。 */
     const cell = createSelectionDataCell(
       doc,
-      sectionRowIndexes || [row.index - 1],
+      sectionSelection?.rowIndexes || [row.index - 1],
       slot.cell.rowSpan,
-      selectable
+      selectable,
+      sectionSelection?.groupLabel
     );
     previewRow.insertBefore(cell, previewRow.firstChild);
   });

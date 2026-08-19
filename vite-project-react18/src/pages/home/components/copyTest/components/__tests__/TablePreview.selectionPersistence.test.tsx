@@ -11,6 +11,8 @@ import {
 import {
   PREVIEW_MESSAGE_TYPE,
   SELECTION_CHECKBOX_ATTRIBUTE,
+  SELECTION_GROUP_LABEL_ATTRIBUTE,
+  SELECTION_GROUP_MODE_ATTRIBUTE,
   SELECTION_ROW_INDEXES_ATTRIBUTE,
   SELECTION_SELECT_ALL_ATTRIBUTE,
 } from '../tablePreview/tablePreviewConstants';
@@ -74,6 +76,19 @@ const readRowSelectionPayloads = (doc: Document): string[] => {
   )).map(checkbox => checkbox.getAttribute(SELECTION_ROW_INDEXES_ATTRIBUTE) || '');
 };
 
+/** 按业务行顺序读取 checkbox 右侧的可见 Group 文案。 */
+const readRowGroupLabels = (doc: Document): Array<string | null> => {
+  return Array.from(doc.querySelectorAll<HTMLInputElement>(
+    `[${SELECTION_CHECKBOX_ATTRIBUTE}]:not([${SELECTION_SELECT_ALL_ATTRIBUTE}])`
+  )).map(checkbox => checkbox.nextElementSibling?.textContent || null);
+};
+
+/** 读取全选 checkbox 右侧的表头 Group 文案。 */
+const readHeaderGroupLabel = (doc: Document): string | null => {
+  const checkbox = doc.querySelector<HTMLInputElement>(`[${SELECTION_SELECT_ALL_ATTRIBUTE}]`);
+  return checkbox?.nextElementSibling?.textContent || null;
+};
+
 /** 把静态 srcDoc 内容安装到 happy-dom iframe，供局部 patch 路径测试。 */
 const installFrameDocument = (iframe: HTMLIFrameElement): HTMLElement => {
   const sourceDocument = new DOMParser().parseFromString(
@@ -112,7 +127,7 @@ afterEach(() => {
 });
 
 describe('TablePreview persisted Evidence selection', () => {
-  it('renders every fresh imported row with the persisted dynamic group payload', () => {
+  it('keeps persisted dynamic Evidence rows independently selectable', () => {
     const props = createProps(vi.fn());
     render(
       <TablePreview
@@ -130,13 +145,18 @@ describe('TablePreview persisted Evidence selection', () => {
     );
 
     expect(readRowSelectionPayloads(frameDocument)).toEqual([
-      '[0,1,2]',
-      '[0,1,2]',
-      '[0,1,2]',
+      '[0]',
+      '[1]',
+      '[2]',
     ]);
+    expect(readHeaderGroupLabel(frameDocument)).toBeNull();
+    expect(readRowGroupLabels(frameDocument)).toEqual([null, null, null]);
+    expect(frameDocument.querySelectorAll(`[${SELECTION_GROUP_LABEL_ATTRIBUTE}]`)).toHaveLength(0);
+    expect(frameDocument.querySelector('table')?.hasAttribute(SELECTION_GROUP_MODE_ATTRIBUTE))
+      .toBe(false);
   });
 
-  it('patches a frozen srcDoc to the fresh persisted group and toggles all linked rows', () => {
+  it('patches a frozen srcDoc without restoring persisted selection linkage', () => {
     const onRowsChange = vi.fn();
     const props = createProps(onRowsChange);
     const { rerender } = render(
@@ -154,6 +174,10 @@ describe('TablePreview persisted Evidence selection', () => {
     const scrollRoot = installFrameDocument(iframe);
     fireEvent.load(iframe);
     expect(readRowSelectionPayloads(iframe.contentDocument!)).toEqual(['[0]', '[1]', '[2]']);
+    expect(readHeaderGroupLabel(iframe.contentDocument!)).toBeNull();
+    expect(iframe.contentDocument?.querySelector('table')?.hasAttribute(
+      SELECTION_GROUP_MODE_ATTRIBUTE
+    )).toBe(false);
 
     /** 同一 table/column key 下模拟 Validate/export 后 fresh persisted working table。 */
     rerender(
@@ -170,21 +194,26 @@ describe('TablePreview persisted Evidence selection', () => {
     expect(iframe.contentWindow).toBe(initialFrameWindow);
     expect(iframe.contentDocument?.querySelector('.copy-test-preview-scroll-root')).toBe(scrollRoot);
     expect(readRowSelectionPayloads(iframe.contentDocument!)).toEqual([
-      '[0,1,2]',
-      '[0,1,2]',
-      '[0,1,2]',
+      '[0]',
+      '[1]',
+      '[2]',
     ]);
+    expect(readHeaderGroupLabel(iframe.contentDocument!)).toBeNull();
+    expect(readRowGroupLabels(iframe.contentDocument!)).toEqual([null, null, null]);
+    expect(iframe.contentDocument?.querySelector('table')?.hasAttribute(
+      SELECTION_GROUP_MODE_ATTRIBUTE
+    )).toBe(false);
 
     fireEvent(window, new MessageEvent('message', {
       data: {
         action: 'selection',
         checked: false,
-        rowIndexes: [0, 1, 2],
+        rowIndexes: [1],
         type: PREVIEW_MESSAGE_TYPE,
       },
       origin: window.location.origin,
       source: iframe.contentWindow,
     }));
-    expect(onRowsChange).toHaveBeenCalledWith([]);
+    expect(onRowsChange).toHaveBeenCalledWith([0, 2]);
   });
 });

@@ -26,6 +26,7 @@ import {
   type CopyTestGeneratedColumnType,
 } from './tableModel';
 import {
+  buildBaseCopyTestRowGrouping,
   buildCopyTestRowGroups,
   findGeneratedColumnIndexes,
   getSourceColumnKey,
@@ -52,6 +53,7 @@ import {
   getManagedContentElements,
   normalizeLanguageIssues,
   writeEvidenceCell,
+  writeEvidenceGroupMetadata,
   writeResultCell,
   type CopyTestEvidenceDeleteResult,
   type CopyTestEvidenceDeleteTarget,
@@ -762,6 +764,24 @@ const restoreGeneratedRows = (
   };
 };
 
+/** 将删除目标的当前视觉连通块映射回来源空行基础分组。 */
+const getBaseTargetRowGroups = (
+  table: CopyTestWorkingTable,
+  selectedColumnIndex: number,
+  targetGroup: EvidenceGroup
+): CopyTestRowGroup[] => {
+  /** 目标连通块中每个来源原子的物理锚点。 */
+  const targetAnchorRowIndexes = new Set(
+    targetGroup.sourceRowGroups.map(rowGroup => rowGroup.anchorRowIndex)
+  );
+  /** 忽略 Validate 动态 metadata 后的固定空行分组。 */
+  const baseRowGroups = buildBaseCopyTestRowGrouping(table, selectedColumnIndex).rowGroups
+    .filter(rowGroup => targetAnchorRowIndexes.has(rowGroup.anchorRowIndex));
+  return baseRowGroups.length === targetGroup.sourceRowGroups.length
+    ? baseRowGroups
+    : targetGroup.sourceRowGroups;
+};
+
 /** 仅重投影受删除影响的 Evidence 连通块。 */
 const applyValidationResultsToEvidenceGroup = (
   table: CopyTestWorkingTable,
@@ -777,8 +797,8 @@ const applyValidationResultsToEvidenceGroup = (
     return table;
   }
 
-  /** 目标 Evidence section 的完整来源结构，不因删除后无结果而缩小。 */
-  const rowGroups: CopyTestRowGroup[] = targetGroup.sourceRowGroups;
+  /** 删除后回到来源空行基础结构：固定组保留，动态组拆分。 */
+  const rowGroups = getBaseTargetRowGroups(table, selectedColumnIndex, targetGroup);
   /** 局部恢复 rowspan 后可安全重写目标连通块的上下文。 */
   const context = restoreGeneratedRows(
     ensured.context.tableElement.ownerDocument,
@@ -799,6 +819,7 @@ const applyValidationResultsToEvidenceGroup = (
     }))
   );
   const doc = context.tableElement.ownerDocument;
+  writeEvidenceGroupMetadata(doc, context, rowGroups, evidenceGroups);
   clearUnrenderedRows(doc, context, rowGroups, renderableAnchorRowIndexes);
   evidenceGroups.forEach(evidenceGroup => {
     evidenceGroup.rowGroups.forEach(rowGroup => {

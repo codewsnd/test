@@ -714,12 +714,12 @@ describe('copyTestTableEditor', () => {
       return ensured.model.rows[rowIndex].slots[indexes.evidence!]!.cell.element;
     });
 
-    expect(resultGroupIds).toEqual(['0', '1', null, '3']);
+    expect(resultGroupIds).toEqual(['0', '0', null, '3']);
     expect(buildCopyTestRowGroups(ensured, 0).map(group => group.evidenceGroupId))
-      .toEqual([0, 1, undefined, 3]);
+      .toEqual([0, 0, undefined, 3]);
     expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1)))
-      .toEqual([1, 1, 1, 1]);
-    expect(ensured.model.rows[2].slots[indexes.evidence!]!.owned).toBe(true);
+      .toEqual([2, 2, 1, 1]);
+    expect(ensured.model.rows[2].slots[indexes.evidence!]!.owned).toBe(false);
   });
 
   it('keeps no-blank atomic rows independent with one winner per Evidence cell', () => {
@@ -794,7 +794,7 @@ describe('copyTestTableEditor', () => {
     })).toBe(true);
   });
 
-  it('keeps First and Second grouped across a blank boundary from Fourth after deletion', () => {
+  it('keeps a blank-separated structural Evidence group merged after deleting its winner', () => {
     /** First、Second 连续非空，第三行为空边界，Fourth 属于独立 section。 */
     const table = parseCopyTestStorageTables([
       '<table><tr><th>Target</th></tr>',
@@ -803,6 +803,12 @@ describe('copyTestTableEditor', () => {
       '<tr><td></td></tr>',
       '<tr><td>Fourth</td></tr></table>',
     ].join(''))[0];
+    expect(buildCopyTestRowGroups(table, 0).map(group => group.evidenceGroupId)).toEqual([
+      0,
+      0,
+      undefined,
+      3,
+    ]);
     const results = bindResultImages([
       {
         evidenceImageFileNames: [SCREEN_1.fileName],
@@ -1198,7 +1204,7 @@ describe('copyTestTableEditor', () => {
     )))).toHaveLength(1);
   });
 
-  it('keeps a dynamically merged no-blank group locked after deleting its winner', () => {
+  it('splits a dynamically merged no-blank group after deleting its winner', () => {
     /** 中间两行通过 rowspan 合并为原子组的四行来源表格。 */
     const table = parseCopyTestStorageTables(middleMergedStorageHtml)[0];
     /** 四行来源表格按原子组构造的校验结果。 */
@@ -1259,7 +1265,7 @@ describe('copyTestTableEditor', () => {
 
     /** 首两个原子组共享图片的稳定 ID。 */
     const firstImageId = getCopyTestImageId(SCREEN_1);
-    /** 删除已锁定动态组的共享图片，并保留组 rowspan。 */
+    /** 删除动态组的共享图片，删除后按来源原子拆分。 */
     const deleted = deleteCopyTestEvidenceImage(
       validated,
       { imageId: firstImageId, instanceId: `${sourceKey}:1:${firstImageId}` },
@@ -1283,12 +1289,19 @@ describe('copyTestTableEditor', () => {
     expect(deleted.removed).toBe(true);
     expect(deleted.imageStillUsed).toBe(true);
     expect(evidenceSlots).toEqual([
-      { owned: true, rowSpan: 3 },
-      { owned: false, rowSpan: 3 },
-      { owned: false, rowSpan: 3 },
+      { owned: true, rowSpan: 1 },
+      { owned: true, rowSpan: 2 },
+      { owned: false, rowSpan: 2 },
       { owned: true, rowSpan: 1 },
     ]);
-    expect(buildCopyTestRowGroups(deleted.table, 1).map(group => group.rowSpan)).toEqual([1, 2, 1]);
+    expect(buildCopyTestRowGroups(deleted.table, 1).map(group => ({
+      evidenceGroupId: group.evidenceGroupId,
+      rowSpan: group.rowSpan,
+    }))).toEqual([
+      { evidenceGroupId: 0, rowSpan: 1 },
+      { evidenceGroupId: 1, rowSpan: 2 },
+      { evidenceGroupId: 3, rowSpan: 1 },
+    ]);
     expect(resultCells.map(getResultImageIds)).toEqual([
       [],
       [],
@@ -1298,7 +1311,7 @@ describe('copyTestTableEditor', () => {
       `[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}="${SCREEN_1.fileName}"]`
     )).toHaveLength(1);
     const evidenceCell = deleted.table.model.rows[1].slots[indexes.evidence!]!.cell.element;
-    expect(evidenceCell.getAttribute('rowspan')).toBe('3');
+    expect(Number(evidenceCell.getAttribute('rowspan') || 1)).toBe(1);
     expect(evidenceCell.textContent?.trim()).toBe('');
     expect(deleted.table.workingHtml).toContain(SCREEN_1.fileName);
     expect(deleted.table.workingHtml).toContain(SCREEN_2.fileName);

@@ -56,12 +56,24 @@ export interface CopyTestEvidenceSection {
   rowSpan: number;
 }
 
+/** 来源空行规则或已持久化元数据形成的 Evidence 分组。 */
+export interface CopyTestRowGrouping {
+  /** 是否存在“非空块 / 空行 / 非空块”的固定分组结构。 */
+  hasBlankSeparatedGroups: boolean;
+  /** 按当前分组结构形成的非空 Evidence section。 */
+  evidenceSections: CopyTestEvidenceSection[];
+  /** 与来源 rowspan 原子一一对应的逻辑行组。 */
+  rowGroups: CopyTestRowGroup[];
+}
+
 /** 当前 comparison column 的上下文。 */
 export interface CopyTestColumnContext {
-  /** Comparison Column 按 rowspan 划分出的原子行组。 */
+  /** Comparison Column 当前持久化 Evidence 布局中的原子行组。 */
   rowGroups: CopyTestRowGroup[];
   /** Comparison Column 按空白条件策略形成的 Evidence section。 */
   evidenceSections: CopyTestEvidenceSection[];
+  /** 只依据来源空行规则构建的 checkbox 与 Validate 选择组。 */
+  selectionRowGroups: CopyTestRowGroup[];
   /** 当前 Comparison Column 的逻辑列下标。 */
   selectedColumnIndex: number;
   /** 当前 Comparison Column 的表头。 */
@@ -242,28 +254,17 @@ const isBlankEvidenceBoundary = (
   return !cell || cell.text.trim() === '';
 };
 
-/** 标记每个原子组是否同时被前后两个空白边界包围。 */
-const buildBlankEnclosedGroupFlags = (blankBoundaryFlags: boolean[]): boolean[] => {
-  /** 与原子组一一对应的“后续存在空白边界”临时标记。 */
-  const followingBlankBoundaryFlags = Array<boolean>(blankBoundaryFlags.length).fill(false);
-  let hasFollowingBlankBoundary = false;
-  for (let index = blankBoundaryFlags.length - 1; index >= 0; index -= 1) {
-    followingBlankBoundaryFlags[index] = hasFollowingBlankBoundary;
-    if (blankBoundaryFlags[index]) {
-      hasFollowingBlankBoundary = true;
-    }
+/** 判断是否有空白原子同时位于非空原子之后和之前。 */
+const hasInternalBlankEvidenceSeparator = (blankBoundaryFlags: boolean[]): boolean => {
+  /** 第一个和最后一个非空原子的序号。 */
+  const firstNonBlankIndex = blankBoundaryFlags.indexOf(false);
+  const lastNonBlankIndex = blankBoundaryFlags.lastIndexOf(false);
+  if (firstNonBlankIndex < 0 || firstNonBlankIndex >= lastNonBlankIndex) {
+    return false;
   }
-  /** 表头不算空白边界，因此首个真实空行之前的原子组不能合并。 */
-  let hasPrecedingBlankBoundary = false;
-  return blankBoundaryFlags.map((isBlankBoundary, index) => {
-    const isEnclosed = !isBlankBoundary
-      && hasPrecedingBlankBoundary
-      && followingBlankBoundaryFlags[index];
-    if (isBlankBoundary) {
-      hasPrecedingBlankBoundary = true;
-    }
-    return isEnclosed;
-  });
+  return blankBoundaryFlags
+    .slice(firstNonBlankIndex + 1, lastNonBlankIndex)
+    .some(Boolean);
 };
 
 /** 判断一个新原子组是否与当前 section 物理连续。 */
@@ -345,18 +346,18 @@ const buildEvidenceSectionsFromRowGroups = (
 };
 
 /** 只依据来源列空白边界构建不可拆分的基础分组。 */
-const buildBaseCopyTestRowGrouping = (
+export const buildBaseCopyTestRowGrouping = (
   table: CopyTestTableStructure,
   selectedColumnIndex: number
-): { evidenceSections: CopyTestEvidenceSection[]; rowGroups: CopyTestRowGroup[] } => {
+): CopyTestRowGrouping => {
   /** 不改变 rowspan 语义的来源列原子组。 */
   const atomicRowGroups = buildAtomicCopyTestRowGroups(table, selectedColumnIndex);
   /** 每个原子组是否是当前来源列中的空白 section 边界。 */
   const blankBoundaryFlags = atomicRowGroups.map(group => {
     return isBlankEvidenceBoundary(table, selectedColumnIndex, group);
   });
-  /** 非空 section 只有同时被前后空行包围时才允许合并。 */
-  const blankEnclosedGroupFlags = buildBlankEnclosedGroupFlags(blankBoundaryFlags);
+  /** 只有内部空行把两个非空块隔开时，才启用固定 Group 模式。 */
+  const hasBlankSeparatedGroups = hasInternalBlankEvidenceSeparator(blankBoundaryFlags);
   /** 附加 Evidence 分组 ID 后仍与原子组一一对应的结果。 */
   const rowGroups: CopyTestRowGroup[] = [];
   /** 由空白来源单元格分隔的连续非空 section。 */
@@ -370,7 +371,7 @@ const buildBaseCopyTestRowGrouping = (
       return;
     }
     if (
-      !blankEnclosedGroupFlags[index]
+      !hasBlankSeparatedGroups
       || !currentSection
       || !isContinuousEvidenceSection(currentSection, group)
     ) {
@@ -383,7 +384,7 @@ const buildBaseCopyTestRowGrouping = (
     }
     rowGroups.push(appendEvidenceSectionRowGroup(currentSection, group));
   });
-  return { evidenceSections, rowGroups };
+  return { evidenceSections, hasBlankSeparatedGroups, rowGroups };
 };
 
 /** 判断持久化组 ID 是否是合法的零基业务锚点。 */
@@ -628,7 +629,7 @@ const hasCompleteDynamicGroupMetadata = (
 const buildCopyTestRowGrouping = (
   table: CopyTestTableStructure,
   selectedColumnIndex: number
-): { evidenceSections: CopyTestEvidenceSection[]; rowGroups: CopyTestRowGroup[] } => {
+): CopyTestRowGrouping => {
   /** 只依据来源列空白边界得到的不可拆分基础结构。 */
   const baseGrouping = buildBaseCopyTestRowGrouping(table, selectedColumnIndex);
   /** 严格 Result 原子 cell 中可选的单调布局组 ID。 */
@@ -646,7 +647,11 @@ const buildCopyTestRowGrouping = (
     persisted.explicitAnchorRowIndexes
   );
   return resolvedGroups && hasCompleteDynamicMetadata
-    ? { evidenceSections: buildEvidenceSectionsFromRowGroups(resolvedGroups), rowGroups: resolvedGroups }
+    ? {
+        evidenceSections: buildEvidenceSectionsFromRowGroups(resolvedGroups),
+        hasBlankSeparatedGroups: baseGrouping.hasBlankSeparatedGroups,
+        rowGroups: resolvedGroups,
+      }
     : baseGrouping;
 };
 
@@ -658,7 +663,34 @@ export const buildCopyTestRowGroups = (
   return buildCopyTestRowGrouping(table, selectedColumnIndex).rowGroups;
 };
 
-/** 按前后空白边界构建当前 Comparison Column 的 Evidence section。 */
+/** 为当前 Validate 重算被触及的动态组，保留其他已持久化布局。 */
+export const buildCopyTestValidationRowGroups = (
+  table: CopyTestTableStructure,
+  selectedColumnIndex: number,
+  currentRowIndexes: number[]
+): CopyTestRowGroup[] => {
+  /** 只包含固定空行 Group 的来源基础结构。 */
+  const baseRowGroups = buildBaseCopyTestRowGrouping(table, selectedColumnIndex).rowGroups;
+  /** 当前 DOM 中可能包含动态合并 metadata 的视觉结构。 */
+  const resolvedRowGroups = buildCopyTestRowGrouping(table, selectedColumnIndex).rowGroups;
+  const currentRows = new Set(currentRowIndexes);
+  /** 本轮命中任意原子的已持久化连通块 ID。 */
+  const touchedGroupIds = new Set(resolvedRowGroups.flatMap(group => {
+    const rowIndex = group.dataRowIndexes[0];
+    return rowIndex !== undefined
+      && group.evidenceGroupId !== undefined
+      && currentRows.has(rowIndex)
+      ? [group.evidenceGroupId]
+      : [];
+  }));
+  return resolvedRowGroups.map((group, index) => {
+    return group.evidenceGroupId !== undefined && touchedGroupIds.has(group.evidenceGroupId)
+      ? baseRowGroups[index] || group
+      : group;
+  });
+};
+
+/** 按内部空行分隔和已持久化元数据构建当前 Evidence section。 */
 export const buildCopyTestEvidenceSections = (
   table: CopyTestTableStructure,
   selectedColumnIndex: number
@@ -684,11 +716,14 @@ export const getCopyTestColumnContext = (
     return null;
   }
 
-  /** 一次构建保证原子组和 Evidence section 共享同一批分组 ID。 */
+  /** 当前 Evidence 视觉布局可以包含 Validate 持久化的动态合并。 */
   const grouping = buildCopyTestRowGrouping(table, selectedColumnIndex);
+  /** checkbox 和 Validate 仅遵循来源空行基础 Group，不恢复动态联动。 */
+  const selectionGrouping = buildBaseCopyTestRowGrouping(table, selectedColumnIndex);
   return {
     evidenceSections: grouping.evidenceSections,
     rowGroups: grouping.rowGroups,
+    selectionRowGroups: selectionGrouping.rowGroups,
     selectedColumnIndex,
     selectedHeader,
     sourceColumnKey: getSourceColumnKey(selectedColumnIndex, selectedHeader.label),
@@ -704,7 +739,7 @@ export const getSelectableCopyTestRowIndexes = (
     return [];
   }
 
-  return buildCopyTestEvidenceSections(table, selectedColumnIndex)
+  return buildBaseCopyTestRowGrouping(table, selectedColumnIndex).evidenceSections
     .flatMap(section => section.dataRowIndexes);
 };
 
@@ -768,9 +803,12 @@ export const buildCopyTestRowsForValidation = (
   }
 
   /** 只包含来源原子组锚点且按表格顺序排列的选中下标。 */
-  const normalizedRowIndexes = normalizeCopyTestSelectedRowIndexes(context.rowGroups, selectedRowIndexes);
+  const normalizedRowIndexes = normalizeCopyTestSelectedRowIndexes(
+    context.selectionRowGroups,
+    selectedRowIndexes
+  );
   /** 每个校验行锚点所属的稳定 Evidence section ID。 */
-  const evidenceGroupIdByRowIndex = buildEvidenceGroupIdByRowIndex(context.rowGroups);
+  const evidenceGroupIdByRowIndex = buildEvidenceGroupIdByRowIndex(context.selectionRowGroups);
   return buildRowsForValidation(table, context.selectedColumnIndex, normalizedRowIndexes).flatMap(row => {
     /** 当前非空校验行所属 section 的稳定 ID。 */
     const evidenceGroupId = evidenceGroupIdByRowIndex.get(row.rowIndex);

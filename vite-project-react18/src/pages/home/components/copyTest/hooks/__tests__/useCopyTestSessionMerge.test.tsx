@@ -31,15 +31,9 @@ const getEvidenceImageIds = (workingHtml: string): string[] => {
   });
 };
 
-describe('useCopyTestSession validation merge', () => {
-  it('ignores later duplicates with the same fileName or identical non-empty base64', () => {
+describe('useCopyTestSession validation overwrite', () => {
+  it('uses the latest status and content when the winner keeps the same fileName', () => {
     const { result } = renderHook(() => useCopyTestSession());
-    /** 内容相同但使用新 UUID 附件名的后续上传。 */
-    const sameContentImage = {
-      ...image,
-      fileName: 'screen-a-copy.png',
-      originalFileName: 'same-content.png',
-    };
     /** 附件名相同但内容不同的后续上传。 */
     const sameFileNameImage = {
       base64: 'data:image/png;base64,REVG',
@@ -61,26 +55,23 @@ describe('useCopyTestSession validation merge', () => {
         rowIndex: 0,
       }], [image], 1, 'Target', 0);
     });
-    [sameContentImage, sameFileNameImage].forEach(duplicateImage => {
-      act(() => {
-        result.current.applyValidationResults([{
-          evidenceImageFileNames: [duplicateImage.fileName],
-          evidenceImages: [duplicateImage],
-          languageIssues: ['Duplicate batch must be ignored.'],
-          passed: false,
-          rowIndex: 0,
-        }], [duplicateImage], 1, 'Target', 0);
-      });
+    act(() => {
+      result.current.applyValidationResults([{
+        evidenceImageFileNames: [sameFileNameImage.fileName],
+        evidenceImages: [sameFileNameImage],
+        languageIssues: ['Latest batch result.'],
+        passed: false,
+        rowIndex: 0,
+      }], [sameFileNameImage], 1, 'Target', 0);
     });
 
     const workingHtml = result.current.selectedTable?.workingHtml || '';
     expect(getEvidenceImageIds(workingHtml)).toEqual([image.fileName]);
-    expect(workingHtml).not.toContain('Duplicate batch must be ignored.');
-    expect(workingHtml).not.toContain(sameContentImage.fileName);
-    expect(result.current.getCurrentValidationImages()).toEqual([image]);
+    expect(workingHtml).toContain('Latest batch result.');
+    expect(result.current.getCurrentValidationImages()).toEqual([sameFileNameImage]);
   });
 
-  it('canonicalizes a same-content new UUID when it expands an adjacent historical group', () => {
+  it('uses a same-content new UUID when it expands an adjacent historical group', () => {
     const { result } = renderHook(() => useCopyTestSession());
     /** 与历史 A 内容相同、但附件身份不同的本批 winner。 */
     const sameContentWinner = {
@@ -121,11 +112,11 @@ describe('useCopyTestSession validation merge', () => {
     const evidenceCell = document.querySelector(
       `td[data-copy-test-column-type="${COPY_TEST_GENERATED_EVIDENCE_TYPE}"]`
     );
-    expect(getEvidenceImageIds(workingHtml)).toEqual([image.fileName]);
-    expect(new Set(resultImageIds)).toEqual(new Set([image.fileName]));
+    expect(getEvidenceImageIds(workingHtml)).toEqual([sameContentWinner.fileName]);
+    expect(new Set(resultImageIds)).toEqual(new Set([sameContentWinner.fileName]));
     expect(evidenceCell?.getAttribute('rowspan')).toBe('3');
-    expect(workingHtml).not.toContain(sameContentWinner.fileName);
-    expect(result.current.getCurrentValidationImages()).toEqual([image]);
+    expect(workingHtml).not.toContain(`data-copy-test-evidence-image-id="${image.fileName}"`);
+    expect(result.current.getCurrentValidationImages()).toEqual([sameContentWinner]);
   });
 
   it('does not expand an historical group across a row omitted from the current batch', () => {

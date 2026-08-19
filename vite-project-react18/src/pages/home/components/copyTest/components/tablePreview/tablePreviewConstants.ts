@@ -85,6 +85,12 @@ export const SELECTION_ROW_INDEXES_ATTRIBUTE = 'data-copy-test-selection-row-ind
 /** iframe 行选择列属性。 */
 export const SELECTION_COLUMN_ATTRIBUTE = 'data-copy-test-selection-column';
 
+/** iframe 分组选择标签属性。 */
+export const SELECTION_GROUP_LABEL_ATTRIBUTE = 'data-copy-test-selection-group-label';
+
+/** iframe 表格是否展示顺序 Group 标签。 */
+export const SELECTION_GROUP_MODE_ATTRIBUTE = 'data-copy-test-selection-group-mode';
+
 /** iframe 行选择全选属性。 */
 export const SELECTION_SELECT_ALL_ATTRIBUTE = 'data-copy-test-selection-all';
 
@@ -123,6 +129,8 @@ export const PREVIEW_RESERVED_RUNTIME_ATTRIBUTES: ReadonlySet<string> = new Set(
   RESULT_STATUS_SOURCE_COLUMN_KEY_ATTRIBUTE,
   SELECTION_CHECKBOX_ATTRIBUTE,
   SELECTION_COLUMN_ATTRIBUTE,
+  SELECTION_GROUP_LABEL_ATTRIBUTE,
+  SELECTION_GROUP_MODE_ATTRIBUTE,
   SELECTION_ROW_INDEXES_ATTRIBUTE,
   SELECTION_SELECTABLE_ATTRIBUTE,
   SELECTION_SELECT_ALL_ATTRIBUTE,
@@ -168,8 +176,15 @@ export const PREVIEW_SELECTION_COLUMN_ROLE = 'selection';
 /** iframe 行选择列固定占用的像素宽度。 */
 export const PREVIEW_SELECTION_COLUMN_WIDTH = 42;
 
+/** 展示 Group 标签时行选择列固定占用的像素宽度。 */
+export const PREVIEW_GROUPED_SELECTION_COLUMN_WIDTH = 112;
+
 /** 选中 Comparison Column 后三个业务列共同使用的响应式宽度。 */
 export const PREVIEW_EQUAL_BUSINESS_COLUMN_WIDTH = `calc((100% - ${PREVIEW_SELECTION_COLUMN_WIDTH}px) / 3)`;
+
+/** 展示 Group 标签时三个业务列共同使用的响应式宽度。 */
+export const PREVIEW_GROUPED_EQUAL_BUSINESS_COLUMN_WIDTH =
+  `calc((100% - ${PREVIEW_GROUPED_SELECTION_COLUMN_WIDTH}px) / 3)`;
 
 /** 注入 iframe 文档的表格、选择框和 Evidence 样式。 */
 export const PREVIEW_DOCUMENT_STYLE = `
@@ -260,11 +275,25 @@ export const PREVIEW_DOCUMENT_STYLE = `
     max-width: ${PREVIEW_SELECTION_COLUMN_WIDTH}px !important;
   }
 
+  table[${SELECTION_GROUP_MODE_ATTRIBUTE}="${DOM_TRUE_ATTRIBUTE_VALUE}"]
+    > colgroup > col[${PREVIEW_COLUMN_ROLE_ATTRIBUTE}="${PREVIEW_SELECTION_COLUMN_ROLE}"] {
+    width: ${PREVIEW_GROUPED_SELECTION_COLUMN_WIDTH}px !important;
+    min-width: ${PREVIEW_GROUPED_SELECTION_COLUMN_WIDTH}px !important;
+    max-width: ${PREVIEW_GROUPED_SELECTION_COLUMN_WIDTH}px !important;
+  }
+
   table[${PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE}="${DOM_TRUE_ATTRIBUTE_VALUE}"]
     > colgroup > col[${PREVIEW_COLUMN_ROLE_ATTRIBUTE}]:not([${PREVIEW_COLUMN_ROLE_ATTRIBUTE}="${PREVIEW_SELECTION_COLUMN_ROLE}"]) {
     width: ${PREVIEW_EQUAL_BUSINESS_COLUMN_WIDTH} !important;
     min-width: ${PREVIEW_EQUAL_BUSINESS_COLUMN_WIDTH} !important;
     max-width: ${PREVIEW_EQUAL_BUSINESS_COLUMN_WIDTH} !important;
+  }
+
+  table[${PREVIEW_EQUAL_WIDTH_TABLE_ATTRIBUTE}="${DOM_TRUE_ATTRIBUTE_VALUE}"][${SELECTION_GROUP_MODE_ATTRIBUTE}="${DOM_TRUE_ATTRIBUTE_VALUE}"]
+    > colgroup > col[${PREVIEW_COLUMN_ROLE_ATTRIBUTE}]:not([${PREVIEW_COLUMN_ROLE_ATTRIBUTE}="${PREVIEW_SELECTION_COLUMN_ROLE}"]) {
+    width: ${PREVIEW_GROUPED_EQUAL_BUSINESS_COLUMN_WIDTH} !important;
+    min-width: ${PREVIEW_GROUPED_EQUAL_BUSINESS_COLUMN_WIDTH} !important;
+    max-width: ${PREVIEW_GROUPED_EQUAL_BUSINESS_COLUMN_WIDTH} !important;
   }
 
   th,
@@ -397,6 +426,29 @@ export const PREVIEW_DOCUMENT_STYLE = `
     vertical-align: middle;
   }
 
+  table[${SELECTION_GROUP_MODE_ATTRIBUTE}="${DOM_TRUE_ATTRIBUTE_VALUE}"]
+    [${SELECTION_COLUMN_ATTRIBUTE}] {
+    width: ${PREVIEW_GROUPED_SELECTION_COLUMN_WIDTH}px;
+    min-width: ${PREVIEW_GROUPED_SELECTION_COLUMN_WIDTH}px;
+    max-width: ${PREVIEW_GROUPED_SELECTION_COLUMN_WIDTH}px;
+    padding: 0 8px;
+  }
+
+  [${SELECTION_COLUMN_ATTRIBUTE}] > label {
+    align-items: center;
+    display: inline-flex;
+    gap: 6px;
+    justify-content: center;
+    white-space: nowrap;
+  }
+
+  [${SELECTION_GROUP_LABEL_ATTRIBUTE}] {
+    color: #172b4d;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 16px;
+  }
+
   [${SELECTION_CHECKBOX_ATTRIBUTE}] {
     accent-color: #172b4d;
     cursor: pointer;
@@ -412,4 +464,3 @@ export const PREVIEW_DOCUMENT_STYLE = `
 `;
 
 /** iframe 发给父页面的消息。 */
-

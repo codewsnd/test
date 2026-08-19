@@ -34,7 +34,7 @@ const middleMergedStorageHtml = [
   '</table>',
 ].join('');
 
-/** 首尾 section 均未被双侧空行包围，且尾段包含 rowspan 原子组的表格。 */
+/** 两个非空块由内部空行分隔，且后段包含 rowspan 原子组的表格。 */
 const blankSeparatedStorageHtml = [
   '<table><tr><th>ID</th><th>Target</th></tr>',
   '<tr><td>1</td><td>copy 1</td></tr>',
@@ -46,7 +46,7 @@ const blankSeparatedStorageHtml = [
   '</table>',
 ].join('');
 
-/** 构建首行空白、尾行可选择是否为空白的四行分组边界表格。 */
+/** 构建只有起始空行、尾行可选是否为空白的四行表格。 */
 const buildLeadingBlankStorageHtml = (lastTargetHtml: string): string => {
   return [
     '<table><tr><th>ID</th><th>Target</th></tr>',
@@ -191,7 +191,7 @@ describe('copyTestTableParser', () => {
     ]);
   });
 
-  it('requires both outer blank rows before grouping a non-blank run', () => {
+  it('does not group when blank rows only occur at the outer edges', () => {
     const openTrailingTable = parseCopyTestStorageTables(
       buildLeadingBlankStorageHtml('copy 4')
     )[0];
@@ -218,26 +218,26 @@ describe('copyTestTableParser', () => {
     expect(closedContext?.rowGroups.map(group => group.evidenceGroupId)).toEqual([
       undefined,
       1,
-      1,
+      2,
       undefined,
     ]);
     expect(closedContext?.evidenceSections.map(section => section.dataRowIndexes)).toEqual([
-      [1, 2],
+      [1],
+      [2],
     ]);
     expect(normalizeCopyTestSelectedRowIndexes(closedContext?.rowGroups || [], [2]))
-      .toEqual([1, 2]);
+      .toEqual([2]);
   });
 
-  it('groups rowspan atoms only inside consecutive outer blank boundaries', () => {
+  it('groups non-blank blocks separated by consecutive internal blank rows', () => {
     const table = parseCopyTestStorageTables([
       '<table><tr><th>ID</th><th>Target</th></tr>',
-      '<tr><td>1</td><td></td></tr>',
-      '<tr><td>2</td><td><br /></td></tr>',
-      '<tr><td>3</td><td rowspan="2">copy 3 and 4</td></tr>',
-      '<tr><td>4</td></tr>',
-      '<tr><td>5</td><td>copy 5</td></tr>',
-      '<tr><td>6</td><td></td></tr>',
-      '<tr><td>7</td><td><br /></td></tr>',
+      '<tr><td>1</td><td rowspan="2">copy 1 and 2</td></tr>',
+      '<tr><td>2</td></tr>',
+      '<tr><td>3</td><td>copy 3</td></tr>',
+      '<tr><td>4</td><td></td></tr>',
+      '<tr><td>5</td><td><br /></td></tr>',
+      '<tr><td>6</td><td>copy 6</td></tr>',
       '</table>',
     ].join(''))[0];
     const context = getCopyTestColumnContext(table, 1);
@@ -246,24 +246,24 @@ describe('copyTestTableParser', () => {
       dataRowIndexes: group.dataRowIndexes,
       evidenceGroupId: group.evidenceGroupId,
     }))).toEqual([
-      { dataRowIndexes: [0], evidenceGroupId: undefined },
-      { dataRowIndexes: [1], evidenceGroupId: undefined },
-      { dataRowIndexes: [2, 3], evidenceGroupId: 2 },
-      { dataRowIndexes: [4], evidenceGroupId: 2 },
-      { dataRowIndexes: [5], evidenceGroupId: undefined },
-      { dataRowIndexes: [6], evidenceGroupId: undefined },
+      { dataRowIndexes: [0, 1], evidenceGroupId: 0 },
+      { dataRowIndexes: [2], evidenceGroupId: 0 },
+      { dataRowIndexes: [3], evidenceGroupId: undefined },
+      { dataRowIndexes: [4], evidenceGroupId: undefined },
+      { dataRowIndexes: [5], evidenceGroupId: 5 },
     ]);
     expect(context?.evidenceSections.map(section => ({
       dataRowIndexes: section.dataRowIndexes,
       rowSpan: section.rowSpan,
     }))).toEqual([
-      { dataRowIndexes: [2, 4], rowSpan: 3 },
+      { dataRowIndexes: [0, 2], rowSpan: 3 },
+      { dataRowIndexes: [5], rowSpan: 1 },
     ]);
-    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [3]))
-      .toEqual([2, 4]);
+    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [1]))
+      .toEqual([0, 2]);
   });
 
-  it('keeps edge sections atomic when they are not enclosed by blank rows', () => {
+  it('groups every non-blank block when an internal blank separator exists', () => {
     const table = parseCopyTestStorageTables(blankSeparatedStorageHtml)[0];
     const context = getCopyTestColumnContext(table, 1);
     const sections = buildCopyTestEvidenceSections(table, 1);
@@ -274,10 +274,10 @@ describe('copyTestTableParser', () => {
       rowSpan: group.rowSpan,
     }))).toEqual([
       { dataRowIndexes: [0], evidenceGroupId: 0, rowSpan: 1 },
-      { dataRowIndexes: [1], evidenceGroupId: 1, rowSpan: 1 },
+      { dataRowIndexes: [1], evidenceGroupId: 0, rowSpan: 1 },
       { dataRowIndexes: [2], evidenceGroupId: undefined, rowSpan: 1 },
       { dataRowIndexes: [3, 4], evidenceGroupId: 3, rowSpan: 2 },
-      { dataRowIndexes: [5], evidenceGroupId: 5, rowSpan: 1 },
+      { dataRowIndexes: [5], evidenceGroupId: 3, rowSpan: 1 },
     ]);
     expect(sections.map(section => ({
       anchorRowIndex: section.anchorRowIndex,
@@ -285,34 +285,35 @@ describe('copyTestTableParser', () => {
       evidenceGroupId: section.evidenceGroupId,
       rowSpan: section.rowSpan,
     }))).toEqual([
-      { anchorRowIndex: 1, dataRowIndexes: [0], evidenceGroupId: 0, rowSpan: 1 },
-      { anchorRowIndex: 2, dataRowIndexes: [1], evidenceGroupId: 1, rowSpan: 1 },
-      { anchorRowIndex: 4, dataRowIndexes: [3], evidenceGroupId: 3, rowSpan: 2 },
-      { anchorRowIndex: 6, dataRowIndexes: [5], evidenceGroupId: 5, rowSpan: 1 },
+      { anchorRowIndex: 1, dataRowIndexes: [0, 1], evidenceGroupId: 0, rowSpan: 2 },
+      { anchorRowIndex: 4, dataRowIndexes: [3, 5], evidenceGroupId: 3, rowSpan: 3 },
     ]);
-    expect(context?.evidenceSections.map(section => section.evidenceGroupId)).toEqual([0, 1, 3, 5]);
+    expect(context?.evidenceSections.map(section => section.evidenceGroupId)).toEqual([0, 3]);
     expect(getSelectableCopyTestRowIndexes(table, 1)).toEqual([0, 1, 3, 5]);
-    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [1])).toEqual([1]);
-    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [4])).toEqual([3]);
+    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [1])).toEqual([0, 1]);
+    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [4])).toEqual([3, 5]);
     expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [2])).toEqual([]);
-    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [1, 4])).toEqual([1, 3]);
+    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [1, 4])).toEqual([0, 1, 3, 5]);
     expect(buildCopyTestRowsForValidation(table, context, [1])).toEqual([
-      { evidenceGroupId: 1, expected: 'copy 2', rowIndex: 1 },
+      { evidenceGroupId: 0, expected: 'copy 1', rowIndex: 0 },
+      { evidenceGroupId: 0, expected: 'copy 2', rowIndex: 1 },
     ]);
     expect(buildCopyTestRowsForValidation(table, context, [4])).toEqual([
       { evidenceGroupId: 3, expected: 'copy 4 and 5', rowIndex: 3 },
+      { evidenceGroupId: 3, expected: 'copy 6', rowIndex: 5 },
     ]);
     expect(buildCopyTestRowsForValidation(table, context, [5])).toEqual([
-      { evidenceGroupId: 5, expected: 'copy 6', rowIndex: 5 },
+      { evidenceGroupId: 3, expected: 'copy 4 and 5', rowIndex: 3 },
+      { evidenceGroupId: 3, expected: 'copy 6', rowIndex: 5 },
     ]);
   });
 
-  it('restores a valid monotonic Result-cell group and couples selection and validation rows', () => {
+  it('restores a persisted visual group without coupling selection or validation rows', () => {
     const table = parseCopyTestStorageTables(persistedNoBlankStorageHtml)[0];
     const context = getCopyTestColumnContext(table, 1);
 
-    expect(context?.rowGroups.map(group => group.evidenceGroupId)).toEqual([0, 0, 3]);
-    expect(context?.evidenceSections.map(section => ({
+    expect(buildCopyTestRowGroups(table, 1).map(group => group.evidenceGroupId)).toEqual([0, 0, 3]);
+    expect(buildCopyTestEvidenceSections(table, 1).map(section => ({
       dataRowIndexes: section.dataRowIndexes,
       evidenceGroupId: section.evidenceGroupId,
       rowSpan: section.rowSpan,
@@ -320,10 +321,11 @@ describe('copyTestTableParser', () => {
       { dataRowIndexes: [0, 1], evidenceGroupId: 0, rowSpan: 3 },
       { dataRowIndexes: [3], evidenceGroupId: 3, rowSpan: 1 },
     ]);
-    expect(normalizeCopyTestSelectedRowIndexes(context?.rowGroups || [], [2])).toEqual([0, 1]);
+    expect(context?.rowGroups.map(group => group.evidenceGroupId)).toEqual([0, 0, 3]);
+    expect(context?.selectionRowGroups.map(group => group.evidenceGroupId)).toEqual([0, 1, 3]);
+    expect(normalizeCopyTestSelectedRowIndexes(context?.selectionRowGroups || [], [2])).toEqual([1]);
     expect(buildCopyTestRowsForValidation(table, context, [2])).toEqual([
-      { evidenceGroupId: 0, expected: 'copy 1', rowIndex: 0 },
-      { evidenceGroupId: 0, expected: 'copy 2 and 3', rowIndex: 1 },
+      { evidenceGroupId: 1, expected: 'copy 2 and 3', rowIndex: 1 },
     ]);
   });
 
