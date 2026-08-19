@@ -61,13 +61,14 @@ const middleMergedStorageHtml = [
   '</table>',
 ].join('');
 
-/** 前两行连续、第三行空白、第四行开启新 Evidence section 的会话表格。 */
+/** First/Second 同时被前后空白行包围的会话表格。 */
 const blankSeparatedStorageHtml = [
   '<table><tr><th>ID</th><th>Target</th></tr>',
-  '<tr><td>1</td><td>First</td></tr>',
-  '<tr><td>2</td><td>Second</td></tr>',
-  '<tr><td>3</td><td><br /></td></tr>',
-  '<tr><td>4</td><td>Fourth</td></tr>',
+  '<tr><td>1</td><td><br /></td></tr>',
+  '<tr><td>2</td><td>First</td></tr>',
+  '<tr><td>3</td><td>Second</td></tr>',
+  '<tr><td>4</td><td><br /></td></tr>',
+  '<tr><td>5</td><td>Fourth</td></tr>',
   '</table>',
 ].join('');
 
@@ -697,8 +698,8 @@ describe('useCopyTestSession', () => {
   it('links selection inside a non-empty section while preserving both validation rows', () => {
     const { result } = renderHook(() => useCopyTestSession());
     const expectedValidationRows = [
-      { evidenceGroupId: 0, expected: 'First', rowIndex: 0 },
-      { evidenceGroupId: 0, expected: 'Second', rowIndex: 1 },
+      { evidenceGroupId: 1, expected: 'First', rowIndex: 1 },
+      { evidenceGroupId: 1, expected: 'Second', rowIndex: 2 },
     ];
     act(() => {
       result.current.applyLoadedStorage(blankSeparatedStorageHtml);
@@ -707,19 +708,19 @@ describe('useCopyTestSession', () => {
       result.current.handleComparisonColumnChange(1);
     });
 
-    /** 空行不可选，第四行使用新的 section。 */
-    expect(result.current.selectedRowIndexes).toEqual([0, 1, 3]);
+    /** 两侧空行不可选，Fourth 使用新的独立 section。 */
+    expect(result.current.selectedRowIndexes).toEqual([1, 2, 4]);
     act(() => {
-      result.current.setSelectedRowIndexes([0]);
+      result.current.setSelectedRowIndexes([1]);
     });
-    expect(result.current.selectedRowIndexes).toEqual([0, 1]);
+    expect(result.current.selectedRowIndexes).toEqual([1, 2]);
     expect(result.current.buildSelectedRowsForValidation()).toEqual(expectedValidationRows);
 
     /** 从第二行发起选择也必须得到同一整组。 */
     act(() => {
-      result.current.setSelectedRowIndexes([1]);
+      result.current.setSelectedRowIndexes([2]);
     });
-    expect(result.current.selectedRowIndexes).toEqual([0, 1]);
+    expect(result.current.selectedRowIndexes).toEqual([1, 2]);
     expect(result.current.buildSelectedRowsForValidation()).toEqual(expectedValidationRows);
   });
 

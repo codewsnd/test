@@ -242,6 +242,30 @@ const isBlankEvidenceBoundary = (
   return !cell || cell.text.trim() === '';
 };
 
+/** 标记每个原子组是否同时被前后两个空白边界包围。 */
+const buildBlankEnclosedGroupFlags = (blankBoundaryFlags: boolean[]): boolean[] => {
+  /** 与原子组一一对应的“后续存在空白边界”临时标记。 */
+  const followingBlankBoundaryFlags = Array<boolean>(blankBoundaryFlags.length).fill(false);
+  let hasFollowingBlankBoundary = false;
+  for (let index = blankBoundaryFlags.length - 1; index >= 0; index -= 1) {
+    followingBlankBoundaryFlags[index] = hasFollowingBlankBoundary;
+    if (blankBoundaryFlags[index]) {
+      hasFollowingBlankBoundary = true;
+    }
+  }
+  /** 表头不算空白边界，因此首个真实空行之前的原子组不能合并。 */
+  let hasPrecedingBlankBoundary = false;
+  return blankBoundaryFlags.map((isBlankBoundary, index) => {
+    const isEnclosed = !isBlankBoundary
+      && hasPrecedingBlankBoundary
+      && followingBlankBoundaryFlags[index];
+    if (isBlankBoundary) {
+      hasPrecedingBlankBoundary = true;
+    }
+    return isEnclosed;
+  });
+};
+
 /** 判断一个新原子组是否与当前 section 物理连续。 */
 const isContinuousEvidenceSection = (
   section: CopyTestEvidenceSection,
@@ -327,23 +351,29 @@ const buildBaseCopyTestRowGrouping = (
 ): { evidenceSections: CopyTestEvidenceSection[]; rowGroups: CopyTestRowGroup[] } => {
   /** 不改变 rowspan 语义的来源列原子组。 */
   const atomicRowGroups = buildAtomicCopyTestRowGroups(table, selectedColumnIndex);
-  /** 只有整列至少包含一个空白原子行时，连续非空原子才允许合并。 */
-  const hasBlankBoundary = atomicRowGroups.some(group => {
+  /** 每个原子组是否是当前来源列中的空白 section 边界。 */
+  const blankBoundaryFlags = atomicRowGroups.map(group => {
     return isBlankEvidenceBoundary(table, selectedColumnIndex, group);
   });
+  /** 非空 section 只有同时被前后空行包围时才允许合并。 */
+  const blankEnclosedGroupFlags = buildBlankEnclosedGroupFlags(blankBoundaryFlags);
   /** 附加 Evidence 分组 ID 后仍与原子组一一对应的结果。 */
   const rowGroups: CopyTestRowGroup[] = [];
   /** 由空白来源单元格分隔的连续非空 section。 */
   const evidenceSections: CopyTestEvidenceSection[] = [];
   /** 当前可继续追加的非空 section。 */
   let currentSection: CopyTestEvidenceSection | undefined;
-  atomicRowGroups.forEach(group => {
-    if (isBlankEvidenceBoundary(table, selectedColumnIndex, group)) {
+  atomicRowGroups.forEach((group, index) => {
+    if (blankBoundaryFlags[index]) {
       rowGroups.push(group);
       currentSection = undefined;
       return;
     }
-    if (!hasBlankBoundary || !currentSection || !isContinuousEvidenceSection(currentSection, group)) {
+    if (
+      !blankEnclosedGroupFlags[index]
+      || !currentSection
+      || !isContinuousEvidenceSection(currentSection, group)
+    ) {
       /** 一个新连续非空区域的首个原子组和 section。 */
       const created = createEvidenceSection(group);
       currentSection = created.section;
@@ -628,7 +658,7 @@ export const buildCopyTestRowGroups = (
   return buildCopyTestRowGrouping(table, selectedColumnIndex).rowGroups;
 };
 
-/** 按整列空白条件构建当前 Comparison Column 的 Evidence section。 */
+/** 按前后空白边界构建当前 Comparison Column 的 Evidence section。 */
 export const buildCopyTestEvidenceSections = (
   table: CopyTestTableStructure,
   selectedColumnIndex: number

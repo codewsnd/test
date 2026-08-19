@@ -73,11 +73,12 @@ const FIVE_ROW_NO_BLANK_STORAGE = [
 /** partial export 往返共用的唯一作用域。 */
 const PARTIAL_EXPORT_SCOPE = 'copytest-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 
-/** 已有原子 Test Pair，第四个数据行是两个 Evidence section 的空行边界。 */
+/** 两个连续非空区段均由前后空白行包围的已有原子 Test Pair。 */
 const BLANK_SEPARATED_ATOMIC_PAIR_STORAGE = [
   '<table><tr><th>ID</th><th>Target</th>',
   '<th data-copy-test-column-type="result" data-copy-test-source-column-key="1:Target" data-copy-test-owner-id="1:Target" data-copy-test-schema="2">Test Result - Target</th>',
   '<th data-copy-test-column-type="evidence" data-copy-test-source-column-key="1:Target" data-copy-test-owner-id="1:Target" data-copy-test-schema="2">Test Evidence - Target</th></tr>',
+  '<tr><td>0</td><td></td><td>Leading blank result</td><td>Leading blank evidence</td></tr>',
   '<tr><td>1</td><td>copy 1</td><td>Result 1</td><td>Evidence 1</td></tr>',
   '<tr><td>2</td><td>copy 2</td><td>Result 2</td><td>Evidence 2</td></tr>',
   '<tr><td>3</td><td>copy 3</td><td>Result 3</td><td>Evidence 3</td></tr>',
@@ -85,6 +86,7 @@ const BLANK_SEPARATED_ATOMIC_PAIR_STORAGE = [
   '<tr><td>5</td><td>copy 5</td><td>Result 5</td><td>Evidence 5</td></tr>',
   '<tr><td>6</td><td>copy 6</td><td>Result 6</td><td>Evidence 6</td></tr>',
   '<tr><td>7</td><td>copy 7</td><td>Result 7</td><td>Evidence 7</td></tr>',
+  '<tr><td>8</td><td></td><td>Trailing blank result</td><td>Trailing blank evidence</td></tr>',
   '</table>',
 ].join('');
 
@@ -201,24 +203,29 @@ describe('CopyTest dynamic Evidence integration', () => {
     const evidenceCells = getOwnedEvidenceCells(ensured);
 
     expect(context?.evidenceSections.map(section => section.dataRowIndexes)).toEqual([
-      [0, 1, 2],
-      [4, 5, 6],
+      [1, 2, 3],
+      [5, 6, 7],
     ]);
     expect(context?.rowGroups.map(group => group.evidenceGroupId)).toEqual([
-      0,
-      0,
-      0,
       undefined,
-      4,
-      4,
-      4,
+      1,
+      1,
+      1,
+      undefined,
+      5,
+      5,
+      5,
+      undefined,
     ]);
-    expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1))).toEqual([3, 1, 3]);
-    expect(evidenceCells[0].textContent).toContain('Evidence 1');
-    expect(evidenceCells[0].textContent).toContain('Evidence 3');
-    expect(evidenceCells[1].textContent).toContain('Evidence 4');
-    expect(evidenceCells[2].textContent).toContain('Evidence 5');
-    expect(evidenceCells[2].textContent).toContain('Evidence 7');
+    expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1)))
+      .toEqual([1, 3, 1, 3, 1]);
+    expect(evidenceCells[0].textContent).toContain('Leading blank evidence');
+    expect(evidenceCells[1].textContent).toContain('Evidence 1');
+    expect(evidenceCells[1].textContent).toContain('Evidence 3');
+    expect(evidenceCells[2].textContent).toContain('Evidence 4');
+    expect(evidenceCells[3].textContent).toContain('Evidence 5');
+    expect(evidenceCells[3].textContent).toContain('Evidence 7');
+    expect(evidenceCells[4].textContent).toContain('Trailing blank evidence');
   });
 
   it('merges equal current winners and appends the next batch while monotonically expanding', () => {

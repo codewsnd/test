@@ -98,7 +98,7 @@ const mergedTableHtml = [
 ].join('');
 const mergedTable = parseCopyTestStorageTables(mergedTableHtml)[0];
 
-/** 前两行非空、第三行为空白边界的 Evidence section 选择表格。 */
+/** Copy 1/2 同时被前后空白行包围的 Evidence section 选择表格。 */
 const blankSeparatedSelectionTable = parseCopyTestStorageTables([
   '<table><tr><th>Target</th>',
   `<th ${COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"`,
@@ -107,6 +107,7 @@ const blankSeparatedSelectionTable = parseCopyTestStorageTables([
   `<th ${COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE}="${COPY_TEST_GENERATED_EVIDENCE_TYPE}"`,
   ` ${COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE}="0:Target" data-copy-test-owner-id="0:Target"`,
   ' data-copy-test-schema="2">Test Evidence - Target</th></tr>',
+  '<tr><td><br /></td><td></td><td></td></tr>',
   '<tr><td>Copy 1</td><td></td><td></td></tr>',
   '<tr><td>Copy 2</td><td></td><td></td></tr>',
   '<tr><td><br /></td><td></td><td></td></tr>',
@@ -427,7 +428,7 @@ describe('TablePreview', () => {
         onSelectedRowIndexesChange={handlers.onRowsChange}
         previewRevision={1}
         selectedColumnIndex={0}
-        selectedRowIndexes={[0, 1, 3]}
+        selectedRowIndexes={[1, 2, 4]}
         table={blankSeparatedSelectionTable}
       />
     );
@@ -442,21 +443,21 @@ describe('TablePreview', () => {
 
     expect(rowCheckboxes.map(checkbox => {
       return checkbox.getAttribute(SELECTION_ROW_INDEXES_ATTRIBUTE);
-    })).toEqual(['[0,1]', '[0,1]', '[2]', '[3]']);
-    expect(rowCheckboxes.map(checkbox => checkbox.disabled)).toEqual([false, false, true, false]);
-    expect(selectAll?.getAttribute(SELECTION_ROW_INDEXES_ATTRIBUTE)).toBe('[0,1,3]');
+    })).toEqual(['[0]', '[1,2]', '[1,2]', '[3]', '[4]']);
+    expect(rowCheckboxes.map(checkbox => checkbox.disabled)).toEqual([true, false, false, true, false]);
+    expect(selectAll?.getAttribute(SELECTION_ROW_INDEXES_ATTRIBUTE)).toBe('[1,2,4]');
 
     fireEvent(window, new MessageEvent('message', {
       data: {
         action: 'selection',
         checked: false,
-        rowIndexes: [0, 1],
+        rowIndexes: [1, 2],
         type: PREVIEW_MESSAGE_TYPE,
       },
       origin: window.location.origin,
       source: iframe.contentWindow,
     }));
-    expect(handlers.onRowsChange).toHaveBeenCalledWith([3]);
+    expect(handlers.onRowsChange).toHaveBeenCalledWith([4]);
   });
 
   it('keeps adjacent row checkboxes independent when the column has no blank boundary', () => {

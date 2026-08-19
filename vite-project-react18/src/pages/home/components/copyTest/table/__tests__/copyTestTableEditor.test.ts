@@ -533,6 +533,7 @@ describe('copyTestTableEditor', () => {
       '<table><tr><th>Target</th>',
       '<th data-copy-test-column-type="result" data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target" data-copy-test-schema="2">Test Result - Target</th>',
       '<th data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Target" data-copy-test-owner-id="0:Target" data-copy-test-schema="2">Test Evidence - Target</th></tr>',
+      '<tr><td><br /></td><td>Leading blank result</td><td data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Target"><span data-existing-evidence="leading-blank">Leading blank evidence</span></td></tr>',
       '<tr><td>First</td><td>First result</td><td data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Target"><span data-existing-evidence="first">First evidence</span></td></tr>',
       '<tr><td>Second</td><td>Second result</td><td data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Target"><em data-existing-evidence="second">Second evidence</em></td></tr>',
       '<tr><td><br /></td><td>Blank result</td><td data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Target"><span data-existing-evidence="blank">Blank evidence</span></td></tr>',
@@ -543,27 +544,29 @@ describe('copyTestTableEditor', () => {
     const ensured = ensureCopyTestWorkingColumns(table, 0, 'Target');
     const sourceKey = getSourceColumnKey(0, 'Target');
     const indexes = findGeneratedColumnIndexes(ensured.headers, sourceKey);
-    /** 连续 First/Second、空白边界及 Fourth 三个可见 Evidence 单元格。 */
-    const evidenceCells = [1, 3, 4].map(rowIndex => {
+    /** 开头空行、连续 First/Second、中间空行及 Fourth 的四个可见 Evidence 单元格。 */
+    const evidenceCells = [1, 2, 4, 5].map(rowIndex => {
       return ensured.model.rows[rowIndex].slots[indexes.evidence!]!.cell.element;
     });
     /** 每个 Result 原子 cell 回填的权威 section ID，空行不属于任何组。 */
-    const resultGroupIds = [1, 2, 3, 4].map(rowIndex => {
+    const resultGroupIds = [1, 2, 3, 4, 5].map(rowIndex => {
       return ensured.model.rows[rowIndex].slots[indexes.result!]!.cell.element
         .getAttribute(COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE);
     });
 
-    expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1))).toEqual([2, 1, 1]);
-    expect(resultGroupIds).toEqual(['0', '0', null, '3']);
-    expect(ensured.model.rows[2].slots[indexes.evidence!]!.owned).toBe(false);
-    expect(Array.from(evidenceCells[0].querySelectorAll('[data-existing-evidence]')).map(node => {
+    expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1)))
+      .toEqual([1, 2, 1, 1]);
+    expect(resultGroupIds).toEqual([null, '1', '1', null, '4']);
+    expect(ensured.model.rows[3].slots[indexes.evidence!]!.owned).toBe(false);
+    expect(Array.from(evidenceCells[1].querySelectorAll('[data-existing-evidence]')).map(node => {
       return node.getAttribute('data-existing-evidence');
     })).toEqual(['first', 'second']);
-    expect(evidenceCells[0].textContent).toContain('First evidence');
-    expect(evidenceCells[0].textContent).toContain('Second evidence');
-    expect(evidenceCells[0].textContent).not.toContain('Blank evidence');
-    expect(evidenceCells[1].querySelector('[data-existing-evidence="blank"]')).not.toBeNull();
-    expect(evidenceCells[2].querySelector('[data-existing-evidence="fourth"]')).not.toBeNull();
+    expect(evidenceCells[0].querySelector('[data-existing-evidence="leading-blank"]')).not.toBeNull();
+    expect(evidenceCells[1].textContent).toContain('First evidence');
+    expect(evidenceCells[1].textContent).toContain('Second evidence');
+    expect(evidenceCells[1].textContent).not.toContain('Blank evidence');
+    expect(evidenceCells[2].querySelector('[data-existing-evidence="blank"]')).not.toBeNull();
+    expect(evidenceCells[3].querySelector('[data-existing-evidence="fourth"]')).not.toBeNull();
   });
 
   it('migrates a strict legacy no-blank Evidence rowspan into Result group metadata before span reset', () => {
@@ -707,15 +710,16 @@ describe('copyTestTableEditor', () => {
       return ensured.model.rows[rowIndex].slots[indexes.result!]!.cell.element
         .getAttribute(COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE);
     });
-    const evidenceCells = [1, 3, 4].map(rowIndex => {
+    const evidenceCells = [1, 2, 3, 4].map(rowIndex => {
       return ensured.model.rows[rowIndex].slots[indexes.evidence!]!.cell.element;
     });
 
-    expect(resultGroupIds).toEqual(['0', '0', null, '3']);
+    expect(resultGroupIds).toEqual(['0', '1', null, '3']);
     expect(buildCopyTestRowGroups(ensured, 0).map(group => group.evidenceGroupId))
-      .toEqual([0, 0, undefined, 3]);
-    expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1))).toEqual([2, 1, 1]);
-    expect(ensured.model.rows[2].slots[indexes.evidence!]!.owned).toBe(false);
+      .toEqual([0, 1, undefined, 3]);
+    expect(evidenceCells.map(cell => Number(cell.getAttribute('rowspan') || 1)))
+      .toEqual([1, 1, 1, 1]);
+    expect(ensured.model.rows[2].slots[indexes.evidence!]!.owned).toBe(true);
   });
 
   it('keeps no-blank atomic rows independent with one winner per Evidence cell', () => {
