@@ -69,7 +69,7 @@ const SAFE_DIFFERENCE_TOKENS = new Set([
   '[whole unit omitted]',
 ]);
 
-const DIFFERENCE_PAIR_PATTERN = /Copy: (?:'([^']+)'|(\[[a-z ]+\])); Image: (?:'([^']+)'|(\[[a-z ]+\]))/g;
+const DIFFERENCE_PAIR_PATTERN = /^Copy value (?:'([^']+)'|(\[[a-z ]+\])) differs from Image value (?:'([^']+)'|(\[[a-z ]+\]))(?: \(occurrence \d+\))?\.$/g;
 
 const countGraphemeClusters = (value: string): number => {
   const Segmenter = (Intl as typeof Intl & {
@@ -180,8 +180,10 @@ const assertMinimalIssue = (
   const differencePairs = readDifferencePairs(issue);
 
   expect(differencePairs).toHaveLength(1);
-  expect(issue.match(/Copy:/g) || []).toHaveLength(1);
-  expect(issue.match(/Image:/g) || []).toHaveLength(1);
+  expect(issue.match(/Copy value/g) || []).toHaveLength(1);
+  expect(issue.match(/Image value/g) || []).toHaveLength(1);
+  expect(issue).toMatch(/^Copy value /);
+  expect(issue).not.toContain(' — ');
   expect(issue).not.toContain(' | ');
   if (copyText) {
     expect(issue).not.toContain(copyText);
@@ -269,7 +271,7 @@ describe('copyTestValidationPrompt production contract', () => {
       },
       {
         evidenceImageFileNames: ['complete.png'],
-        languageIssues: ["In the middle — Copy: 'or'; Image: 'ro'"],
+        languageIssues: ["Copy value 'or' differs from Image value 'ro'."],
         passed: false,
         rowIndex: 1,
       },
@@ -300,7 +302,7 @@ describe('copyTestValidationPrompt production contract', () => {
     expect(missingSegment).toEqual({
       evidenceImageFileNames: ['missing-segment.png'],
       languageIssues: [
-        "At the end — Copy: '/CCC'; Image: [empty]",
+        "Copy value '/CCC' differs from Image value [empty].",
       ],
       passed: false,
       rowIndex: 0,
@@ -308,7 +310,7 @@ describe('copyTestValidationPrompt production contract', () => {
     expect(extraEmptySegment).toEqual({
       evidenceImageFileNames: ['extra-slash.png'],
       languageIssues: [
-        "At the extra empty segment — Copy: [empty]; Image: '/'",
+        "Copy value [empty] differs from Image value '/'.",
       ],
       passed: false,
       rowIndex: 0,
@@ -329,13 +331,16 @@ describe('copyTestValidationPrompt production contract', () => {
     expect(failureContract).toMatch(/Still return every independently verified readable hunk/i);
     expect(failureContract).toMatch(/Only when the complete unit cannot be segmented or aligned/i);
     expect(failureContract).toMatch(/locally unreadable glyph never suppresses other verified hunks/i);
-    expect(failureContract).toMatch(/Every failed issue contains exactly one "Copy:" label/i);
+    expect(failureContract).toMatch(/Every failed issue starts with "Copy value"/i);
+    expect(failureContract).toMatch(/Do not add a location or edit-type prefix/i);
+    expect(failureContract).toMatch(/append " \(occurrence N\)" immediately before the final period/i);
     expect(failureContract).not.toContain('Original:');
     expect(failureContract).not.toContain('Expected:');
+    expect(failureContract).not.toContain('<Reliable location or edit type>');
     expect(failureContract).not.toContain(' | ');
     expect(chineseMismatch.languageIssues).toEqual([
-      "At the beginning — Copy: '输'; Image: '輸'",
-      "Near the end — Copy: '信息'; Image: '資料'",
+      "Copy value '输' differs from Image value '輸'.",
+      "Copy value '信息' differs from Image value '資料'.",
     ]);
     expect(readDifferencePairs(chineseMismatch.languageIssues[0])).toEqual([{
       copy: { literal: '输', token: undefined },
@@ -344,6 +349,12 @@ describe('copyTestValidationPrompt production contract', () => {
     expect(readDifferencePairs(chineseMismatch.languageIssues[1])).toEqual([{
       copy: { literal: '信息', token: undefined },
       image: { literal: '資料', token: undefined },
+    }]);
+    expect(readDifferencePairs(
+      "Copy value 'x' differs from Image value 'y' (occurrence 2)."
+    )).toEqual([{
+      copy: { literal: 'x', token: undefined },
+      image: { literal: 'y', token: undefined },
     }]);
   });
 
@@ -358,10 +369,10 @@ describe('copyTestValidationPrompt production contract', () => {
     expect(visualContract).toMatch(/Treat punctuation as literal pixels/i);
     expect(visualContract).toMatch(/"\.", "．", "。", and "｡" differ/i);
     expect(punctuationMismatch.languageIssues).toEqual([
-      "In the final punctuation — Copy: '.'; Image: '。'",
+      "Copy value '.' differs from Image value '。'.",
     ]);
     expect(unreadableChinese.languageIssues).toEqual([
-      'At the unreadable Chinese character — Copy: [corresponding fragment unavailable]; Image: [unreadable]',
+      'Copy value [corresponding fragment unavailable] differs from Image value [unreadable].',
     ]);
   });
 

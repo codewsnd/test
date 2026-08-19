@@ -96,22 +96,22 @@ For every readable mismatch:
 
 1. Diff the canonical strings while retaining an exact mapping to raw expectedText and raw lockedImageText. Maximize unchanged prefix and suffix, align equal slash separators and equal slash-delimited segments, and find every disjoint shortest contiguous edit hunk.
 2. Return every hunk in source order as a separate languageIssues array element. Never combine multiple hunks into one string. Each element describes exactly one hunk.
-3. Format each element as: "<Reliable location or edit type> — Copy: <copySide>; Image: <imageSide>". Copy always means expectedText; Image always means the locked transcription from the selected screenshot. Never reverse them.
+3. Use this direct, neutral, user-friendly format: "Copy value <copySide> differs from Image value <imageSide>." Copy always means expectedText; Image always means the locked transcription from the selected screenshot. Never reverse them. Start immediately with "Copy value". Do not add a location or edit-type prefix, heading, colon label, or em dash.
 4. Remove all unchanged prefix, suffix, and inter-hunk context. A quoted Copy fragment must be the exact raw expectedText span mapped from that hunk. A quoted Image fragment must be the exact raw lockedImageText span mapped from that hunk. Never quote text merely because it occurs elsewhere, and never quote inferred, corrected, translated, normalized, uncertain, or non-selected text.
 5. Quote a raw hunk in single quotes only when it is non-empty, at most 12 Unicode grapheme clusters, and not that side's complete copy unit. Never truncate. Use [fragment omitted] for a long or non-unique mapping and [whole unit omitted] when quoting would reveal the complete unit.
 6. Use [empty] for an absent side. For meaningful whitespace away from a slash, use [one space] or [no space] instead of invisible text. Never report whitespace removed by slash normalization.
-7. If two hunks have identical fragments, give them reliable distinct locations or occurrence labels so their issue strings remain unique. If alignment is not reliable, do not guess a fragment.
+7. If two issues would produce identical strings, append " (occurrence N)" immediately before the final period, using their one-based source order. If alignment is not reliable, do not guess a fragment.
 
 For each independently located unreadable region, add a separate relevant unreadable fallback and never invent its fragment. Still return every independently verified readable hunk as its own element. Only when the complete unit cannot be segmented or aligned at all may one unit-level fallback replace regional issues. A locally unreadable glyph never suppresses other verified hunks. The only allowed unquoted side tokens are [empty], [one space], [no space], [fragment omitted], [whole unit omitted], [unreadable], [corresponding fragment unavailable], [not found], [no screenshot], and [not evaluated].
 
 Canonical fallback issues:
-- unreadable Chinese: "At the unreadable Chinese character — Copy: [corresponding fragment unavailable]; Image: [unreadable]"
-- unreadable punctuation: "At the unreadable punctuation — Copy: [corresponding fragment unavailable]; Image: [unreadable]"
-- target absent: "Target copy — Copy: [whole unit omitted]; Image: [not found]"
-- no upload: "Target copy — Copy: [not evaluated]; Image: [no screenshot]"
-- whole-unit replacement: "Whole unit — Copy: [whole unit omitted]; Image: [whole unit omitted]"
+- unreadable Chinese: "Copy value [corresponding fragment unavailable] differs from Image value [unreadable]."
+- unreadable punctuation: "Copy value [corresponding fragment unavailable] differs from Image value [unreadable]."
+- target absent: "Copy value [whole unit omitted] differs from Image value [not found]."
+- no upload: "Copy value [not evaluated] differs from Image value [no screenshot]."
+- whole-unit replacement: "Copy value [whole unit omitted] differs from Image value [whole unit omitted]."
 
-Every failed issue contains exactly one "Copy:" label and one "Image:" label. Do not include filenames, image identifiers, upload indexes, full source strings, unchanged context, reasoning, confidence, Unicode code points, internal field names, or text from a non-selected screenshot.
+Every failed issue starts with "Copy value" and contains exactly one "Image value". Do not include filenames, image identifiers, upload indexes, full source strings, unchanged context, reasoning, confidence, Unicode code points, internal field names, or text from a non-selected screenshot.
 </failure_issues>
 
 <decision_examples>
@@ -119,11 +119,11 @@ These examples encode measured product requirements. visualEvidence describes sc
 
 ## D01 — One group winner supplies singleton Evidence to every row
 Input: {"selectedRows":[{"evidenceGroupId":7,"rowIndex":0,"expectedText":"Email"},{"evidenceGroupId":7,"rowIndex":1,"expectedText":"Password"}],"visualEvidence":[{"fileName":"partial.png","copyUnits":["Email"]},{"fileName":"complete.png","copyUnits":["Email","Passwrod"]}]}
-Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["complete.png"],"languageIssues":[]},{"rowIndex":1,"passed":false,"evidenceImageFileNames":["complete.png"],"languageIssues":["In the middle — Copy: 'or'; Image: 'ro'"]}]}
+Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["complete.png"],"languageIssues":[]},{"rowIndex":1,"passed":false,"evidenceImageFileNames":["complete.png"],"languageIssues":["Copy value 'or' differs from Image value 'ro'."]}]}
 
 ## D02 — Every Chinese edit hunk is a separate issue
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"输入您的信息","visualEvidence":[{"fileName":"traditional.png","fullCopyUnit":"輸入您的資料"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["traditional.png"],"languageIssues":["At the beginning — Copy: '输'; Image: '輸'","Near the end — Copy: '信息'; Image: '資料'"]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["traditional.png"],"languageIssues":["Copy value '输' differs from Image value '輸'.","Copy value '信息' differs from Image value '資料'."]}]}
 
 ## D03 — Slash-adjacent whitespace is equivalent
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"XXX/XXX/XXX","visualEvidence":[{"fileName":"slash-spacing.png","fullCopyUnit":"XXX / XXX/ XXX"}]}
@@ -131,19 +131,19 @@ Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["slash
 
 ## D04 — A missing final segment reports the minimal suffix hunk
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"AAA/BBB/CCC","visualEvidence":[{"fileName":"missing-segment.png","fullCopyUnit":"AAA / BBB"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["missing-segment.png"],"languageIssues":["At the end — Copy: '/CCC'; Image: [empty]"]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["missing-segment.png"],"languageIssues":["Copy value '/CCC' differs from Image value [empty]."]}]}
 
 ## D05 — Period forms remain literal punctuation
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"付款成功.","visualEvidence":[{"fileName":"ideographic-stop.png","fullCopyUnit":"付款成功。"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["ideographic-stop.png"],"languageIssues":["In the final punctuation — Copy: '.'; Image: '。'"]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["ideographic-stop.png"],"languageIssues":["Copy value '.' differs from Image value '。'."]}]}
 
 ## D06 — Unclear Han glyphs are never invented
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"请输入密码","visualEvidence":[{"fileName":"blurred-han.png","targetRegion":"one required Han glyph is not distinguishable"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["blurred-han.png"],"languageIssues":["At the unreadable Chinese character — Copy: [corresponding fragment unavailable]; Image: [unreadable]"]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["blurred-han.png"],"languageIssues":["Copy value [corresponding fragment unavailable] differs from Image value [unreadable]."]}]}
 
 ## D07 — An extra empty slash segment still fails
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"AAA/BBB","visualEvidence":[{"fileName":"extra-slash.png","fullCopyUnit":"AAA//BBB"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["extra-slash.png"],"languageIssues":["At the extra empty segment — Copy: [empty]; Image: '/'"]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["extra-slash.png"],"languageIssues":["Copy value [empty] differs from Image value '/'."]}]}
 </decision_examples>
 
 <output_contract>

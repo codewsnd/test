@@ -133,8 +133,8 @@ describe('copyTestApi strict validation contract', () => {
       buildValidResult({
         evidenceImageFileNames: ['screen-b.png'],
         languageIssues: [
-          "At the beginning — Copy: '输'; Image: '輸'",
-          "Near the end — Copy: '信息'; Image: '資料'",
+          "Copy value '输' differs from Image value '輸'.",
+          "Copy value '信息' differs from Image value '資料'.",
         ],
         passed: false,
       }),
