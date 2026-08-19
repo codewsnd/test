@@ -90,28 +90,27 @@ With uploads, select exactly one screenshot per evidenceGroupId, even when no sc
 </group_screenshot_selection>
 
 <failure_issues>
-For a passed row, languageIssues is []. For a failed row, return one or more unique English strings. Literal source fragments may use their original language.
+For a passed row, languageIssues is []. For a failed row, return one or more unique, short English sentences written for a general user. Literal source fragments may use their original language.
 
 For every readable mismatch:
 
 1. Diff the canonical strings while retaining an exact mapping to raw expectedText and raw lockedImageText. Maximize unchanged prefix and suffix, align equal slash separators and equal slash-delimited segments, and find every disjoint shortest contiguous edit hunk.
-2. Return every hunk in source order as a separate languageIssues array element. Never combine multiple hunks into one string. Each element describes exactly one hunk.
-3. Use this direct, neutral, user-friendly format: "Copy value <copySide> differs from Image value <imageSide>." Copy always means expectedText; Image always means the locked transcription from the selected screenshot. Never reverse them. Start immediately with "Copy value". Do not add a location or edit-type prefix, heading, colon label, or em dash.
-4. Remove all unchanged prefix, suffix, and inter-hunk context. A quoted Copy fragment must be the exact raw expectedText span mapped from that hunk. A quoted Image fragment must be the exact raw lockedImageText span mapped from that hunk. Never quote text merely because it occurs elsewhere, and never quote inferred, corrected, translated, normalized, uncertain, or non-selected text.
-5. Quote a raw hunk in single quotes only when it is non-empty, at most 12 Unicode grapheme clusters, and not that side's complete copy unit. Never truncate. Use [fragment omitted] for a long or non-unique mapping and [whole unit omitted] when quoting would reveal the complete unit.
-6. Use [empty] for an absent side. For meaningful whitespace away from a slash, use [one space] or [no space] instead of invisible text. Never report whitespace removed by slash normalization.
-7. If two issues would produce identical strings, append " (occurrence N)" immediately before the final period, using their one-based source order. If alignment is not reliable, do not guess a fragment.
+2. Return each distinct hunk in source order as a separate languageIssues element. Keep one issue to one difference and never combine unrelated changes. If the same completed user-facing sentence would appear more than once, return it only once.
+3. Use exactly one matching friendly template:
+   - replacement: "Expected '<copyText>', but the image shows '<imageText>'."
+   - text missing from the image: "The image is missing '<copyText>'."
+   - extra text in the image: "The image has an extra '<imageText>'."
+   - expected space missing from the image: "The image is missing a space."
+   - extra space in the image: "The image has an extra space."
+4. Copy text always comes from expectedText; image text always comes from lockedImageText. Never reverse them.
+5. Remove all unchanged prefix, suffix, and inter-hunk context. Quote an exact raw fragment only when it is non-empty, contains no single quote, is at most 12 Unicode grapheme clusters, and is not that side's complete copy unit. Never truncate, infer, correct, translate, normalize, or quote text from a non-selected screenshot. If a fragment cannot be quoted safely and exactly, use "The text in the image is different from the expected text."
+6. Never report whitespace removed by slash normalization.
 
-For each independently located unreadable region, add a separate relevant unreadable fallback and never invent its fragment. Still return every independently verified readable hunk as its own element. Only when the complete unit cannot be segmented or aligned at all may one unit-level fallback replace regional issues. A locally unreadable glyph never suppresses other verified hunks. The only allowed unquoted side tokens are [empty], [one space], [no space], [fragment omitted], [whole unit omitted], [unreadable], [corresponding fragment unavailable], [not found], [no screenshot], and [not evaluated].
+For each independently located unreadable region, add a separate "Part of the image is too unclear to read." issue. Still return every independently verified readable hunk. Only when the complete unit cannot be segmented or aligned at all may "The text in the image is different from the expected text." replace regional issues. A locally unreadable glyph never suppresses other verified hunks.
 
-Canonical fallback issues:
-- unreadable Chinese: "Copy value [corresponding fragment unavailable] differs from Image value [unreadable]."
-- unreadable punctuation: "Copy value [corresponding fragment unavailable] differs from Image value [unreadable]."
-- target absent: "Copy value [whole unit omitted] differs from Image value [not found]."
-- no upload: "Copy value [not evaluated] differs from Image value [no screenshot]."
-- whole-unit replacement: "Copy value [whole unit omitted] differs from Image value [whole unit omitted]."
+Use "The expected text could not be found in the image." when the target is absent. With no upload, use "Please upload an image to check this text."
 
-Every failed issue starts with "Copy value" and contains exactly one "Image value". Do not include filenames, image identifiers, upload indexes, full source strings, unchanged context, reasoning, confidence, Unicode code points, internal field names, or text from a non-selected screenshot.
+Every issue must be a complete, natural sentence. Never show bracketed placeholder tokens, positions, edit names, labels, em dashes, or occurrence numbers. Do not include filenames, image identifiers, upload indexes, full source strings, unchanged context, reasoning, confidence, Unicode code points, internal field names, or text from a non-selected screenshot. After formatting all issues, keep only the first instance of each identical sentence.
 </failure_issues>
 
 <decision_examples>
@@ -119,11 +118,11 @@ These examples encode measured product requirements. visualEvidence describes sc
 
 ## D01 — One group winner supplies singleton Evidence to every row
 Input: {"selectedRows":[{"evidenceGroupId":7,"rowIndex":0,"expectedText":"Email"},{"evidenceGroupId":7,"rowIndex":1,"expectedText":"Password"}],"visualEvidence":[{"fileName":"partial.png","copyUnits":["Email"]},{"fileName":"complete.png","copyUnits":["Email","Passwrod"]}]}
-Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["complete.png"],"languageIssues":[]},{"rowIndex":1,"passed":false,"evidenceImageFileNames":["complete.png"],"languageIssues":["Copy value 'or' differs from Image value 'ro'."]}]}
+Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["complete.png"],"languageIssues":[]},{"rowIndex":1,"passed":false,"evidenceImageFileNames":["complete.png"],"languageIssues":["Expected 'or', but the image shows 'ro'."]}]}
 
 ## D02 — Every Chinese edit hunk is a separate issue
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"输入您的信息","visualEvidence":[{"fileName":"traditional.png","fullCopyUnit":"輸入您的資料"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["traditional.png"],"languageIssues":["Copy value '输' differs from Image value '輸'.","Copy value '信息' differs from Image value '資料'."]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["traditional.png"],"languageIssues":["Expected '输', but the image shows '輸'.","Expected '信息', but the image shows '資料'."]}]}
 
 ## D03 — Slash-adjacent whitespace is equivalent
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"XXX/XXX/XXX","visualEvidence":[{"fileName":"slash-spacing.png","fullCopyUnit":"XXX / XXX/ XXX"}]}
@@ -131,19 +130,23 @@ Output: {"results":[{"rowIndex":0,"passed":true,"evidenceImageFileNames":["slash
 
 ## D04 — A missing final segment reports the minimal suffix hunk
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"AAA/BBB/CCC","visualEvidence":[{"fileName":"missing-segment.png","fullCopyUnit":"AAA / BBB"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["missing-segment.png"],"languageIssues":["Copy value '/CCC' differs from Image value [empty]."]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["missing-segment.png"],"languageIssues":["The image is missing '/CCC'."]}]}
 
 ## D05 — Period forms remain literal punctuation
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"付款成功.","visualEvidence":[{"fileName":"ideographic-stop.png","fullCopyUnit":"付款成功。"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["ideographic-stop.png"],"languageIssues":["Copy value '.' differs from Image value '。'."]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["ideographic-stop.png"],"languageIssues":["Expected '.', but the image shows '。'."]}]}
 
 ## D06 — Unclear Han glyphs are never invented
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"请输入密码","visualEvidence":[{"fileName":"blurred-han.png","targetRegion":"one required Han glyph is not distinguishable"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["blurred-han.png"],"languageIssues":["Copy value [corresponding fragment unavailable] differs from Image value [unreadable]."]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["blurred-han.png"],"languageIssues":["Part of the image is too unclear to read."]}]}
 
 ## D07 — An extra empty slash segment still fails
 Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"AAA/BBB","visualEvidence":[{"fileName":"extra-slash.png","fullCopyUnit":"AAA//BBB"}]}
-Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["extra-slash.png"],"languageIssues":["Copy value [empty] differs from Image value '/'."]}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["extra-slash.png"],"languageIssues":["The image has an extra '/'."]}]}
+
+## D08 — Repeated identical differences stay concise
+Input: {"evidenceGroupId":0,"rowIndex":0,"expectedText":"AXA/AXA","visualEvidence":[{"fileName":"repeated.png","fullCopyUnit":"AYA/AYA"}]}
+Output: {"results":[{"rowIndex":0,"passed":false,"evidenceImageFileNames":["repeated.png"],"languageIssues":["Expected 'X', but the image shows 'Y'."]}]}
 </decision_examples>
 
 <output_contract>
@@ -155,7 +158,7 @@ Return one valid raw JSON object and nothing else. Do not use Markdown.
   - rowIndex: the original non-negative integer.
   - passed: a boolean.
   - evidenceImageFileNames: exactly [selectedGroupFileName] when uploads exist, otherwise []. All rows in one evidenceGroupId use the same singleton.
-  - languageIssues: [] when passed; when failed, one or more unique strings following failure_issues, with exactly one independently reportable minimal hunk per array element. A non-itemizable fallback is one element.
+  - languageIssues: [] when passed; when failed, one or more unique strings following failure_issues, with exactly one independently reportable difference per array element. A general fallback is one element.
 - Never add fields, including transcription, observedText, expectedText, reasoning, confidence, screenshot index, group metadata, rowspan, evidenceRowSpan, hideEvidenceCell, or comments.
 </output_contract>`;
 

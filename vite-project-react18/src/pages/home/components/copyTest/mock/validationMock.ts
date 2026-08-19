@@ -20,14 +20,14 @@ const RANDOM_PASS_RATE = 0.65;
 const MOCK_TIMESTAMP_EPOCH_MS = Date.parse('2026-01-01T00:00:00.000Z');
 
 /** 没有上传截图时返回的真实边界失败原因。 */
-const NO_SCREENSHOT_FAILURE_REASON = 'No uploaded screenshot is available for validation.';
+const NO_SCREENSHOT_FAILURE_REASON = 'Please upload an image to check this text.';
 
-/** 随机失败结果可使用的真实测试问题说明。 */
+/** 随机失败结果可使用的用户友好问题说明。 */
 const RANDOM_FAILURE_REASONS = [
-  'OCR text does not match the selected comparison copy.',
-  'Expected copy was not found in the uploaded screenshots.',
-  'Screenshot contains related text, but the visible wording is different.',
-  'The expected copy is incomplete or truncated in the screenshot.',
+  'The text in the image is different from the expected text.',
+  'The expected text could not be found in the image.',
+  'Part of the image is too unclear to read.',
+  'The image is missing some expected text.',
 ] as const;
 
 /** 连续调用 Mock 工厂时可注入的确定性依赖。 */
@@ -209,7 +209,7 @@ const buildRandomValidationResult = (
   };
 };
 
-/** 为确定性失败轮次生成可在 UI 中区分的 Mock 问题。 */
+/** 为确定性失败轮次生成用户友好的 Mock 问题。 */
 const buildSequencedLanguageIssues = (
   passed: boolean,
   evidenceImageFileNames: string[],
@@ -225,9 +225,7 @@ const buildSequencedLanguageIssues = (
   const reason = evidenceImageFileNames.length === 0
     ? NO_SCREENSHOT_FAILURE_REASON
     : RANDOM_FAILURE_REASONS[reasonIndex];
-  return [
-    `Mock validation round ${sequenceIndex + 1}: ${reason}`,
-  ];
+  return [reason];
 };
 
 /** 确定性轮次至少保留一个失败行，使每次响应可由轮次问题稳定区分。 */

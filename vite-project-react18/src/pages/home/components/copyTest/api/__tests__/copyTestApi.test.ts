@@ -133,8 +133,8 @@ describe('copyTestApi strict validation contract', () => {
       buildValidResult({
         evidenceImageFileNames: ['screen-b.png'],
         languageIssues: [
-          "Copy value '输' differs from Image value '輸'.",
-          "Copy value '信息' differs from Image value '資料'.",
+          "Expected '输', but the image shows '輸'.",
+          "Expected '信息', but the image shows '資料'.",
         ],
         passed: false,
       }),
@@ -153,7 +153,7 @@ describe('copyTestApi strict validation contract', () => {
     expect(parseCopyTestValidationResponse(response, images, [rows[0]])).toEqual(results);
     expect(parseCopyTestValidationResults(buildContent([{
       evidenceImageFileNames: [],
-      languageIssues: ['Expected copy is missing.'],
+      languageIssues: ['Please upload an image to check this text.'],
       passed: false,
       rowIndex: 0,
     }]), [], [rows[0]])[0].evidenceImageFileNames).toEqual([]);

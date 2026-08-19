@@ -89,7 +89,7 @@ describe('validationMock aiChat boundary', () => {
       results: [
         {
           evidenceImageFileNames: ['screen-a.png'],
-          languageIssues: ['Screenshot contains related text, but the visible wording is different.'],
+          languageIssues: ['Part of the image is too unclear to read.'],
           passed: false,
           rowIndex: 4,
         },
@@ -120,7 +120,7 @@ describe('validationMock aiChat boundary', () => {
     expect(second.results[0]).toEqual({
       evidenceImageFileNames: ['screen-b.png'],
       languageIssues: [
-        'Mock validation round 2: Expected copy was not found in the uploaded screenshots.',
+        'The expected text could not be found in the image.',
       ],
       passed: false,
       rowIndex: 3,
@@ -128,7 +128,7 @@ describe('validationMock aiChat boundary', () => {
     expect(third.results[0]).toEqual({
       evidenceImageFileNames: ['screen-a.png'],
       languageIssues: [
-        'Mock validation round 3: Screenshot contains related text, but the visible wording is different.',
+        'Part of the image is too unclear to read.',
       ],
       passed: false,
       rowIndex: 3,
@@ -136,7 +136,7 @@ describe('validationMock aiChat boundary', () => {
     expect(fourth.results[0]).toEqual({
       evidenceImageFileNames: ['screen-b.png'],
       languageIssues: [
-        'Mock validation round 4: The expected copy is incomplete or truncated in the screenshot.',
+        'The image is missing some expected text.',
       ],
       passed: false,
       rowIndex: 3,
@@ -183,7 +183,7 @@ describe('validationMock aiChat boundary', () => {
         results: [{
           evidenceImageFileNames: ['round-2-b.png'],
           languageIssues: [
-            'Mock validation round 2: Expected copy was not found in the uploaded screenshots.',
+            'The expected text could not be found in the image.',
           ],
           passed: false,
           rowIndex: 20,
@@ -200,7 +200,7 @@ describe('validationMock aiChat boundary', () => {
           {
             evidenceImageFileNames: ['round-3-c.png'],
             languageIssues: [
-              'Mock validation round 3: The expected copy is incomplete or truncated in the screenshot.',
+              'The image is missing some expected text.',
             ],
             passed: false,
             rowIndex: 31,
@@ -211,7 +211,7 @@ describe('validationMock aiChat boundary', () => {
         results: [{
           evidenceImageFileNames: ['round-4.png'],
           languageIssues: [
-            'Mock validation round 4: The expected copy is incomplete or truncated in the screenshot.',
+            'The image is missing some expected text.',
           ],
           passed: false,
           rowIndex: 40,
@@ -303,7 +303,7 @@ describe('validationMock aiChat boundary', () => {
       results: [
         {
           evidenceImageFileNames: [],
-          languageIssues: ['No uploaded screenshot is available for validation.'],
+          languageIssues: ['Please upload an image to check this text.'],
           passed: false,
           rowIndex: 7,
         },
