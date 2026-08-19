@@ -37,9 +37,7 @@ const IMAGE_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i;
 const MOCK_VALIDATION_DELAY_MS = 300;
 
 /** 仅在显式的本地环境开关为 true 时启用按调用轮次变化的 AI 校验结果。 */
-export const COPY_TEST_AI_CHAT_MOCK_ENABLED = (
-  import.meta.env.VITE_COPY_TEST_AI_CHAT_MOCK_ENABLED === 'true'
-);
+export const COPY_TEST_AI_CHAT_MOCK_ENABLED = true
 
 /** Confluence storage 查询接口的返回结构。 */
 export interface CopyTestStorageResponse {
