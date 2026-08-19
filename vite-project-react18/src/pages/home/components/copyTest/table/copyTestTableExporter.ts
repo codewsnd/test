@@ -644,6 +644,82 @@ const appendCellPatch = (context: CellPatchContext): boolean => {
   return patch.desiredRaw === '' || appendCellInsertion(context, patch.desiredRaw);
 };
 
+/** 从 working 单元格复制结构属性并清空全部 Result/Evidence 内容。 */
+const buildEmptyPlaceholderRaw = (
+  view: RawTableView,
+  range: CopyTestRawCellRange,
+  exportScope: string
+): string | null => {
+  /** 保留严格 ownership、rowspan 和 group-id 的原始开标签。 */
+  const openTag = getRawRangeText(view.raw, range.openTagRange);
+  /** 保留与原单元格标签类型一致的原始关闭标签。 */
+  const closeTag = getRawRangeText(view.raw, range.closeTagRange);
+  return addExportScopeToRawCell(`${openTag}${closeTag}`, exportScope);
+};
+
+/** 判断占位单元格的 rowspan 是否会覆盖 latest 中已有的同类型 owned cell。 */
+const placeholderCrossesExistingCell = (
+  context: CellPatchContext,
+  workingCell: CopyTestCellModel
+): boolean => {
+  /** 占位单元格在表格范围内覆盖的最后一行后一位。 */
+  const rowEnd = Math.min(
+    workingCell.rowIndex + workingCell.rowSpan,
+    context.baseView.model.rows.length
+  );
+  for (let rowIndex = workingCell.rowIndex + 1; rowIndex < rowEnd; rowIndex += 1) {
+    if (getTargetCells(
+      context.baseView.model.rows[rowIndex],
+      context.type,
+      context.sourceColumnKey
+    ).length > 0) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/** 未选行保留 latest 已有 cell；仅在缺失时补入无业务内容的结构占位。 */
+const appendUnselectedCellPlaceholder = (context: CellPatchContext): boolean => {
+  /** latest 当前行中唯一允许存在的目标 owned 单元格。 */
+  const baseCell = getSingleTargetCell(
+    context.baseView.model.rows[context.rowIndex],
+    context.type,
+    context.sourceColumnKey
+  );
+  /** working 当前行中用于复制结构的唯一目标 owned 单元格。 */
+  const workingCell = getSingleTargetCell(
+    context.workingView.model.rows[context.rowIndex],
+    context.type,
+    context.sourceColumnKey
+  );
+  if (!baseCell || !workingCell) {
+    return false;
+  }
+  if (baseCell.cell || !workingCell.cell) {
+    return true;
+  }
+  if (placeholderCrossesExistingCell(context, workingCell.cell)) {
+    return false;
+  }
+  /** working 结构单元格对应的精确 raw 区间。 */
+  const workingRange = getCellRawRange(
+    context.workingView,
+    context.rowIndex,
+    workingCell.cell
+  );
+  if (!workingRange) {
+    return false;
+  }
+  /** 清空内容但保留严格结构 metadata 的临时 scoped 占位单元格。 */
+  const placeholderRaw = buildEmptyPlaceholderRaw(
+    context.workingView,
+    workingRange,
+    context.exportScope
+  );
+  return placeholderRaw !== null && appendCellInsertion(context, placeholderRaw);
+};
+
 /** 构建当前 pair 在所有物理行上的 raw replacements。 */
 const buildPairReplacements = (
   baseView: RawTableView,
@@ -667,10 +743,10 @@ const buildPairReplacements = (
   /** working 表头逻辑位置对应的稳定身份序列。 */
   const workingHeaderIdentities = buildHeaderColumnIdentities(workingView.model);
   for (let rowIndex = 0; rowIndex < workingView.model.rows.length; rowIndex += 1) {
-    /** 显式选择模式下完全跳过未选物理行，确保 latest raw 逐字节保持不变。 */
-    if (rowIndex > 0 && selectedPhysicalRows && !selectedPhysicalRows.has(rowIndex)) {
-      continue;
-    }
+    /** 当前是否为显式选择范围外、只能补空结构占位的数据行。 */
+    const unselectedDataRow = rowIndex > 0
+      && Boolean(selectedPhysicalRows)
+      && !selectedPhysicalRows?.has(rowIndex);
     for (let typeIndex = 0; typeIndex < COPY_TEST_GENERATED_TYPES.length; typeIndex += 1) {
       /** 当前物理行需要解析的 Result 或 Evidence 生成类型。 */
       const type = COPY_TEST_GENERATED_TYPES[typeIndex];
@@ -686,7 +762,9 @@ const buildPairReplacements = (
         workingHeaderIdentities,
         workingView,
       };
-      const appended = appendCellPatch(context);
+      const appended = unselectedDataRow
+        ? appendUnselectedCellPlaceholder(context)
+        : appendCellPatch(context);
       if (!appended) {
         return null;
       }

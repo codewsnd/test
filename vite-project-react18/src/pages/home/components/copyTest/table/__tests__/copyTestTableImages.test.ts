@@ -87,6 +87,15 @@ const createCustomEvidenceCell = (sourceColumnKey: string, content: string): str
   return `<td ${createManagedAttributes(sourceColumnKey, 'evidence')}>${content}</td>`;
 };
 
+/** 构建本次导出中不含生成内容的 managed 占位单元格。 */
+const createEmptyManagedCell = (
+  sourceColumnKey: string,
+  type: 'result' | 'evidence',
+  exportScope: string
+): string => {
+  return `<td ${createManagedAttributes(sourceColumnKey, type, exportScope)}></td>`;
+};
+
 /** 构建严格 metadata 的生成列表头。 */
 const createManagedHeader = (
   sourceColumnKey: string,
@@ -285,6 +294,83 @@ describe('copyTestTableImages', () => {
     );
     expect(repeated.storageHtml).toBe(payload.storageHtml);
     expect(repeated.images).toEqual([]);
+  });
+
+  it('清理空 managed 占位格但不收集图片或改写未选历史和其他 Pair', () => {
+    /** 未被本轮 scope 选中的历史 A 双列。 */
+    const historicalResult = createResultCell(SOURCE_A, 'historical-id');
+    const historicalEvidence = createEvidenceCell(
+      SOURCE_A,
+      'historical-id',
+      'historical.png'
+    );
+    /** 应当保持原字节和列位的 B 双列。 */
+    const foreignResult = createResultCell(SOURCE_B, 'foreign-id', EXPORT_SCOPE_B);
+    const foreignEvidence = createEvidenceCell(
+      SOURCE_B,
+      'foreign-id',
+      'foreign-pair.png',
+      EXPORT_SCOPE_B
+    );
+    const storage = [
+      '<table><tr><th>ID</th>',
+      createManagedHeader(SOURCE_A, 'result', 'A Result', EXPORT_SCOPE_A),
+      createManagedHeader(SOURCE_A, 'evidence', 'A Evidence', EXPORT_SCOPE_A),
+      createManagedHeader(SOURCE_B, 'result', 'B Result', EXPORT_SCOPE_B),
+      createManagedHeader(SOURCE_B, 'evidence', 'B Evidence', EXPORT_SCOPE_B),
+      '</tr><tr><td>selected</td>',
+      createResultCell(SOURCE_A, 'selected-id', EXPORT_SCOPE_A),
+      createEvidenceCell(SOURCE_A, 'selected-id', 'selected.png', EXPORT_SCOPE_A),
+      foreignResult,
+      foreignEvidence,
+      '</tr><tr><td>empty</td>',
+      createEmptyManagedCell(SOURCE_A, 'result', EXPORT_SCOPE_A),
+      createEmptyManagedCell(SOURCE_A, 'evidence', EXPORT_SCOPE_A),
+      '<td data-pair="b-result-empty"></td><td data-pair="b-evidence-empty"></td>',
+      '</tr><tr><td>historical</td>',
+      historicalResult,
+      historicalEvidence,
+      '<td data-pair="b-result-history"></td><td data-pair="b-evidence-history"></td>',
+      '</tr></table>',
+    ].join('');
+
+    const payload = buildConfluenceStorageTableExportPayload(
+      storage,
+      SOURCE_A,
+      EXPORT_SCOPE_A,
+      [
+        { base64: A_PROVIDED_BASE64, fileName: 'selected.png' },
+        { base64: B_PROVIDED_BASE64, fileName: 'historical.png' },
+        { base64: FOREIGN_BASE64, fileName: 'foreign-pair.png' },
+      ]
+    );
+
+    expect(payload.images).toEqual([{
+      base64: A_PROVIDED_BASE64,
+      fileName: 'selected.png',
+    }]);
+    expect(payload.storageHtml).toContain(historicalResult);
+    expect(payload.storageHtml).toContain(historicalEvidence);
+    expect(payload.storageHtml).toContain(foreignResult);
+    expect(payload.storageHtml).toContain(foreignEvidence);
+    expect(payload.storageHtml).not.toContain(`data-copy-test-export-scope="${EXPORT_SCOPE_A}"`);
+    expect(payload.storageHtml).toContain(`data-copy-test-export-scope="${EXPORT_SCOPE_B}"`);
+
+    /** 导出后的空行用于校验占位格完整性、宽度和列序。 */
+    const outputDocument = parseHtml(payload.storageHtml);
+    const emptyRowCells = Array.from(
+      outputDocument.querySelectorAll<HTMLTableCellElement>('tr:nth-child(3) > td')
+    );
+    expect(emptyRowCells).toHaveLength(5);
+    expect(emptyRowCells.map(cell => cell.getAttribute(COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE)))
+      .toEqual([null, COPY_TEST_GENERATED_RESULT_TYPE, COPY_TEST_GENERATED_EVIDENCE_TYPE, null, null]);
+    expect(emptyRowCells[1].textContent).toBe('');
+    expect(emptyRowCells[1].style.width).toBe(`${COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH}px`);
+    expect(emptyRowCells[2].textContent).toBe('');
+    expect(emptyRowCells[2].style.width).toBe(`${COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH}px`);
+    expect(emptyRowCells[2].querySelector('ac\\:image')).toBeNull();
+    expect(emptyRowCells[3].getAttribute('data-pair')).toBe('b-result-empty');
+    expect(emptyRowCells[4].getAttribute('data-pair')).toBe('b-evidence-empty');
   });
 
   it('保持已清理 A 双列不变并独立导出 B 双列', () => {

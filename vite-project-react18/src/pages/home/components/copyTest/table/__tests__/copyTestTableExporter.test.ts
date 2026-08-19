@@ -5,7 +5,12 @@ import {
   COPY_TEST_SCHEMA_ATTRIBUTE,
   COPY_TEST_SCHEMA_VERSION,
 } from '../tableConstants';
-import { parseCopyTestStorageTables } from '../copyTestTableParser';
+import { ensureCopyTestWorkingColumns } from '../copyTestTableEditor';
+import { buildConfluenceStorageTableExportPayload } from '../copyTestTableImages';
+import {
+  parseCopyTestStorageTables,
+  type CopyTestWorkingTable,
+} from '../copyTestTableParser';
 import { buildCurrentColumnExportStorage } from '../copyTestTableExporter';
 import {
   getRawRangeText,
@@ -185,6 +190,57 @@ const createWorkingTable = (importStorage: string, workingTableHtml: string) => 
 
 const countText = (value: string, text: string): number => {
   return value.split(text).length - 1;
+};
+
+/** 给 working 表格指定 Pair 的每个 owned 数据单元格写入可追踪测试内容。 */
+const fillManagedPairCells = (
+  table: CopyTestWorkingTable,
+  sourceColumnKey: string,
+  prefix: string
+): CopyTestWorkingTable => {
+  /** 从 working html 解析出的可编辑表格。 */
+  const documentModel = new DOMParser().parseFromString(table.workingHtml, 'text/html');
+  /** 当前测试表格的真实 DOM 根节点。 */
+  const tableElement = documentModel.querySelector<HTMLTableElement>('table');
+  if (!tableElement) {
+    throw new Error('Working table was not parsed');
+  }
+  Array.from(tableElement.rows).slice(1).forEach((row, rowIndex) => {
+    Array.from(row.cells).forEach(cell => {
+      const owner = cell.getAttribute('data-copy-test-source-column-key');
+      const type = cell.getAttribute('data-copy-test-column-type');
+      if (owner === sourceColumnKey && (type === 'result' || type === 'evidence')) {
+        cell.textContent = `${prefix} ${type} ${rowIndex + 1}`;
+      }
+    });
+  });
+  return { ...table, workingHtml: tableElement.outerHTML };
+};
+
+/** 构建五行、两个可分别生成 Pair 的 Comparison Column。 */
+const buildFiveRowTwoPairTable = (): string => {
+  return [
+    '<table data-table="two-partial-pairs"><tr><th>ID</th><th>French</th><th>German</th></tr>',
+    ...Array.from({ length: 5 }, (_, index) => {
+      const rowNumber = index + 1;
+      return `<tr><td>${rowNumber}</td><td>French ${rowNumber}</td><td>German ${rowNumber}</td></tr>`;
+    }),
+    '</table>',
+  ].join('');
+};
+
+/** 读取指定数据行和逻辑列上的 owned cell。 */
+const getLogicalCell = (
+  table: CopyTestWorkingTable,
+  dataRowIndex: number,
+  columnIndex: number
+) => {
+  /** 指定业务行和逻辑列中必须存在的 owned cell。 */
+  const cell = table.model.rows[dataRowIndex + 1]?.slots[columnIndex]?.cell;
+  if (!cell) {
+    throw new Error(`Missing logical cell at row ${dataRowIndex}, column ${columnIndex}`);
+  }
+  return cell;
 };
 
 /** 构建两个普通来源行均已有 managed Pair 的选择范围测试表格。 */
@@ -434,7 +490,7 @@ describe('copyTestTableExporter', () => {
     expect(documentModel.querySelectorAll(`[${COPY_TEST_EXPORT_SCOPE_ATTRIBUTE}]`)).toHaveLength(4);
   });
 
-  it('does not insert working Pair cells into an unselected latest row when the Pair is new', () => {
+  it('inserts empty managed placeholders without leaking unselected working content', () => {
     const latest = buildRowsWithoutManagedPair();
     const working = buildSelectedRowsTable(
       'Working selected result',
@@ -457,16 +513,142 @@ describe('copyTestTableExporter', () => {
     expect(exported).toContain('Working selected evidence');
     expect(exported).not.toContain('Stale working unselected result');
     expect(exported).not.toContain('Stale working unselected evidence');
-    const latestTable = scanTopLevelTableRawRanges(latest)[0];
-    const exportedTable = scanTopLevelTableRawRanges(exported!)[0];
-    expect(getRawRangeText(exported!, exportedTable.rows[2])).toBe(
-      getRawRangeText(latest, latestTable.rows[2])
-    );
     const documentModel = new DOMParser().parseFromString(exported!, 'text/html');
     const rows = documentModel.querySelectorAll('tr');
     expect(rows[0].children).toHaveLength(4);
     expect(rows[1].children).toHaveLength(4);
-    expect(rows[2].children).toHaveLength(2);
+    expect(rows[2].children).toHaveLength(4);
+    const placeholders = Array.from(rows[2].children).slice(2);
+    expect(placeholders.map(cell => cell.textContent)).toEqual(['', '']);
+    expect(placeholders.map(cell => cell.getAttribute('data-copy-test-source-column-key')))
+      .toEqual([FRENCH_SOURCE_KEY, FRENCH_SOURCE_KEY]);
+    expect(placeholders.map(cell => cell.getAttribute(COPY_TEST_EXPORT_SCOPE_ATTRIBUTE)))
+      .toEqual([EXPORT_SCOPE_A, EXPORT_SCOPE_A]);
+
+    const payload = buildConfluenceStorageTableExportPayload(
+      exported!,
+      FRENCH_SOURCE_KEY,
+      EXPORT_SCOPE_A
+    );
+    const finalDocument = new DOMParser().parseFromString(payload.storageHtml, 'text/html');
+    const finalPlaceholders = Array.from(finalDocument.querySelectorAll('tr')[2].children).slice(2);
+    expect(payload.images).toEqual([]);
+    expect(finalPlaceholders.map(cell => cell.textContent)).toEqual(['', '']);
+    expect(finalPlaceholders.every(cell => !cell.hasAttribute(COPY_TEST_EXPORT_SCOPE_ATTRIBUTE)))
+      .toBe(true);
+  });
+
+  it('preserves rowspan and group metadata on an empty unselected placeholder', () => {
+    const latest = [
+      '<table><tr><th>ID</th><th>French</th></tr>',
+      '<tr><td>1</td><td rowspan="2">Bonjour group</td></tr>',
+      '<tr><td>2</td></tr>',
+      '<tr><td>3</td><td>Au revoir</td></tr></table>',
+    ].join('');
+    const working = [
+      '<table><tr><th>ID</th><th>French</th>',
+      buildOwnedHeader('result', FRENCH_SOURCE_KEY, 'Test Result - French'),
+      buildOwnedHeader('evidence', FRENCH_SOURCE_KEY, 'Test Evidence - French'),
+      '</tr><tr><td>1</td><td rowspan="2">Bonjour group</td>',
+      `<td rowspan="2" data-copy-test-evidence-group-id="0" ${buildOwnedAttributes('result', FRENCH_SOURCE_KEY)}>Unselected result</td>`,
+      buildOwnedCell('evidence', FRENCH_SOURCE_KEY, 'Unselected evidence', 2),
+      '</tr><tr><td>2</td></tr><tr><td>3</td><td>Au revoir</td>',
+      buildOwnedCell('result', FRENCH_SOURCE_KEY, 'Selected result'),
+      buildOwnedCell('evidence', FRENCH_SOURCE_KEY, 'Selected evidence'),
+      '</tr></table>',
+    ].join('');
+    const importedTable = parseCopyTestStorageTables(latest)[0];
+    const exported = buildCurrentColumnExportStorage({
+      exportScope: EXPORT_SCOPE_A,
+      originalStorageHtml: latest,
+      selectedColumnIndex: 1,
+      selectedColumnLabel: 'French',
+      selectedRowIndexes: [2],
+      table: { ...importedTable, workingHtml: working },
+    });
+
+    expect(exported).not.toBeNull();
+    const payload = buildConfluenceStorageTableExportPayload(
+      exported!,
+      FRENCH_SOURCE_KEY,
+      EXPORT_SCOPE_A
+    );
+    const documentModel = new DOMParser().parseFromString(payload.storageHtml, 'text/html');
+    const firstDataCells = Array.from(documentModel.querySelectorAll('tr')[1].children);
+    const resultPlaceholder = firstDataCells[2];
+    const evidencePlaceholder = firstDataCells[3];
+    expect(resultPlaceholder.textContent).toBe('');
+    expect(resultPlaceholder.getAttribute('rowspan')).toBe('2');
+    expect(resultPlaceholder.getAttribute('data-copy-test-evidence-group-id')).toBe('0');
+    expect(evidencePlaceholder.textContent).toBe('');
+    expect(evidencePlaceholder.getAttribute('rowspan')).toBe('2');
+    expect(payload.storageHtml).not.toContain('Unselected result');
+    expect(payload.storageHtml).not.toContain('Unselected evidence');
+    expect(payload.images).toEqual([]);
+  });
+
+  it('keeps two partial Comparison Pairs in their own logical columns across exports', () => {
+    const initialStorage = buildFiveRowTwoPairTable();
+    const imported = parseCopyTestStorageTables(initialStorage)[0];
+    const ensuredFrench = ensureCopyTestWorkingColumns(imported, 1, 'French');
+    const workingFrench = fillManagedPairCells(ensuredFrench, FRENCH_SOURCE_KEY, 'French');
+    const exportedFrench = buildCurrentColumnExportStorage({
+      exportScope: EXPORT_SCOPE_A,
+      originalStorageHtml: initialStorage,
+      selectedColumnIndex: 1,
+      selectedColumnLabel: 'French',
+      selectedRowIndexes: [0, 1, 2],
+      table: workingFrench,
+    });
+
+    expect(exportedFrench).not.toBeNull();
+    const frenchPayload = buildConfluenceStorageTableExportPayload(
+      exportedFrench!,
+      FRENCH_SOURCE_KEY,
+      EXPORT_SCOPE_A
+    );
+    const committedFrench = parseCopyTestStorageTables(frenchPayload.storageHtml)[0];
+    const sessionAfterFrench = {
+      ...workingFrench,
+      originalHtml: committedFrench.originalHtml,
+    };
+    const ensuredGerman = ensureCopyTestWorkingColumns(sessionAfterFrench, 2, 'German');
+    const workingGerman = fillManagedPairCells(ensuredGerman, GERMAN_SOURCE_KEY, 'German');
+    const exportedGerman = buildCurrentColumnExportStorage({
+      exportScope: EXPORT_SCOPE_B,
+      originalStorageHtml: frenchPayload.storageHtml,
+      selectedColumnIndex: 2,
+      selectedColumnLabel: 'German',
+      selectedRowIndexes: [3, 4],
+      table: workingGerman,
+    });
+
+    expect(exportedGerman).not.toBeNull();
+    const germanPayload = buildConfluenceStorageTableExportPayload(
+      exportedGerman!,
+      GERMAN_SOURCE_KEY,
+      EXPORT_SCOPE_B
+    );
+    const finalTable = parseCopyTestStorageTables(germanPayload.storageHtml)[0];
+    expect(germanPayload.images).toEqual([]);
+    expect(germanPayload.storageHtml).not.toContain('French result 4');
+    expect(germanPayload.storageHtml).not.toContain('German result 1');
+
+    for (let rowIndex = 0; rowIndex < 5; rowIndex += 1) {
+      expect(getLogicalCell(finalTable, rowIndex, 3).sourceColumnKey).toBe(FRENCH_SOURCE_KEY);
+      expect(getLogicalCell(finalTable, rowIndex, 4).sourceColumnKey).toBe(FRENCH_SOURCE_KEY);
+      expect(getLogicalCell(finalTable, rowIndex, 5).sourceColumnKey).toBe(GERMAN_SOURCE_KEY);
+      expect(getLogicalCell(finalTable, rowIndex, 6).sourceColumnKey).toBe(GERMAN_SOURCE_KEY);
+    }
+    expect(getLogicalCell(finalTable, 3, 3).text).toBe('');
+    expect(getLogicalCell(finalTable, 3, 5).text).toBe('German result 4');
+    expect(getLogicalCell(finalTable, 0, 3).text).toBe('French result 1');
+    expect(getLogicalCell(finalTable, 0, 5).text).toBe('');
+
+    const freshlyEnsuredFrench = ensureCopyTestWorkingColumns(finalTable, 1, 'French');
+    expect(getLogicalCell(freshlyEnsuredFrench, 3, 3).sourceColumnKey).toBe(FRENCH_SOURCE_KEY);
+    expect(getLogicalCell(freshlyEnsuredFrench, 3, 5).sourceColumnKey).toBe(GERMAN_SOURCE_KEY);
+    expect(getLogicalCell(freshlyEnsuredFrench, 3, 5).text).toBe('German result 4');
   });
 
   it('treats an explicit empty selection as no data-row export', () => {
