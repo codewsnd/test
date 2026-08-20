@@ -9,7 +9,12 @@ import {
   parseCopyTestValidationResults,
   type CopyTestValidationResult,
 } from '../copyTestApi';
-import { COPY_TEST_VALIDATION_MODEL } from '../../prompt/copyTestValidationPrompt';
+import {
+  COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS,
+  COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW,
+  COPY_TEST_MAX_OUTPUT_TOKENS,
+  COPY_TEST_VALIDATION_MODEL,
+} from '../../prompt/copyTestValidationPrompt';
 
 const hoisted = vi.hoisted(() => ({
   aiChat: vi.fn(),
@@ -120,7 +125,7 @@ describe('copyTestApi strict validation contract', () => {
     /** 用于核对 system/user 消息分离契约的校验请求。 */
     const request = buildCopyTestValidationRequest([images[0]], [rows[0]], 'Target');
     expect(request.modelName).toBe(COPY_TEST_VALIDATION_MODEL);
-    expect(request.maxTokens).toBe(128_000);
+    expect(request.maxTokens).toBe(COPY_TEST_MAX_OUTPUT_TOKENS);
     expect(request.documents).toEqual([
       { base64url: ['data:image/png;base64,QUJD'], type: 'image' },
     ]);
@@ -130,9 +135,9 @@ describe('copyTestApi strict validation contract', () => {
       role: 'system',
     }));
     expect(JSON.parse(request.messages[1].content)).toEqual({
-      maxLanguageIssueCharacters: 160,
-      maxLanguageIssuesPerRow: 3,
-      outputTokenLimit: 128_000,
+      maxLanguageIssueCharacters: COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS,
+      maxLanguageIssuesPerRow: COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW,
+      outputTokenLimit: COPY_TEST_MAX_OUTPUT_TOKENS,
       requiredResultCount: 1,
       requiredRowIndexes: [0],
       selectedRows: [{ evidenceGroupId: 0, expectedText: '你好', rowIndex: 0 }],
@@ -284,11 +289,14 @@ describe('copyTestApi strict validation contract', () => {
       },
       {
         ...buildValidResult({ passed: false }),
-        languageIssues: ['one', 'two', 'three', 'four'],
+        languageIssues: Array.from(
+          { length: COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW + 1 },
+          (_, index) => `issue-${index}`
+        ),
       },
       {
         ...buildValidResult({ passed: false }),
-        languageIssues: ['x'.repeat(161)],
+        languageIssues: ['x'.repeat(COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS + 1)],
       },
     ];
     invalidItems.forEach(item => {

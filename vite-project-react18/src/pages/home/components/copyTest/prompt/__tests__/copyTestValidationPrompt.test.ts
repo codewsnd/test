@@ -216,8 +216,8 @@ describe('copyTestValidationPrompt production contract', () => {
   it('uses GPT-5.6 Terra and serializes only runtime inputs', () => {
     expect(COPY_TEST_VALIDATION_MODEL).toBe('openai/gpt-5.6-terra');
     expect(COPY_TEST_MAX_OUTPUT_TOKENS).toBe(128_000);
-    expect(COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS).toBe(160);
-    expect(COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW).toBe(3);
+    expect(COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS).toBe(150);
+    expect(COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW).toBe(5);
 
     const prompt = buildCopyTestValidationPrompt(
       [
@@ -229,9 +229,9 @@ describe('copyTestValidationPrompt production contract', () => {
     );
 
     expect(JSON.parse(prompt)).toEqual({
-      maxLanguageIssuesPerRow: 3,
-      maxLanguageIssueCharacters: 160,
-      outputTokenLimit: 128_000,
+      maxLanguageIssuesPerRow: COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW,
+      maxLanguageIssueCharacters: COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS,
+      outputTokenLimit: COPY_TEST_MAX_OUTPUT_TOKENS,
       requiredResultCount: 2,
       requiredRowIndexes: [0, 2],
       selectedRows: [
@@ -245,9 +245,9 @@ describe('copyTestValidationPrompt production contract', () => {
       ],
     });
     expect(JSON.parse(buildCopyTestValidationPrompt([], 'Target'))).toEqual({
-      maxLanguageIssuesPerRow: 3,
-      maxLanguageIssueCharacters: 160,
-      outputTokenLimit: 128_000,
+      maxLanguageIssuesPerRow: COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW,
+      maxLanguageIssueCharacters: COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS,
+      outputTokenLimit: COPY_TEST_MAX_OUTPUT_TOKENS,
       requiredResultCount: 0,
       requiredRowIndexes: [],
       selectedRows: [],
