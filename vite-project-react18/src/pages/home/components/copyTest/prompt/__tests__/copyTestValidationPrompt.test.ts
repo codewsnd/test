@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildCopyTestValidationPrompt,
+  COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS,
+  COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW,
   COPY_TEST_MAX_OUTPUT_TOKENS,
   COPY_TEST_VALIDATION_MODEL,
   COPY_TEST_VALIDATION_SYSTEM_PROMPT,
@@ -214,6 +216,8 @@ describe('copyTestValidationPrompt production contract', () => {
   it('uses GPT-5.6 Terra and serializes only runtime inputs', () => {
     expect(COPY_TEST_VALIDATION_MODEL).toBe('openai/gpt-5.6-terra');
     expect(COPY_TEST_MAX_OUTPUT_TOKENS).toBe(128_000);
+    expect(COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS).toBe(160);
+    expect(COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW).toBe(3);
 
     const prompt = buildCopyTestValidationPrompt(
       [
@@ -225,6 +229,11 @@ describe('copyTestValidationPrompt production contract', () => {
     );
 
     expect(JSON.parse(prompt)).toEqual({
+      maxLanguageIssuesPerRow: 3,
+      maxLanguageIssueCharacters: 160,
+      outputTokenLimit: 128_000,
+      requiredResultCount: 2,
+      requiredRowIndexes: [0, 2],
       selectedRows: [
         { evidenceGroupId: 0, expectedText: '你好', rowIndex: 0 },
         { evidenceGroupId: 0, expectedText: '我在', rowIndex: 2 },
@@ -236,10 +245,44 @@ describe('copyTestValidationPrompt production contract', () => {
       ],
     });
     expect(JSON.parse(buildCopyTestValidationPrompt([], 'Target'))).toEqual({
+      maxLanguageIssuesPerRow: 3,
+      maxLanguageIssueCharacters: 160,
+      outputTokenLimit: 128_000,
+      requiredResultCount: 0,
+      requiredRowIndexes: [],
       selectedRows: [],
       targetColumnName: 'Target',
       uploadedScreenshots: [],
     });
+  });
+
+  it('plans every result before emitting compact JSON within the output budget', () => {
+    const resultSlots = readPromptSection('result_slots');
+    const outputBudget = readPromptSection('output_budget');
+    const preOutputCheck = readPromptSection('pre_output_check');
+    const serialization = readPromptSection('serialization');
+
+    expect(resultSlots).toMatch(/create exactly N internal result slots/i);
+    expect(resultSlots).toMatch(/requiredResultCount/i);
+    expect(resultSlots).toMatch(/requiredRowIndexes/i);
+    expect(resultSlots).toMatch(/Fill every slot/i);
+    expect(outputBudget).toMatch(/must not exceed outputTokenLimit/i);
+    expect(outputBudget).toMatch(/Complete, valid, fully closed JSON/i);
+    expect(outputBudget).toMatch(/Exactly N results/i);
+    expect(outputBudget).toMatch(/at most maxLanguageIssuesPerRow/i);
+    expect(outputBudget).toMatch(/at most maxLanguageIssueCharacters/i);
+    expect(outputBudget).toMatch(/Never save tokens by removing a result or field/i);
+    expect(outputBudget).toMatch(/one short fallback issue/i);
+    expect(preOutputCheck).toMatch(/results\.length === requiredResultCount/i);
+    expect(preOutputCheck).toMatch(/no missing, duplicate, extra, or reordered rows/i);
+    expect(preOutputCheck).toMatch(/Correct any failure internally/i);
+    expect(serialization).toMatch(/Prepare the complete response before emitting/i);
+    expect(serialization).toContain('Start exactly with {"results":[');
+    expect(serialization).toContain('end exactly with ]}');
+    expect(serialization).toMatch(/compact, single-line JSON/i);
+    expect(serialization).toMatch(/Never return partial or truncated JSON/i);
+    expect(serialization).toMatch(/reserve enough output budget/i);
+    expect(serialization).toContain('{"results":[]}');
   });
 
   it('keeps a lean stable prompt, immutable groups, and one Evidence winner', () => {
@@ -251,6 +294,8 @@ describe('copyTestValidationPrompt production contract', () => {
 
     expect(promptWordCount).toBeLessThan(1_500);
     expect(inputContract).toMatch(/Rows sharing an evidenceGroupId are indivisible/i);
+    expect(inputContract).toMatch(/share only the selected screenshot/i);
+    expect(inputContract).toMatch(/separate result object for every selectedRows item/i);
     expect(inputContract).toMatch(/Never create, split, merge, or renumber groups/i);
     expect(inputContract).toMatch(/application owns table structure/i);
     expect(inputContract).toMatch(/Never return or decide rowspan, merged cells/i);
@@ -317,20 +362,17 @@ describe('copyTestValidationPrompt production contract', () => {
     });
   });
 
-  it('returns every minimal difference as its own languageIssues element', () => {
+  it('returns bounded minimal differences as user-facing languageIssues', () => {
     const failureContract = readPromptSection('failure_issues');
     const chineseMismatch = readDecisionExampleOutput('D02').results[0];
     const repeatedMismatch = readDecisionExampleOutput('D08').results[0];
 
-    expect(failureContract).toMatch(/each distinct hunk.*separate languageIssues element/i);
+    expect(failureContract).toMatch(/at most maxLanguageIssuesPerRow/i);
     expect(failureContract).toMatch(/one issue to one difference/i);
     expect(failureContract).toMatch(/Copy text always comes from expectedText/i);
     expect(failureContract).toMatch(/image text always comes from lockedImageText/i);
     expect(failureContract).toMatch(/Remove all unchanged prefix, suffix, and inter-hunk context/i);
-    expect(failureContract).toMatch(/each independently located unreadable region.*separate/i);
-    expect(failureContract).toMatch(/Still return every independently verified readable hunk/i);
-    expect(failureContract).toMatch(/Only when the complete unit cannot be segmented or aligned/i);
-    expect(failureContract).toMatch(/locally unreadable glyph never suppresses other verified hunks/i);
+    expect(failureContract).toMatch(/If more differences exist.*general fallback/i);
     expect(failureContract).toMatch(/short English sentences written for a general user/i);
     expect(failureContract).toMatch(/same completed user-facing sentence.*return it only once/i);
     expect(failureContract).toMatch(/Never show bracketed placeholder tokens/i);
@@ -422,6 +464,8 @@ describe('copyTestValidationPrompt production contract', () => {
     expect(outputContract).toMatch(/exactly these four fields/i);
     expect(outputContract).toMatch(/one or more unique strings/i);
     expect(outputContract).toMatch(/exactly one independently reportable difference per array element/i);
+    expect(outputContract).toMatch(/Never omit, add, duplicate, combine, or reorder row results/i);
+    expect(outputContract).toMatch(/results\.length must equal selectedRows\.length/i);
     expect(declaredFields).toEqual([
       'rowIndex',
       'passed',
@@ -438,6 +482,9 @@ describe('copyTestValidationPrompt production contract', () => {
 
       expect(Object.keys(output)).toEqual(['results']);
       expect(output.results).toHaveLength(rows.length);
+      expect(output.results.map(result => result.rowIndex)).toEqual(
+        rows.map(row => row.rowIndex)
+      );
       output.results.forEach(result => {
         const row = getDecisionExampleRow(input, result.rowIndex);
 

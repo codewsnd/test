@@ -7,7 +7,10 @@ import {
 } from '@/api';
 import { getEmployeeId } from '@/utils/userUtils';
 import {
-  buildCopyTestValidationPrompt, COPY_TEST_MAX_OUTPUT_TOKENS,
+  buildCopyTestValidationPrompt,
+  COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS,
+  COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW,
+  COPY_TEST_MAX_OUTPUT_TOKENS,
   COPY_TEST_VALIDATION_MODEL,
   COPY_TEST_VALIDATION_SYSTEM_PROMPT,
 } from '../prompt/copyTestValidationPrompt';
@@ -37,7 +40,7 @@ const IMAGE_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i;
 const MOCK_VALIDATION_DELAY_MS = 300;
 
 /** 仅在显式的本地环境开关为 true 时启用按调用轮次变化的 AI 校验结果。 */
-export const COPY_TEST_AI_CHAT_MOCK_ENABLED = true
+export const COPY_TEST_AI_CHAT_MOCK_ENABLED = true;
 
 /** Confluence storage 查询接口的返回结构。 */
 export interface CopyTestStorageResponse {
@@ -167,6 +170,16 @@ const throwInvalidAiContent = (reason: string): never => {
   throw new Error(`${INVALID_AI_CONTENT_PREFIX}: ${reason}`);
 };
 
+/** 按数量输出语法正确的 result 名称。 */
+const formatResultCount = (count: number): string => {
+  return `${count} result${count === 1 ? '' : 's'}`;
+};
+
+/** 将稳定行下标输出为不含文案的安全诊断信息。 */
+const formatRowIndexes = (rowIndexes: number[]): string => {
+  return JSON.stringify(rowIndexes);
+};
+
 /** 判断未知值是否是可读取字段的普通对象。 */
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -252,6 +265,16 @@ const readRequiredStringArray = (
   if (strings.length !== value.length || new Set(strings).size !== strings.length) {
     return throwInvalidAiContent(`result ${itemIndex} has an invalid ${fieldName}`);
   }
+  const hasInvalidIssueBounds = fieldName === 'languageIssues'
+    && (
+      strings.length > COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW
+      || strings.some(entry => {
+        return Array.from(entry).length > COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS;
+      })
+    );
+  if (hasInvalidIssueBounds) {
+    return throwInvalidAiContent(`result ${itemIndex} has an invalid ${fieldName}`);
+  }
   return strings;
 };
 
@@ -322,7 +345,14 @@ const assertRowsMatchRequest = (
   rows: CopyTestRowInput[]
 ): void => {
   if (results.length !== rows.length) {
-    throwInvalidAiContent('the result count must equal the requested row count');
+    const expectedRowIndexes = rows.map(row => row.rowIndex);
+    const receivedRowIndexes = results.map(result => result.rowIndex);
+    throwInvalidAiContent(
+      `expected ${formatResultCount(rows.length)} for rowIndexes `
+      + `${formatRowIndexes(expectedRowIndexes)}, received `
+      + `${formatResultCount(results.length)} for rowIndexes `
+      + formatRowIndexes(receivedRowIndexes)
+    );
   }
 
   /** 所有结果中的唯一 rowIndex 集合。 */
@@ -415,7 +445,7 @@ export const parseCopyTestValidationResponse = (
   /** AI 响应中必须承载严格根对象 JSON 的文本内容。 */
   const content = response.data?.content;
   if (typeof content !== 'string' || content.trim() === '') {
-    throw new Error('AI validation returned empty content');
+    return throwInvalidAiContent('the response is empty');
   }
   return parseCopyTestValidationResults(content, images, rows);
 };

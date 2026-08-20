@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildCopyTestValidationRequest,
   copyTestAttachmentsApi,
   copyTestStorageApi,
   copyTestUploadApi,
+  copyTestValidationApi,
   parseCopyTestValidationResponse,
   parseCopyTestValidationResults,
   type CopyTestValidationResult,
@@ -14,6 +15,7 @@ const hoisted = vi.hoisted(() => ({
   aiChat: vi.fn(),
   axiosGet: vi.fn(),
   axiosPost: vi.fn(),
+  mockCopyTestAiChat: vi.fn(),
 }));
 
 vi.mock('@/api/axios', () => ({
@@ -29,6 +31,10 @@ vi.mock('@/api', () => ({
 
 vi.mock('@/utils/userUtils', () => ({
   getEmployeeId: () => 'staff-1',
+}));
+
+vi.mock('../../mock/validationMock', () => ({
+  mockCopyTestAiChat: hoisted.mockCopyTestAiChat,
 }));
 
 const images = [
@@ -57,7 +63,31 @@ const buildContent = (results: unknown[]): string => {
   return JSON.stringify({ results });
 };
 
+const buildAiResponse = (results: unknown[]) => {
+  const content = buildContent(results);
+  return {
+    data: {
+      characterCount: content.length,
+      content,
+      modelName: COPY_TEST_VALIDATION_MODEL,
+      timestamp: '2026-07-14T00:00:00.000Z',
+    },
+    success: true,
+  };
+};
+
 describe('copyTestApi strict validation contract', () => {
+  beforeEach(() => {
+    hoisted.aiChat.mockReset();
+    hoisted.axiosGet.mockReset();
+    hoisted.axiosPost.mockReset();
+    hoisted.mockCopyTestAiChat.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('calls adapters and silences only Confluence import requests', () => {
     hoisted.axiosGet.mockReturnValue({ storage: '<table />' });
     hoisted.axiosPost.mockReturnValue({ images });
@@ -90,6 +120,7 @@ describe('copyTestApi strict validation contract', () => {
     /** 用于核对 system/user 消息分离契约的校验请求。 */
     const request = buildCopyTestValidationRequest([images[0]], [rows[0]], 'Target');
     expect(request.modelName).toBe(COPY_TEST_VALIDATION_MODEL);
+    expect(request.maxTokens).toBe(128_000);
     expect(request.documents).toEqual([
       { base64url: ['data:image/png;base64,QUJD'], type: 'image' },
     ]);
@@ -99,6 +130,11 @@ describe('copyTestApi strict validation contract', () => {
       role: 'system',
     }));
     expect(JSON.parse(request.messages[1].content)).toEqual({
+      maxLanguageIssueCharacters: 160,
+      maxLanguageIssuesPerRow: 3,
+      outputTokenLimit: 128_000,
+      requiredResultCount: 1,
+      requiredRowIndexes: [0],
       selectedRows: [{ evidenceGroupId: 0, expectedText: '你好', rowIndex: 0 }],
       targetColumnName: 'Target',
       uploadedScreenshots: [{ fileName: 'screen-a.png' }],
@@ -174,7 +210,7 @@ describe('copyTestApi strict validation contract', () => {
       { success: true },
       images,
       rows
-    )).toThrow('AI validation returned empty content');
+    )).toThrow('AI validation returned invalid content: the response is empty');
     expect(() => parseCopyTestValidationResponse(
       {
         data: {
@@ -187,7 +223,7 @@ describe('copyTestApi strict validation contract', () => {
       },
       images,
       rows
-    )).toThrow('AI validation returned empty content');
+    )).toThrow('AI validation returned invalid content: the response is empty');
   });
 
   it('rejects legacy structures, extra fields, missing fields, and malformed roots', () => {
@@ -208,6 +244,12 @@ describe('copyTestApi strict validation contract', () => {
 
     const invalidContents = [
       '```json\n{"results":[]}\n```',
+      'Result: {"results":[]}',
+      '{"results":[]} Done.',
+      '{"results":[]}{"results":[]}',
+      '**Result**\n{"results":[]}',
+      '{"results":[',
+      '{"results":[]',
       '[]',
       JSON.stringify({ results: [], version: 1 }),
       JSON.stringify({}),
@@ -222,6 +264,7 @@ describe('copyTestApi strict validation contract', () => {
     invalidContents.forEach(content => {
       expect(() => parseCopyTestValidationResults(content, images, [])).toThrow();
     });
+    expect(parseCopyTestValidationResults(' \n{"results":[]} \n', [], [])).toEqual([]);
   });
 
   it('rejects malformed field values, duplicate strings, and unknown images', () => {
@@ -238,6 +281,14 @@ describe('copyTestApi strict validation contract', () => {
       {
         ...buildValidResult({ languageIssues: ['same'], passed: false }),
         languageIssues: ['same', 'same'],
+      },
+      {
+        ...buildValidResult({ passed: false }),
+        languageIssues: ['one', 'two', 'three', 'four'],
+      },
+      {
+        ...buildValidResult({ passed: false }),
+        languageIssues: ['x'.repeat(161)],
       },
     ];
     invalidItems.forEach(item => {
@@ -294,7 +345,19 @@ describe('copyTestApi strict validation contract', () => {
       buildContent([buildValidResult()]),
       images,
       rows.slice(0, 2)
-    )).toThrow('result count');
+    )).toThrow(
+      'expected 2 results for rowIndexes [0,1], received 1 result for rowIndexes [0]'
+    );
+    expect(() => parseCopyTestValidationResults(
+      buildContent([
+        buildValidResult({ rowIndex: 0 }),
+        buildValidResult({ rowIndex: 1 }),
+      ]),
+      images,
+      [rows[0]]
+    )).toThrow(
+      'expected 1 result for rowIndexes [0], received 2 results for rowIndexes [0,1]'
+    );
     expect(() => parseCopyTestValidationResults(
       buildContent([
         buildValidResult({ rowIndex: 1 }),
@@ -309,7 +372,68 @@ describe('copyTestApi strict validation contract', () => {
         buildValidResult({ rowIndex: 0 }),
       ]),
       images,
-      [rows[0], rows[0]]
+      rows.slice(0, 2)
     )).toThrow('must be unique');
+  });
+
+  it('rejects an incomplete result set without an automatic second request', async () => {
+    vi.useFakeTimers();
+    const requestedRows = rows.slice(0, 2);
+    hoisted.mockCopyTestAiChat.mockResolvedValueOnce(
+      buildAiResponse([buildValidResult({ rowIndex: 0 })])
+    );
+
+    const validation = copyTestValidationApi([images[0]], requestedRows, 'Target');
+    const assertion = expect(validation).rejects.toThrow(
+      'expected 2 results for rowIndexes [0,1], received 1 result for rowIndexes [0]'
+    );
+
+    await vi.runAllTimersAsync();
+    await assertion;
+
+    expect(hoisted.mockCopyTestAiChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects truncated JSON without an automatic second request', async () => {
+    vi.useFakeTimers();
+    hoisted.mockCopyTestAiChat.mockResolvedValueOnce({
+      data: {
+        characterCount: 12,
+        content: '{"results":[',
+        modelName: COPY_TEST_VALIDATION_MODEL,
+        timestamp: '2026-07-14T00:00:00.000Z',
+      },
+      success: true,
+    });
+
+    const validation = copyTestValidationApi([images[0]], [rows[0]], 'Target');
+    const assertion = expect(validation).rejects.toThrow(
+      'AI validation returned invalid content: the response is not raw JSON'
+    );
+
+    await vi.runAllTimersAsync();
+    await assertion;
+
+    expect(hoisted.mockCopyTestAiChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry request failures', async () => {
+    vi.useFakeTimers();
+    hoisted.mockCopyTestAiChat.mockResolvedValue({
+      error: 'service unavailable',
+      success: false,
+    });
+    const failedRequest = copyTestValidationApi(
+      [images[0]],
+      [rows[0]],
+      'Target'
+    );
+    const failedRequestAssertion = expect(failedRequest).rejects.toThrow(
+      'service unavailable'
+    );
+
+    await vi.runAllTimersAsync();
+    await failedRequestAssertion;
+    expect(hoisted.mockCopyTestAiChat).toHaveBeenCalledTimes(1);
   });
 });

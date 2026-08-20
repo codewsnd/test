@@ -9,6 +9,9 @@ import {
 } from '@/api';
 import type { CopyTestValidationResult } from '../api/copyTestApi';
 import {
+  COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS,
+  COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW,
+  COPY_TEST_MAX_OUTPUT_TOKENS,
   COPY_TEST_VALIDATION_MODEL,
   type CopyTestValidationRuntimeContext,
 } from '../prompt/copyTestValidationPrompt';
@@ -78,15 +81,46 @@ const hasUniqueRowIndexes = (
   return new Set(rows.map(row => row.rowIndex)).size === rows.length;
 };
 
+/** 判断应用生成的必返行清单是否与选中行完全一致。 */
+const hasMatchingRequiredRowIndexes = (
+  value: Record<string, unknown>,
+  rows: CopyTestValidationRuntimeContext['selectedRows']
+): boolean => {
+  const requiredRowIndexes = value.requiredRowIndexes;
+  return Array.isArray(requiredRowIndexes)
+    && requiredRowIndexes.length === rows.length
+    && requiredRowIndexes.every((rowIndex, index) => {
+      return rowIndex === rows[index].rowIndex;
+    });
+};
+
+/** 判断运行时输出限制是否保持应用约定值。 */
+const hasExpectedOutputLimits = (
+  value: Record<string, unknown>,
+  rows: CopyTestValidationRuntimeContext['selectedRows']
+): boolean => {
+  return value.maxLanguageIssueCharacters
+      === COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS
+    && value.maxLanguageIssuesPerRow === COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW
+    && value.outputTokenLimit === COPY_TEST_MAX_OUTPUT_TOKENS
+    && value.requiredResultCount === rows.length
+    && hasMatchingRequiredRowIndexes(value, rows);
+};
+
 /** 判断运行时 JSON 是否满足 CopyTest user 消息契约。 */
 const isRuntimeContext = (
   value: unknown
 ): value is CopyTestValidationRuntimeContext => {
-  return isRecord(value)
-    && typeof value.targetColumnName === 'string'
-    && Array.isArray(value.selectedRows)
-    && value.selectedRows.every(isRuntimeRow)
-    && hasUniqueRowIndexes(value.selectedRows)
+  if (!isRecord(value) || !Array.isArray(value.selectedRows)) {
+    return false;
+  }
+  if (!value.selectedRows.every(isRuntimeRow)) {
+    return false;
+  }
+  const rows = value.selectedRows;
+  return typeof value.targetColumnName === 'string'
+    && hasUniqueRowIndexes(rows)
+    && hasExpectedOutputLimits(value, rows)
     && Array.isArray(value.uploadedScreenshots)
     && value.uploadedScreenshots.every(isRuntimeScreenshot);
 };
