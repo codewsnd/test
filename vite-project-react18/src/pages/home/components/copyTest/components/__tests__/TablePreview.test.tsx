@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TablePreview from '../TablePreview';
@@ -136,6 +137,16 @@ const unbrokenSelectionTable = parseCopyTestStorageTables([
   '</table>',
 ].join(''))[0];
 
+/** 四个非空来源原子均保持独立选择的快速交互表格。 */
+const rapidUngroupedSelectionTable = parseCopyTestStorageTables([
+  '<table><tr><th>Target</th></tr>',
+  '<tr><td>Copy 1</td></tr>',
+  '<tr><td>Copy 2</td></tr>',
+  '<tr><td>Copy 3</td></tr>',
+  '<tr><td>Copy 4</td></tr>',
+  '</table>',
+].join(''))[0];
+
 const sharedImages = [
   { base64: BASE64_IMAGE, fileName: 'img-shared', md5: 'img-shared' },
   { base64: BASE64_IMAGE, fileName: 'img-shared', md5: 'img-shared' },
@@ -149,6 +160,52 @@ const createHandlers = () => ({
   onRowsChange: vi.fn(),
   onStatus: vi.fn(),
 });
+
+/** 用受控选择状态模拟紧随复选框操作触发的 Validate。 */
+const SelectionValidateHarness = ({
+  initialSelectedRowIndexes,
+  onValidate,
+  table,
+}: {
+  initialSelectedRowIndexes: number[];
+  onValidate: (rowIndexes: number[]) => void;
+  table: typeof rapidUngroupedSelectionTable;
+}) => {
+  const [selectedRowIndexes, setSelectedRowIndexes] = useState(initialSelectedRowIndexes);
+  return (
+    <>
+      <TablePreview
+        onEvidenceImageDelete={() => undefined}
+        onEvidenceImagePreview={() => undefined}
+        onResultStatusChange={() => undefined}
+        onSelectedRowIndexesChange={setSelectedRowIndexes}
+        previewRevision={1}
+        selectedColumnIndex={0}
+        selectedRowIndexes={selectedRowIndexes}
+        table={table}
+      />
+      <button onClick={() => onValidate(selectedRowIndexes)}>Validate</button>
+    </>
+  );
+};
+
+/** 在父组件重新渲染前发送一条 iframe 选择变化。 */
+const dispatchSelectionMessage = (
+  iframe: HTMLIFrameElement,
+  checked: boolean,
+  rowIndexes: number[]
+): void => {
+  window.dispatchEvent(new MessageEvent('message', {
+    data: {
+      action: 'selection',
+      checked,
+      rowIndexes,
+      type: PREVIEW_MESSAGE_TYPE,
+    },
+    origin: window.location.origin,
+    source: iframe.contentWindow,
+  }));
+};
 
 /** 解析 iframe 的静态 srcDoc。 */
 const parseFrameDocument = (iframe: HTMLIFrameElement): Document => {
@@ -558,6 +615,48 @@ describe('TablePreview', () => {
       source: iframe.contentWindow,
     }));
     expect(handlers.onRowsChange).toHaveBeenCalledWith([0, 3]);
+  });
+
+  it('validates only rows 1 to 3 after rapid ungrouped checkbox changes', () => {
+    const onValidate = vi.fn();
+    render(
+      <SelectionValidateHarness
+        initialSelectedRowIndexes={[0, 1, 2, 3]}
+        onValidate={onValidate}
+        table={rapidUngroupedSelectionTable}
+      />
+    );
+    const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
+
+    act(() => {
+      dispatchSelectionMessage(iframe, false, [0, 1, 2, 3]);
+      dispatchSelectionMessage(iframe, true, [0]);
+      dispatchSelectionMessage(iframe, true, [1]);
+      dispatchSelectionMessage(iframe, true, [2]);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Validate' }));
+
+    expect(onValidate).toHaveBeenCalledWith([0, 1, 2]);
+  });
+
+  it('keeps rapid selection inside Group 1 before immediate validation', () => {
+    const onValidate = vi.fn();
+    render(
+      <SelectionValidateHarness
+        initialSelectedRowIndexes={[1, 2, 4]}
+        onValidate={onValidate}
+        table={blankSeparatedSelectionTable}
+      />
+    );
+    const iframe = screen.getByTitle('CopyTest table preview') as HTMLIFrameElement;
+
+    act(() => {
+      dispatchSelectionMessage(iframe, false, [1, 2, 4]);
+      dispatchSelectionMessage(iframe, true, [1, 2]);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Validate' }));
+
+    expect(onValidate).toHaveBeenCalledWith([1, 2]);
   });
 
   it('renders independent target actions for Passed and Failed Screens in one Result', () => {
@@ -1149,7 +1248,7 @@ describe('TablePreview', () => {
       src: 'blob:preview',
     });
     expect(handlers.onRowsChange).toHaveBeenNthCalledWith(1, [0, 4]);
-    expect(handlers.onRowsChange).toHaveBeenNthCalledWith(2, []);
+    expect(handlers.onRowsChange).toHaveBeenNthCalledWith(2, [4]);
     expect(handlers.onDelete).toHaveBeenCalledWith({
       imageId: 'img-shared',
       instanceId: 'img-shared:0:1',

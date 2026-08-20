@@ -564,11 +564,14 @@ export const TablePreview: React.FC<CopyTestTablePreviewProps> = ({
       }
 
       if (event.data.action === 'selection') {
-        onSelectedRowIndexesChange(updateSelectedRowIndexes(
+        /** 连续 iframe 消息必须基于上一条已接收的选择，而不是等待父组件提交后的 props。 */
+        const nextSelectedRowIndexes = updateSelectedRowIndexes(
           selectedRowIndexesRef.current,
           event.data.rowIndexes,
           event.data.checked
-        ));
+        );
+        selectedRowIndexesRef.current = nextSelectedRowIndexes;
+        onSelectedRowIndexesChange(nextSelectedRowIndexes);
         return;
       }
 
