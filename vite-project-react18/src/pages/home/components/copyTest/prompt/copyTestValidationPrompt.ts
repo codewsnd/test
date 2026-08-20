@@ -8,9 +8,9 @@ export const COPY_TEST_VALIDATION_MODEL = 'openai/gpt-5.6-terra';
 /** GPT-5.6 Terra 官方支持的最大输出 token 数。 */
 export const COPY_TEST_MAX_OUTPUT_TOKENS = 128_000;
 /** 单行失败结果最多返回的用户可见问题数。 */
-export const COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW = 3;
+export const COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW = 5;
 /** 单条用户可见问题允许的最大 Unicode 字符数。 */
-export const COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS = 160;
+export const COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS = 150;
 
 /** CopyTest 校验请求中的单个截图标识。 */
 interface CopyTestValidationScreenshotInput {
