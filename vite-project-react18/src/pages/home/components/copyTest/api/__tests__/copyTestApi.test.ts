@@ -81,7 +81,7 @@ const buildAiResponse = (results: unknown[]) => {
   };
 };
 
-describe('copyTestApi strict validation contract', () => {
+describe('copyTestApi validation parsing and request contract', () => {
   beforeEach(() => {
     hoisted.aiChat.mockReset();
     hoisted.axiosGet.mockReset();
@@ -147,7 +147,7 @@ describe('copyTestApi strict validation contract', () => {
     expect(request.messages[1].role).toBe('user');
   });
 
-  it('accepts one shared image per group and excludes an unrelated screenshot', () => {
+  it('parses valid result objects and an empty result set', () => {
     const content = buildContent([
       buildValidResult({ rowIndex: 0 }),
       buildValidResult({ rowIndex: 1 }),
@@ -165,11 +165,10 @@ describe('copyTestApi strict validation contract', () => {
         rowIndex: 4,
       }),
     ]);
-    expect(content).not.toContain('screen-c.png');
     expect(parseCopyTestValidationResults(buildContent([]), images, [])).toEqual([]);
   });
 
-  it('accepts one issue per mismatch and allows empty Evidence only without uploads', () => {
+  it('accepts one issue per mismatch and empty Evidence without uploads', () => {
     const results = [
       buildValidResult({
         evidenceImageFileNames: ['screen-b.png'],
@@ -308,25 +307,6 @@ describe('copyTestApi strict validation contract', () => {
     });
   });
 
-  it('rejects multiple, empty, or inconsistent Evidence when screenshots were uploaded', () => {
-    expect(() => parseCopyTestValidationResults(buildContent([
-      buildValidResult({ evidenceImageFileNames: ['screen-a.png', 'screen-b.png'] }),
-    ]), images, [rows[0]])).toThrow('exactly one Evidence image');
-
-    expect(() => parseCopyTestValidationResults(buildContent([
-      buildValidResult({
-        evidenceImageFileNames: [],
-        languageIssues: ['Expected copy is missing.'],
-        passed: false,
-      }),
-    ]), images, [rows[0]])).toThrow('exactly one Evidence image');
-
-    expect(() => parseCopyTestValidationResults(buildContent([
-      buildValidResult({ rowIndex: 0 }),
-      buildValidResult({ evidenceImageFileNames: ['screen-b.png'], rowIndex: 1 }),
-    ]), images, rows.slice(0, 2))).toThrow('must share one Evidence image');
-  });
-
   it('rejects invalid app-owned Evidence group identifiers', () => {
     expect(() => parseCopyTestValidationResults(
       buildContent([buildValidResult()]),
@@ -335,7 +315,7 @@ describe('copyTestApi strict validation contract', () => {
     )).toThrow('evidenceGroupId');
   });
 
-  it('rejects inconsistent pass semantics, missing rows, reordered rows, and duplicates', () => {
+  it('rejects inconsistent pass semantics', () => {
     const semanticCases = [
       buildValidResult({ evidenceImageFileNames: [] }),
       buildValidResult({ languageIssues: ['Not allowed.'] }),
@@ -348,57 +328,26 @@ describe('copyTestApi strict validation contract', () => {
         [rows[0]]
       )).toThrow();
     });
-
-    expect(() => parseCopyTestValidationResults(
-      buildContent([buildValidResult()]),
-      images,
-      rows.slice(0, 2)
-    )).toThrow(
-      'expected 2 results for rowIndexes [0,1], received 1 result for rowIndexes [0]'
-    );
-    expect(() => parseCopyTestValidationResults(
-      buildContent([
-        buildValidResult({ rowIndex: 0 }),
-        buildValidResult({ rowIndex: 1 }),
-      ]),
-      images,
-      [rows[0]]
-    )).toThrow(
-      'expected 1 result for rowIndexes [0], received 2 results for rowIndexes [0,1]'
-    );
-    expect(() => parseCopyTestValidationResults(
-      buildContent([
-        buildValidResult({ rowIndex: 1 }),
-        buildValidResult({ rowIndex: 0 }),
-      ]),
-      images,
-      rows.slice(0, 2)
-    )).toThrow('requested row order');
-    expect(() => parseCopyTestValidationResults(
-      buildContent([
-        buildValidResult({ rowIndex: 0 }),
-        buildValidResult({ rowIndex: 0 }),
-      ]),
-      images,
-      rows.slice(0, 2)
-    )).toThrow('must be unique');
   });
 
-  it('rejects an incomplete result set without an automatic second request', async () => {
+  it('accepts an incomplete result set without an automatic second request', async () => {
     vi.useFakeTimers();
-    const requestedRows = rows.slice(0, 2);
+    const requestedRows = [0, 1, 2, 3].map(rowIndex => ({
+      evidenceGroupId: rowIndex,
+      expected: `Copy ${rowIndex + 1}`,
+      rowIndex,
+    }));
+    const partialResults = [0, 1, 2].map(rowIndex => {
+      return buildValidResult({ rowIndex });
+    });
     hoisted.mockCopyTestAiChat.mockResolvedValueOnce(
-      buildAiResponse([buildValidResult({ rowIndex: 0 })])
+      buildAiResponse(partialResults)
     );
 
     const validation = copyTestValidationApi([images[0]], requestedRows, 'Target');
-    const assertion = expect(validation).rejects.toThrow(
-      'expected 2 results for rowIndexes [0,1], received 1 result for rowIndexes [0]'
-    );
-
     await vi.runAllTimersAsync();
-    await assertion;
 
+    await expect(validation).resolves.toEqual(partialResults);
     expect(hoisted.mockCopyTestAiChat).toHaveBeenCalledTimes(1);
   });
 

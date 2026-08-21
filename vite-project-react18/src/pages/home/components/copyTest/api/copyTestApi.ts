@@ -70,7 +70,7 @@ export interface CopyTestRowInput {
 
 /** CopyTest AI 与轮次 Mock 共用的逐行校验结果。 */
 export interface CopyTestValidationResult {
-  /** 与请求行完全一致的逻辑行下标。 */
+  /** AI 返回的逻辑行下标。 */
   rowIndex: number;
   /** 至少一张相关截图是否可靠支持期望文案。 */
   passed: boolean;
@@ -168,16 +168,6 @@ export const copyTestAttachmentsApi = async (
 /** 以统一错误格式终止整批 AI 结果解析。 */
 const throwInvalidAiContent = (reason: string): never => {
   throw new Error(`${INVALID_AI_CONTENT_PREFIX}: ${reason}`);
-};
-
-/** 按数量输出语法正确的 result 名称。 */
-const formatResultCount = (count: number): string => {
-  return `${count} result${count === 1 ? '' : 's'}`;
-};
-
-/** 将稳定行下标输出为不含文案的安全诊断信息。 */
-const formatRowIndexes = (rowIndexes: number[]): string => {
-  return JSON.stringify(rowIndexes);
 };
 
 /** 判断未知值是否是可读取字段的普通对象。 */
@@ -339,37 +329,6 @@ const parseValidationItem = (
   };
 };
 
-/** 校验结果唯一性、条数和顺序与请求完全一致。 */
-const assertRowsMatchRequest = (
-  results: CopyTestValidationResult[],
-  rows: CopyTestRowInput[]
-): void => {
-  if (results.length !== rows.length) {
-    const expectedRowIndexes = rows.map(row => row.rowIndex);
-    const receivedRowIndexes = results.map(result => result.rowIndex);
-    throwInvalidAiContent(
-      `expected ${formatResultCount(rows.length)} for rowIndexes `
-      + `${formatRowIndexes(expectedRowIndexes)}, received `
-      + `${formatResultCount(results.length)} for rowIndexes `
-      + formatRowIndexes(receivedRowIndexes)
-    );
-  }
-
-  /** 所有结果中的唯一 rowIndex 集合。 */
-  const resultRowIndexes = new Set(results.map(result => result.rowIndex));
-  if (resultRowIndexes.size !== results.length) {
-    throwInvalidAiContent('result rowIndex values must be unique');
-  }
-
-  /** 第一个没有保持请求 rowIndex 顺序的结果位置。 */
-  const mismatchIndex = results.findIndex((result, index) => {
-    return result.rowIndex !== rows[index].rowIndex;
-  });
-  if (mismatchIndex >= 0) {
-    throwInvalidAiContent(`result ${mismatchIndex} does not match the requested row order`);
-  }
-};
-
 /** 校验每个请求行都带有合法的应用层 Evidence 分组标识。 */
 const assertValidEvidenceGroupIds = (rows: CopyTestRowInput[]): void => {
   if (rows.some(row => !Number.isInteger(row.evidenceGroupId) || row.evidenceGroupId < 0)) {
@@ -377,44 +336,7 @@ const assertValidEvidenceGroupIds = (rows: CopyTestRowInput[]): void => {
   }
 };
 
-/** 校验上传截图存在性与逐行 Evidence 数量严格一致。 */
-const assertEvidenceCardinality = (
-  results: CopyTestValidationResult[],
-  hasUploadedImages: boolean
-): void => {
-  /** 有截图时必须是 singleton，无截图时必须为空。 */
-  const expectedLength = hasUploadedImages ? 1 : 0;
-  const invalidIndex = results.findIndex(result => {
-    return result.evidenceImageFileNames.length !== expectedLength;
-  });
-  if (invalidIndex >= 0) {
-    throwInvalidAiContent(
-      `result ${invalidIndex} must use ${hasUploadedImages ? 'exactly one Evidence image' : 'empty Evidence'}`
-    );
-  }
-};
-
-/** 校验同一应用层 Evidence 组的每行都引用同一张唯一截图。 */
-const assertSharedGroupEvidence = (
-  results: CopyTestValidationResult[],
-  rows: CopyTestRowInput[]
-): void => {
-  /** 每个 Evidence 组首次出现时锁定的唯一图片文件名。 */
-  const fileNameByGroupId = new Map<number, string>();
-  results.forEach((result, index) => {
-    /** 结果已与请求顺序对齐，因此可安全读取同位置分组。 */
-    const groupId = rows[index].evidenceGroupId;
-    /** 无上传截图时各组统一使用空字符串作为无 Evidence 标识。 */
-    const fileName = result.evidenceImageFileNames[0] || '';
-    const expectedFileName = fileNameByGroupId.get(groupId);
-    if (expectedFileName !== undefined && expectedFileName !== fileName) {
-      throwInvalidAiContent(`evidence group ${groupId} must share one Evidence image`);
-    }
-    fileNameByGroupId.set(groupId, fileName);
-  });
-};
-
-/** 严格解析并校验 AI 返回的逐行 CopyTest 根对象契约。 */
+/** 解析并校验 AI 返回的逐行 CopyTest 根对象契约。 */
 export const parseCopyTestValidationResults = (
   content: string,
   images: CopyTestImage[],
@@ -423,13 +345,10 @@ export const parseCopyTestValidationResults = (
   assertValidEvidenceGroupIds(rows);
   /** 本次上传图片允许被 AI 引用的唯一文件名集合。 */
   const availableFileNames = new Set(images.map(image => image.fileName));
-  /** 严格完成字段解析但尚未校验请求顺序的逐行结果。 */
+  /** 完成字段、图片来源和通过状态语义校验的逐行结果。 */
   const results = parseValidationArray(content).map((item, itemIndex) => {
     return parseValidationItem(item, availableFileNames, itemIndex);
   });
-  assertRowsMatchRequest(results, rows);
-  assertEvidenceCardinality(results, images.length > 0);
-  assertSharedGroupEvidence(results, rows);
   return results;
 };
 
