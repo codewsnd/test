@@ -315,7 +315,8 @@ const getSourceGroupsCoveredByEvidenceCell = (
   /** 下一个来源原子必须开始的物理行。 */
   let cursor = cell.rowIndex;
   const coveredGroups: CopyTestRowGroup[] = [];
-  for (let index = startIndex; cursor < cellEnd; index += 1) {
+  let index = startIndex;
+  while (cursor < cellEnd) {
     /** 当前 Evidence 范围中的下一个来源原子。 */
     const group = rowGroups[index];
     if (!group || group.anchorRowIndex !== cursor || cursor + group.rowSpan > cellEnd) {
@@ -323,6 +324,7 @@ const getSourceGroupsCoveredByEvidenceCell = (
     }
     coveredGroups.push(group);
     cursor += group.rowSpan;
+    index += 1;
   }
   return cursor === cellEnd ? coveredGroups : null;
 };

@@ -368,7 +368,7 @@ describe('copyTestTableImages', () => {
     expect(emptyRowCells[1].style.width).toBe(`${COPY_TEST_PREVIEW_RESULT_HEADER_WIDTH}px`);
     expect(emptyRowCells[2].textContent).toBe('');
     expect(emptyRowCells[2].style.width).toBe(`${COPY_TEST_PREVIEW_EVIDENCE_HEADER_WIDTH}px`);
-    expect(emptyRowCells[2].querySelector('ac\\:image')).toBeNull();
+    expect(emptyRowCells[2].getElementsByTagName('ac:image')).toHaveLength(0);
     expect(emptyRowCells[3].getAttribute('data-pair')).toBe('b-result-empty');
     expect(emptyRowCells[4].getAttribute('data-pair')).toBe('b-evidence-empty');
   });
