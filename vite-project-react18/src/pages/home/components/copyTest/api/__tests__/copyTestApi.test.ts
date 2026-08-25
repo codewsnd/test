@@ -340,7 +340,7 @@ describe('copyTestApi validation parsing and request contract', () => {
     const partialResults = [0, 1, 2].map(rowIndex => {
       return buildValidResult({ rowIndex });
     });
-    hoisted.mockCopyTestAiChat.mockResolvedValueOnce(
+    hoisted.aiChat.mockResolvedValueOnce(
       buildAiResponse(partialResults)
     );
 
@@ -348,12 +348,12 @@ describe('copyTestApi validation parsing and request contract', () => {
     await vi.runAllTimersAsync();
 
     await expect(validation).resolves.toEqual(partialResults);
-    expect(hoisted.mockCopyTestAiChat).toHaveBeenCalledTimes(1);
+    expect(hoisted.aiChat).toHaveBeenCalledTimes(1);
   });
 
   it('rejects truncated JSON without an automatic second request', async () => {
     vi.useFakeTimers();
-    hoisted.mockCopyTestAiChat.mockResolvedValueOnce({
+    hoisted.aiChat.mockResolvedValueOnce({
       data: {
         characterCount: 12,
         content: '{"results":[',
@@ -371,12 +371,12 @@ describe('copyTestApi validation parsing and request contract', () => {
     await vi.runAllTimersAsync();
     await assertion;
 
-    expect(hoisted.mockCopyTestAiChat).toHaveBeenCalledTimes(1);
+    expect(hoisted.aiChat).toHaveBeenCalledTimes(1);
   });
 
   it('does not retry request failures', async () => {
     vi.useFakeTimers();
-    hoisted.mockCopyTestAiChat.mockResolvedValue({
+    hoisted.aiChat.mockResolvedValue({
       error: 'service unavailable',
       success: false,
     });
@@ -391,6 +391,6 @@ describe('copyTestApi validation parsing and request contract', () => {
 
     await vi.runAllTimersAsync();
     await failedRequestAssertion;
-    expect(hoisted.mockCopyTestAiChat).toHaveBeenCalledTimes(1);
+    expect(hoisted.aiChat).toHaveBeenCalledTimes(1);
   });
 });
