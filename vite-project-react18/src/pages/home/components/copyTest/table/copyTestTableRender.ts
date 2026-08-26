@@ -208,6 +208,58 @@ export const COPY_TEST_CONTENT_LABEL_TAG = 'strong';
 /** DOM 布尔属性写入时使用的统一字符串值。 */
 const DOM_TRUE_ATTRIBUTE_VALUE = 'true';
 
+/** 插入已创建的 Element，不解析 HTML 字符串。 */
+const appendElement = (parent: Element, child: Element): void => {
+  parent.insertAdjacentElement('beforeend', child);
+};
+
+/** 原位替换已创建的 Element，不解析 HTML 字符串。 */
+const replaceElement = (current: Element, replacement: Element): void => {
+  current.insertAdjacentElement('beforebegin', replacement);
+  current.remove();
+};
+
+/** Result 状态组的动态值。 */
+interface ResultStatusGroupValues {
+  /** 当前状态组的有序 Screen。 */
+  entries: ResultScreenEntry[];
+  /** 当前是否为 Passed 组。 */
+  passed: boolean;
+}
+
+/** Result 状态组的静态 DOM 形状。 */
+interface ResultStatusGroupShape {
+  /** 每个 Screen 需要的失败原因列表项数量。 */
+  issueCounts: number[];
+  /** 当前是否为 Passed 组。 */
+  passed: boolean;
+}
+
+/** 单个 Result Screen 的静态 DOM 骨架引用。 */
+interface ResultScreenSkeleton {
+  /** 稍后写入失败原因的列表项。 */
+  issueItems: HTMLLIElement[];
+  /** 稍后写入身份与保留问题的 Screen 列表项。 */
+  item: HTMLLIElement;
+  /** 稍后写入 Screen 标签的纯文本节点。 */
+  label: Text;
+}
+
+/** Result 状态组的静态 DOM 骨架引用。 */
+interface ResultStatusGroupSkeleton {
+  /** 按展示顺序创建的 Screen 骨架。 */
+  screens: ResultScreenSkeleton[];
+}
+
+/** 单张 Evidence 卡片的静态 DOM 骨架引用。 */
+interface EvidenceCardSkeleton {
+  /** 稍后写入附件文件名的 Confluence 引用节点。 */
+  attachment: Element;
+  /** 稍后写入图片身份与替代文本的 Confluence 图片节点。 */
+  image: Element;
+  /** 稍后写入 Screen 标签的强调节点。 */
+  label: HTMLElement;
+}
 
 /** 严格按模型返回的附件文件名绑定 Evidence 图片。 */
 export const bindResultImages = (
@@ -288,24 +340,6 @@ const writeRetainedLanguageIssues = (container: Element, languageIssues: string[
   );
 };
 
-/** 将失败原因追加到指定列表，并写入可稳定恢复的 ownership 标记。 */
-const appendFailureReasonItems = (
-  doc: Document,
-  list: HTMLUListElement,
-  failureReasons: string[]
-): void => {
-  failureReasons.forEach(
-    /** 把每条非空失败原因写入独立列表项。 */
-    reason => {
-      /** 单条失败原因的列表项。 */
-      const issueItem = doc.createElement(RESULT_LIST_ITEM_TAG);
-      issueItem.setAttribute(COPY_TEST_RESULT_LANGUAGE_ISSUE_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
-      issueItem.textContent = reason;
-      list.appendChild(issueItem);
-    }
-  );
-};
-
 /** 按持久 Screen 状态把图片引用转换为可独立移动的 Result 条目。 */
 const buildResultScreenEntries = (
   result: CopyTestValidationResultWithEvidence,
@@ -330,52 +364,141 @@ const buildResultScreenEntries = (
   });
 };
 
-/** 创建单个 Result Screen 条目。 */
-const createResultScreenItem = (
-  doc: Document,
-  entry: ResultScreenEntry
-): HTMLLIElement => {
-  /** 带图片身份、顺序与隐藏问题的 Result 一级列表项。 */
-  const item = doc.createElement(RESULT_LIST_ITEM_TAG);
-  item.setAttribute(COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE, entry.imageId);
-  item.setAttribute(COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE, entry.instanceId);
-  item.setAttribute(COPY_TEST_RESULT_SCREEN_ORDER_ATTRIBUTE, String(entry.order));
-  writeRetainedLanguageIssues(item, entry.languageIssues);
-  item.appendChild(doc.createTextNode(entry.label));
-  if (!entry.passed && entry.languageIssues.length > 0) {
-    /** 当前 Failed Screen 下展示全部失败原因的二级列表。 */
-    const issueList = doc.createElement('ul');
-    appendFailureReasonItems(doc, issueList, entry.languageIssues);
-    item.appendChild(issueList);
-  }
-  return item;
+/** 按 Passed/Failed 顺序构建 Result 状态组动态值。 */
+const buildResultStatusGroupValues = (
+  entries: ResultScreenEntry[]
+): ResultStatusGroupValues[] => {
+  return [true, false].flatMap(passed => {
+    /** 当前状态组内按 Evidence 顺序排列的 Screen。 */
+    const groupEntries = entries
+      .filter(entry => entry.passed === passed)
+      .sort((left, right) => left.order - right.order);
+    return groupEntries.length > 0 ? [{ entries: groupEntries, passed }] : [];
+  });
 };
 
-/** 创建 Passed 或 Failed 状态分组。 */
-const createResultStatusGroup = (
+/** 将 Result 动态值投影为只含数量和布尔值的静态 DOM 形状。 */
+const buildResultStatusGroupShapes = (
+  groups: ResultStatusGroupValues[]
+): ResultStatusGroupShape[] => {
+  return groups.map(group => ({
+    issueCounts: group.entries.map(entry => group.passed ? 0 : entry.languageIssues.length),
+    passed: group.passed,
+  }));
+};
+
+/** 创建并插入指定数量的空失败原因列表项。 */
+const appendResultIssueSkeletons = (
   doc: Document,
-  passed: boolean,
-  entries: ResultScreenEntry[]
+  list: HTMLUListElement,
+  issueCount: number
+): HTMLLIElement[] => {
+  /** 只含静态 ownership 标记的失败原因骨架。 */
+  const issueItems: HTMLLIElement[] = [];
+  for (let issueIndex = 0; issueIndex < issueCount; issueIndex += 1) {
+    const issueItem = doc.createElement(RESULT_LIST_ITEM_TAG);
+    issueItem.setAttribute(COPY_TEST_RESULT_LANGUAGE_ISSUE_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
+    appendElement(list, issueItem);
+    issueItems.push(issueItem);
+  }
+  return issueItems;
+};
+
+/** 创建并插入单个未填充业务值的 Result Screen 骨架。 */
+const appendResultScreenSkeleton = (
+  doc: Document,
+  list: HTMLUListElement,
+  issueCount: number
+): ResultScreenSkeleton => {
+  /** 尚未写入任何 Screen 值的一级列表项。 */
+  const item = doc.createElement(RESULT_LIST_ITEM_TAG);
+  /** 保留原有直接文本子节点结构的空标签。 */
+  const label = doc.createTextNode('');
+  item.appendChild(label);
+  /** Failed Screen 可选的二级列表。 */
+  const issueList = issueCount > 0 ? doc.createElement('ul') : null;
+  /** 已插入二级列表的空原因项。 */
+  const issueItems = issueList
+    ? appendResultIssueSkeletons(doc, issueList, issueCount)
+    : [];
+  if (issueList) {
+    appendElement(item, issueList);
+  }
+  appendElement(list, item);
+  return { issueItems, item, label };
+};
+
+/** 创建并插入全部未填充业务值的 Result 骨架。 */
+const appendResultStatusGroupSkeletons = (
+  doc: Document,
+  container: HTMLElement,
+  shapes: ResultStatusGroupShape[]
+): ResultStatusGroupSkeleton[] => {
+  return shapes.map(shape => {
+    /** 只含固定属性的 Result 状态分组。 */
+    const group = doc.createElement(COPY_TEST_CONTENT_BLOCK_TAG);
+    /** 固定 Passed/Failed 文案的强调节点。 */
+    const status = doc.createElement(COPY_TEST_CONTENT_LABEL_TAG);
+    /** 当前状态组的空 Screen 列表。 */
+    const list = doc.createElement('ul');
+    group.setAttribute(
+      COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE,
+      shape.passed ? COPY_TEST_RESULT_PASSED_GROUP_VALUE : COPY_TEST_RESULT_FAILED_GROUP_VALUE
+    );
+    status.textContent = shape.passed ? PASSED_LABEL : FAILED_LABEL;
+    status.setAttribute(
+      'style',
+      `color:${shape.passed ? COPY_TEST_PASSED_COLOR : COPY_TEST_FAILED_COLOR};font-weight:700;`
+    );
+    const screens = shape.issueCounts.map(issueCount => {
+      return appendResultScreenSkeleton(doc, list, issueCount);
+    });
+    appendElement(group, status);
+    appendElement(group, list);
+    appendElement(container, group);
+    return { screens };
+  });
+};
+
+/** 在已安装的 Result 骨架上写入单个 Screen 的动态值。 */
+const applyResultScreenValues = (
+  skeleton: ResultScreenSkeleton,
+  entry: ResultScreenEntry
+): void => {
+  skeleton.item.setAttribute(COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE, entry.imageId);
+  skeleton.item.setAttribute(COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE, entry.instanceId);
+  skeleton.item.setAttribute(COPY_TEST_RESULT_SCREEN_ORDER_ATTRIBUTE, String(entry.order));
+  writeRetainedLanguageIssues(skeleton.item, entry.languageIssues);
+  skeleton.label.textContent = entry.label;
+  skeleton.issueItems.forEach((issueItem, issueIndex) => {
+    issueItem.textContent = entry.languageIssues[issueIndex] ?? '';
+  });
+};
+
+/** 在已安装的 Result 骨架上写入全部动态值。 */
+const applyResultStatusGroupValues = (
+  skeletons: ResultStatusGroupSkeleton[],
+  groups: ResultStatusGroupValues[]
+): void => {
+  groups.forEach((group, groupIndex) => {
+    const skeleton = skeletons[groupIndex];
+    group.entries.forEach((entry, screenIndex) => {
+      const screenSkeleton = skeleton?.screens[screenIndex];
+      if (screenSkeleton) {
+        applyResultScreenValues(screenSkeleton, entry);
+      }
+    });
+  });
+};
+
+/** 创建一个尚未写入动态值的 managed 内容根节点。 */
+const createManagedContentRoot = (
+  doc: Document,
+  type: CopyTestGeneratedColumnType
 ): HTMLElement => {
-  /** 一个状态分组使用的持久容器。 */
-  const group = doc.createElement(COPY_TEST_CONTENT_BLOCK_TAG);
-  /** 显示 Passed 或 Failed 状态的强调节点。 */
-  const status = doc.createElement(COPY_TEST_CONTENT_LABEL_TAG);
-  /** 当前状态分组承载的 Screen 列表。 */
-  const list = doc.createElement('ul');
-  group.setAttribute(
-    COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE,
-    passed ? COPY_TEST_RESULT_PASSED_GROUP_VALUE : COPY_TEST_RESULT_FAILED_GROUP_VALUE
-  );
-  status.textContent = passed ? PASSED_LABEL : FAILED_LABEL;
-  status.setAttribute(
-    'style',
-    `color:${passed ? COPY_TEST_PASSED_COLOR : COPY_TEST_FAILED_COLOR};font-weight:700;`
-  );
-  entries.forEach(entry => list.appendChild(createResultScreenItem(doc, entry)));
-  group.appendChild(status);
-  group.appendChild(list);
-  return group;
+  const container = doc.createElement(COPY_TEST_CONTENT_BLOCK_TAG);
+  container.setAttribute(COPY_TEST_GENERATED_CONTENT_ATTRIBUTE, type);
+  return container;
 };
 
 /** 从规范 Screen 条目创建唯一 managed Result 根节点。 */
@@ -383,73 +506,64 @@ export const createResultContentFromEntries = (
   doc: Document,
   entries: ResultScreenEntry[]
 ): HTMLElement => {
-  /** 标记为 CopyTest Result 受控内容的唯一根块。 */
-  const container = doc.createElement(COPY_TEST_CONTENT_BLOCK_TAG);
-  container.setAttribute(COPY_TEST_GENERATED_CONTENT_ATTRIBUTE, COPY_TEST_GENERATED_RESULT_TYPE);
-  [true, false].forEach(passed => {
-    /** 当前 Passed 或 Failed 分组内按 Evidence 顺序排列的 Screen。 */
-    const groupEntries = entries
-      .filter(entry => entry.passed === passed)
-      .sort((left, right) => left.order - right.order);
-    if (groupEntries.length > 0) {
-      container.appendChild(createResultStatusGroup(doc, passed, groupEntries));
-    }
-  });
-  return container;
-};
-
-/** 创建 Result 受控内容。 */
-const createResultContent = (
-  doc: Document,
-  result: CopyTestValidationResultWithEvidence,
-  screens: ScreenRef[]
-): HTMLElement => {
-  return createResultContentFromEntries(
+  const container = createManagedContentRoot(doc, COPY_TEST_GENERATED_RESULT_TYPE);
+  /** 按状态与顺序规范后的 Result 动态值。 */
+  const groups = buildResultStatusGroupValues(entries);
+  /** 在任何动态值写入前完整插入的 Result 骨架。 */
+  const skeletons = appendResultStatusGroupSkeletons(
     doc,
-    buildResultScreenEntries(result, screens)
+    container,
+    buildResultStatusGroupShapes(groups)
   );
-};
-
-/** 创建 Evidence 图片节点。 */
-const createEvidenceImage = (doc: Document, screen: ScreenRef): Element => {
-  /** Confluence Storage 的图片容器节点。 */
-  const imageElement = doc.createElement('ac:image');
-  /** 指向已上传附件文件名的 Confluence 引用节点。 */
-  const attachment = doc.createElement('ri:attachment');
-  imageElement.setAttribute('ac:width', String(COPY_TEST_EVIDENCE_IMAGE_WIDTH));
-  imageElement.setAttribute('ac:height', String(COPY_TEST_EVIDENCE_IMAGE_HEIGHT));
-  imageElement.setAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE, screen.imageId);
-  imageElement.setAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE, screen.instanceId);
-  imageElement.setAttribute(
-    COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE,
-    getCopyTestImageDisplayFileName(screen.image)
-  );
-  attachment.setAttribute('ri:filename', screen.image.fileName);
-  imageElement.appendChild(attachment);
-  return imageElement;
-};
-
-/** 创建 Evidence 受控内容。 */
-const createEvidenceContent = (doc: Document, screens: ScreenRef[]): HTMLElement => {
-  /** 标记为 CopyTest Evidence 受控内容的根块。 */
-  const container = doc.createElement(COPY_TEST_CONTENT_BLOCK_TAG);
-  container.setAttribute(COPY_TEST_GENERATED_CONTENT_ATTRIBUTE, COPY_TEST_GENERATED_EVIDENCE_TYPE);
-  screens.forEach(
-    /** 为每张图片生成带 Screen 标签和稳定实例标识的 Evidence 卡片。 */
-    screen => {
-      /** 支持整卡删除的单张 Evidence 容器。 */
-      const card = doc.createElement(COPY_TEST_CONTENT_BLOCK_TAG);
-      /** 当前 Evidence 图片对应的 Screen 展示标签。 */
-      const label = doc.createElement(COPY_TEST_CONTENT_LABEL_TAG);
-      card.setAttribute(COPY_TEST_EVIDENCE_CARD_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
-      label.textContent = screen.label;
-      card.appendChild(label);
-      card.appendChild(doc.createElement('br'));
-      card.appendChild(createEvidenceImage(doc, screen));
-      container.appendChild(card);
-    }
-  );
+  applyResultStatusGroupValues(skeletons, groups);
   return container;
+};
+
+/** 创建并插入全部未填充业务值的 Evidence 骨架。 */
+const appendEvidenceCardSkeletons = (
+  doc: Document,
+  container: HTMLElement,
+  screenCount: number
+): EvidenceCardSkeleton[] => {
+  /** 只含固定标签、尺寸与 ownership 的 Evidence 骨架。 */
+  const skeletons: EvidenceCardSkeleton[] = [];
+  for (let screenIndex = 0; screenIndex < screenCount; screenIndex += 1) {
+    const card = doc.createElement(COPY_TEST_CONTENT_BLOCK_TAG);
+    const label = doc.createElement(COPY_TEST_CONTENT_LABEL_TAG);
+    const image = doc.createElement('ac:image');
+    const attachment = doc.createElement('ri:attachment');
+    card.setAttribute(COPY_TEST_EVIDENCE_CARD_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
+    image.setAttribute('ac:width', String(COPY_TEST_EVIDENCE_IMAGE_WIDTH));
+    image.setAttribute('ac:height', String(COPY_TEST_EVIDENCE_IMAGE_HEIGHT));
+    appendElement(image, attachment);
+    appendElement(card, label);
+    appendElement(card, doc.createElement('br'));
+    appendElement(card, image);
+    appendElement(container, card);
+    skeletons.push({ attachment, image, label });
+  }
+  return skeletons;
+};
+
+/** 在已安装的 Evidence 骨架上写入全部动态值。 */
+const applyEvidenceCardValues = (
+  skeletons: EvidenceCardSkeleton[],
+  screens: ScreenRef[]
+): void => {
+  screens.forEach((screen, screenIndex) => {
+    const skeleton = skeletons[screenIndex];
+    if (!skeleton) {
+      return;
+    }
+    skeleton.label.textContent = screen.label;
+    skeleton.image.setAttribute(COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE, screen.imageId);
+    skeleton.image.setAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE, screen.instanceId);
+    skeleton.image.setAttribute(
+      COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE,
+      getCopyTestImageDisplayFileName(screen.image)
+    );
+    skeleton.attachment.setAttribute('ri:filename', screen.image.fileName);
+  });
 };
 
 /** 查找受控内容。 */
@@ -472,7 +586,7 @@ const replaceManagedContent = (cell: Element, content: Element, type: CopyTestGe
   /** 单元格内已有的同类型 CopyTest 受控块。 */
   const existingContents = getManagedContentElements(cell, type);
   if (existingContents.length > 0) {
-    existingContents[0].replaceWith(content);
+    replaceElement(existingContents[0], content);
     existingContents.slice(1).forEach(
       /** 清理历史遗留的重复受控块，避免重复回写。 */
       element => element.remove()
@@ -481,9 +595,46 @@ const replaceManagedContent = (cell: Element, content: Element, type: CopyTestGe
   }
 
   if (cell.childNodes.length > 0) {
-    cell.appendChild(cell.ownerDocument.createElement('br'));
+    appendElement(cell, cell.ownerDocument.createElement('br'));
   }
-  cell.appendChild(content);
+  appendElement(cell, content);
+};
+
+/** 先安装未填充动态值的 managed 根节点。 */
+const installManagedContentRoot = (
+  cell: Element,
+  type: CopyTestGeneratedColumnType
+): HTMLElement => {
+  const content = createManagedContentRoot(cell.ownerDocument, type);
+  replaceManagedContent(cell, content, type);
+  return content;
+};
+
+/** 先使用空 Result 根节点原位替换旧内容。 */
+const replaceWithEmptyResultContentRoot = (current: Element): HTMLElement => {
+  const replacement = createManagedContentRoot(
+    current.ownerDocument,
+    COPY_TEST_GENERATED_RESULT_TYPE
+  );
+  replaceElement(current, replacement);
+  return replacement;
+};
+
+/** 原位替换 Result 根节点，再在已安装骨架上写入动态值。 */
+export const replaceResultContentFromEntries = (
+  current: Element,
+  entries: ResultScreenEntry[]
+): void => {
+  const replacement = replaceWithEmptyResultContentRoot(current);
+  /** 按状态与顺序规范后的 Result 动态值。 */
+  const groups = buildResultStatusGroupValues(entries);
+  /** 在任何动态值写入前完整插入的 Result 骨架。 */
+  const skeletons = appendResultStatusGroupSkeletons(
+    replacement.ownerDocument,
+    replacement,
+    buildResultStatusGroupShapes(groups)
+  );
+  applyResultStatusGroupValues(skeletons, groups);
 };
 
 /** 按数据行下标读取校验结果。 */
@@ -767,7 +918,17 @@ export const writeResultCell = (
     context.sourceColumnKey
   );
   applyCellRowSpan(cell, group.rowSpan);
-  replaceManagedContent(cell, createResultContent(doc, result, screens), COPY_TEST_GENERATED_RESULT_TYPE);
+  /** 先安装不包含 Result 业务值的 managed 根节点。 */
+  const content = installManagedContentRoot(cell, COPY_TEST_GENERATED_RESULT_TYPE);
+  /** 按状态与顺序规范后的 Result 动态值。 */
+  const groups = buildResultStatusGroupValues(buildResultScreenEntries(result, screens));
+  /** 在任何动态值写入前完整插入的 Result 骨架。 */
+  const skeletons = appendResultStatusGroupSkeletons(
+    doc,
+    content,
+    buildResultStatusGroupShapes(groups)
+  );
+  applyResultStatusGroupValues(skeletons, groups);
   removeCoveredGeneratedCells(
     context.model,
     group.anchorRowIndex,
@@ -827,7 +988,11 @@ export const writeEvidenceCell = (doc: Document, context: GeneratedColumnContext
     context.sourceColumnKey
   );
   applyCellRowSpan(cell, group.rowSpan);
-  replaceManagedContent(cell, createEvidenceContent(doc, group.screens), COPY_TEST_GENERATED_EVIDENCE_TYPE);
+  /** 先安装不包含 Evidence 业务值的 managed 根节点。 */
+  const content = installManagedContentRoot(cell, COPY_TEST_GENERATED_EVIDENCE_TYPE);
+  /** 在任何图片值写入前完整插入的 Evidence 骨架。 */
+  const skeletons = appendEvidenceCardSkeletons(doc, content, group.screens.length);
+  applyEvidenceCardValues(skeletons, group.screens);
   removeCoveredGeneratedCells(
     context.model,
     group.anchorRowIndex,

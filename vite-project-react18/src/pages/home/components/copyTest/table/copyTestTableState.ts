@@ -49,9 +49,9 @@ import {
   PASSED_LABEL,
   buildEvidenceGroups,
   clearUnrenderedRows,
-  createResultContentFromEntries,
   getManagedContentElements,
   normalizeLanguageIssues,
+  replaceResultContentFromEntries,
   writeEvidenceCell,
   writeEvidenceGroupMetadata,
   writeResultCell,
@@ -259,9 +259,7 @@ const replaceManagedResultScreenStatus = (
   }
 
   target.passed = update.passed;
-  resultRoot.replaceWith(
-    createResultContentFromEntries(resultRoot.ownerDocument, entries)
-  );
+  replaceResultContentFromEntries(resultRoot, entries);
   return true;
 };
 

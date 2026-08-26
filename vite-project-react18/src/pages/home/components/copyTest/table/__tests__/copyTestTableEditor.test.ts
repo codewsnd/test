@@ -263,6 +263,123 @@ describe('copyTestTableEditor', () => {
     });
   });
 
+  it('先安装静态骨架，并把动态 HTML 片段仅作为文本和属性值写入', () => {
+    const sourceColumnKey = getSourceColumnKey(0, 'Target');
+    const table = ensureCopyTestWorkingColumns(
+      parseCopyTestStorageTables(
+        '<table><tr><th>Target</th></tr><tr><td>copy</td></tr></table>'
+      )[0],
+      0,
+      'Target'
+    );
+    const indexes = findGeneratedColumnIndexes(table.headers, sourceColumnKey);
+    const resultCell = table.model.rows[1].slots[indexes.result!]!.cell.element;
+    const evidenceCell = table.model.rows[1].slots[indexes.evidence!]!.cell.element;
+    const installExistingContent = (
+      cell: Element,
+      type: string,
+      prefix: string
+    ): void => {
+      const before = cell.ownerDocument.createElement('span');
+      const managed = cell.ownerDocument.createElement('div');
+      const after = cell.ownerDocument.createElement('span');
+      before.setAttribute('data-order', `${prefix}-before`);
+      before.textContent = 'before';
+      managed.setAttribute(COPY_TEST_GENERATED_CONTENT_ATTRIBUTE, type);
+      managed.textContent = `old ${prefix}`;
+      after.setAttribute('data-order', `${prefix}-after`);
+      after.textContent = 'after';
+      cell.replaceChildren(before, managed, after);
+    };
+    installExistingContent(resultCell, COPY_TEST_GENERATED_RESULT_TYPE, 'result');
+    installExistingContent(evidenceCell, COPY_TEST_GENERATED_EVIDENCE_TYPE, 'evidence');
+    const prepared = parseCopyTestStorageTables(resultCell.closest('table')!.outerHTML)[0];
+    const unsafeLabel = '<img data-xss-label src=x onerror=alert(1)>';
+    const unsafeFileName = 'evil.png"><img data-xss-attachment src=x onerror=alert(1)>';
+    const unsafeIssue = 'Different <script data-xss-issue>alert(1)</script>';
+    const unsafeImage = {
+      base64: SCREEN_1.base64,
+      fileName: unsafeFileName,
+      originalFileName: `${unsafeLabel}.png`,
+    };
+    const results = bindResultImages([{
+      evidenceImageFileNames: [unsafeFileName],
+      languageIssues: [unsafeIssue],
+      passed: false,
+      rowIndex: 0,
+    }], [unsafeImage]);
+
+    const validated = applyCopyTestValidationResults(
+      prepared,
+      results,
+      0,
+      'Target',
+      [unsafeImage]
+    );
+    const doc = parseHtml(validated.workingHtml);
+    const validatedResultCell = getGeneratedDataCells(
+      doc,
+      COPY_TEST_GENERATED_RESULT_TYPE,
+      sourceColumnKey
+    )[0];
+    const validatedEvidenceCell = getGeneratedDataCells(
+      doc,
+      COPY_TEST_GENERATED_EVIDENCE_TYPE,
+      sourceColumnKey
+    )[0];
+    const resultRoot = validatedResultCell.querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
+    )!;
+    const evidenceRoot = validatedEvidenceCell.querySelector(
+      `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_EVIDENCE_TYPE}"]`
+    )!;
+    const resultReference = resultRoot.querySelector(
+      `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`
+    )!;
+    const evidenceCard = evidenceRoot.querySelector(
+      `[${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}]`
+    )!;
+    const evidenceImage = evidenceCard.querySelector(
+      `[${COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE}]`
+    )!;
+    const attachment = evidenceImage.firstElementChild!;
+    const childSignature = (cell: Element): string[] => {
+      return Array.from(cell.children).map(child => {
+        return child.getAttribute('data-order')
+          || child.getAttribute(COPY_TEST_GENERATED_CONTENT_ATTRIBUTE)
+          || '';
+      });
+    };
+
+    expect(childSignature(validatedResultCell)).toEqual([
+      'result-before',
+      COPY_TEST_GENERATED_RESULT_TYPE,
+      'result-after',
+    ]);
+    expect(childSignature(validatedEvidenceCell)).toEqual([
+      'evidence-before',
+      COPY_TEST_GENERATED_EVIDENCE_TYPE,
+      'evidence-after',
+    ]);
+    expect(validatedResultCell.textContent).not.toContain('old result');
+    expect(validatedEvidenceCell.textContent).not.toContain('old evidence');
+    expect(Array.from(resultReference.childNodes).map(node => node.nodeName.toLowerCase()))
+      .toEqual(['#text', 'ul']);
+    expect(resultReference.firstChild?.textContent).toBe(unsafeLabel);
+    expect(resultReference.textContent).toContain(unsafeIssue);
+    expect(Array.from(evidenceCard.children).map(child => child.tagName.toLowerCase()))
+      .toEqual(['strong', 'br', 'ac:image']);
+    expect(Array.from(evidenceImage.children).map(child => child.tagName.toLowerCase()))
+      .toEqual(['ri:attachment']);
+    expect(evidenceCard.querySelector('strong')?.textContent).toBe(unsafeLabel);
+    expect(evidenceImage.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE))
+      .toContain('data-xss-label');
+    expect(attachment.getAttribute('ri:filename')).toContain('data-xss-attachment');
+    expect(doc.querySelector(
+      'script, img, [data-xss-label], [data-xss-attachment], [data-xss-issue]'
+    )).toBeNull();
+  });
+
   it('toggles only the selected Evidence status and keeps export content clean', () => {
     /** 单行只保留模型返回的 Screen01。 */
     const table = parseCopyTestStorageTables(
