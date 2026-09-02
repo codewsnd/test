@@ -447,6 +447,60 @@ const buildMultiPageBodyRowSpanPdfModel = (): CopyTestExportTableModel => {
   };
 };
 
+/** 构建跨三行且包含超页图片栈的 Evidence 分组。 */
+const buildTallRowSpanEvidencePdfModel = (): CopyTestExportTableModel => {
+  /** 足以让合并 Evidence 单元格跨越多页的缓存图片。 */
+  const images = Array.from({ length: 14 }, (_, index) => ({
+    dataUrl: index % 2 === 0 ? ONE_PIXEL_PNG : RED_ONE_PIXEL_PNG,
+    fileName: `group-screen-${index + 1}.png`,
+    height: 200,
+    label: `GroupScreen${String(index + 1).padStart(2, '0')}`,
+    width: 100,
+  }));
+  return {
+    columnCount: 2,
+    missingImageFileNames: [],
+    rowCount: 4,
+    rows: [
+      {
+        cells: [
+          { colSpan: 1, columnIndex: 0, header: true, images: [], kind: 'normal', rowIndex: 0, rowSpan: 1, text: 'Detail' },
+          { colSpan: 1, columnIndex: 1, header: true, images: [], kind: 'evidence', rowIndex: 0, rowSpan: 1, text: 'Test Evidence' },
+        ],
+        index: 0,
+      },
+      {
+        cells: [
+          { colSpan: 1, columnIndex: 0, header: false, images: [], kind: 'normal', rowIndex: 1, rowSpan: 1, text: 'Grouped detail 1' },
+          {
+            colSpan: 1,
+            columnIndex: 1,
+            header: false,
+            images,
+            kind: 'evidence',
+            rowIndex: 1,
+            rowSpan: 3,
+            text: images.map(image => image.label).join('\n'),
+          },
+        ],
+        index: 1,
+      },
+      {
+        cells: [
+          { colSpan: 1, columnIndex: 0, header: false, images: [], kind: 'normal', rowIndex: 2, rowSpan: 1, text: 'Grouped detail 2' },
+        ],
+        index: 2,
+      },
+      {
+        cells: [
+          { colSpan: 1, columnIndex: 0, header: false, images: [], kind: 'normal', rowIndex: 3, rowSpan: 1, text: 'Grouped detail 3' },
+        ],
+        index: 3,
+      },
+    ],
+  };
+};
+
 /** 从 CFB ZIP 容器中读取一个文件的二进制内容。 */
 const readArchiveFile = (
   archive: ReturnType<typeof XLSX.CFB.read>,
@@ -1178,7 +1232,7 @@ describe('CopyTest format exporters', () => {
       .map(draw => draw.pageNumber)).toEqual(expectedPageNumbers);
   });
 
-  it('paginates only between complete high PDF rowspan body groups', async () => {
+  it('paginates oversized PDF rowspan body groups across fixed-height pages', async () => {
     /** 两个各自高于默认页内容区的 rowspan 正文组。 */
     const model = buildMultiPageBodyRowSpanPdfModel();
     /** AutoTable 不应记录无法正确绘制高 rowspan 的警告。 */
@@ -1192,28 +1246,74 @@ describe('CopyTest format exporters', () => {
         textCapture.remove();
       }
     })();
-    /** 根据最高完整 rowspan 块扩展后的单页布局。 */
+    /** 固定 A4 高度并由 continuation rows 分页的页面布局。 */
     const pageLayout = buildCopyTestPdfPageLayout(model);
     /** 真实 PDF 输出的纵向分页数量。 */
     const pageCount = await getTestPdfPageCount(pdfBlob);
 
-    expect(pageLayout.height).toBeGreaterThan(841.89);
-    expect(pageCount).toBe(2);
+    expect(pageLayout.height).toBeCloseTo(841.89, 1);
+    expect(pageCount).toBeGreaterThan(2);
     expect(textCapture.draws
       .filter(draw => draw.text === 'Group')
-      .map(draw => draw.pageNumber)).toEqual([1, 2]);
-    expect(textCapture.draws
-      .filter(draw => draw.text === 'Group 1')
-      .map(draw => draw.pageNumber)).toEqual([1]);
-    expect(textCapture.draws
-      .filter(draw => draw.text === 'Group 2')
-      .map(draw => draw.pageNumber)).toEqual([2]);
+      .map(draw => draw.pageNumber)).toEqual(
+        Array.from({ length: pageCount }, (_, index) => index + 1)
+      );
+    expect(textCapture.draws.filter(draw => draw.text === 'Group 1')).toHaveLength(1);
+    expect(textCapture.draws.filter(draw => draw.text === 'Group 2')).toHaveLength(1);
+    expect(textCapture.draws.filter(draw => draw.text === 'Detail 1')).toHaveLength(1);
+    expect(textCapture.draws.filter(draw => draw.text === 'Detail 96')).toHaveLength(1);
     expect(consoleLog).not.toHaveBeenCalledWith(
       expect.stringContaining('will not be drawn correctly')
     );
   });
 
-  it('keeps one tall PDF Evidence row intact on a sufficiently high page', async () => {
+  it('paginates cached Evidence images inside a grouped rowspan cell', async () => {
+    /** 同时覆盖分组 rowspan 和超页 Evidence 图片栈的真实模型。 */
+    const model = buildTallRowSpanEvidencePdfModel();
+    /** AutoTable 不应尝试直接分页一个超页 rowspan 单元格。 */
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    /** 捕获全部 Evidence 图片的真实 PDF 绘制坐标。 */
+    const addImage = vi.spyOn(
+      jsPDF.API as unknown as { addImage: (...args: unknown[]) => jsPDF },
+      'addImage'
+    );
+    /** 捕获分组明细和重复表头的真实页码。 */
+    const textCapture = installPdfTextCapture();
+    /** 使用固定页高 continuation rows 生成的分组 PDF。 */
+    const pdfBlob = (() => {
+      try {
+        return createCopyTestPdfBlob(model);
+      } finally {
+        textCapture.remove();
+      }
+    })();
+    /** 排除其他图片后得到的全部缓存 Evidence 图片调用。 */
+    const evidenceImageCalls = addImage.mock.calls.filter(call => {
+      return call[0] === ONE_PIXEL_PNG || call[0] === RED_ONE_PIXEL_PNG;
+    });
+    /** 分组内容跨页后的真实 PDF 页数。 */
+    const pageCount = await getTestPdfPageCount(pdfBlob);
+
+    expect(pageCount).toBeGreaterThan(1);
+    expect(evidenceImageCalls).toHaveLength(14);
+    evidenceImageCalls.forEach(call => {
+      expect(Number(call[5])).toBe(120);
+      expect(Number(call[3]) + Number(call[5])).toBeLessThanOrEqual(841.89 - 24);
+    });
+    expect(textCapture.draws
+      .filter(draw => draw.text === 'Test Evidence')
+      .map(draw => draw.pageNumber)).toEqual(
+        Array.from({ length: pageCount }, (_, index) => index + 1)
+      );
+    ['Grouped detail 1', 'Grouped detail 2', 'Grouped detail 3'].forEach(text => {
+      expect(textCapture.draws.filter(draw => draw.text === text)).toHaveLength(1);
+    });
+    expect(consoleLog).not.toHaveBeenCalledWith(
+      expect.stringContaining('will not be drawn correctly')
+    );
+  });
+
+  it('paginates one tall PDF Evidence row without shrinking its images', async () => {
     /** 六张纵向排列后会超过一页原始高度的 Evidence 图片。 */
     const images = Array.from({ length: 6 }, (_, index) => ({
       dataUrl: index % 2 === 0 ? ONE_PIXEL_PNG : RED_ONE_PIXEL_PNG,
@@ -1230,26 +1330,33 @@ describe('CopyTest format exporters', () => {
     );
     /** 捕获缩放后全部 Evidence 图片的实际 PDF 坐标。 */
     const addImage = vi.spyOn(jsPDF.API, 'addImage');
-    /** 使用可容纳单个高行的页面生成真实 PDF。 */
+    /** 使用固定页高和 continuation rows 生成真实多页 PDF。 */
     const pdfBlob = createCopyTestPdfBlob(tallEvidenceModel);
     /** 排除其他潜在栅格文字后剩余的 Evidence 绘制调用。 */
     const evidenceImageCalls = addImage.mock.calls.filter(call => {
       return call[0] === ONE_PIXEL_PNG || call[0] === RED_ONE_PIXEL_PNG;
     });
-    /** 真实 PDF 第一页声明的自适应页面尺寸。 */
+    /** 真实 PDF 第一页声明的固定页面尺寸。 */
     const mediaBox = await getTestPdfMediaBox(pdfBlob);
-    /** 完整高表格自适应页面的右侧安全边界。 */
+    /** 固定高度页面的右侧安全边界。 */
     const pageRight = mediaBox.width - 24;
-    /** 完整高表格自适应页面的底部安全边界。 */
+    /** 固定高度页面的底部安全边界。 */
     const pageBottom = mediaBox.height - 24;
     /** 最后一张图片的实际 PDF 底边。 */
     const lastImageCall = evidenceImageCalls[evidenceImageCalls.length - 1];
     const lastImageBottom = Number(lastImageCall[3]) + Number(lastImageCall[5]);
+    /** 图片纵坐标回到页面顶部表示图片栈已进入下一页。 */
+    const imageYPositions = evidenceImageCalls.map(call => Number(call[3]));
+    const hasImagePageBreak = imageYPositions.some((imageY, index) => {
+      return index > 0 && imageY < imageYPositions[index - 1];
+    });
 
     expect(evidenceImageCalls).toHaveLength(images.length);
     expect(Number(evidenceImageCalls[0][5])).toBe(120);
+    expect(mediaBox.height).toBeCloseTo(841.89, 1);
     expect(lastImageBottom).toBeLessThanOrEqual(pageBottom);
-    expect(await getTestPdfPageCount(pdfBlob)).toBe(1);
+    expect(hasImagePageBreak).toBe(true);
+    expect(await getTestPdfPageCount(pdfBlob)).toBeGreaterThan(1);
     evidenceImageCalls.forEach((call, index) => {
       /** 当前图片在真实 PDF 页面中的横坐标。 */
       const x = Number(call[2]);
@@ -1263,7 +1370,7 @@ describe('CopyTest format exporters', () => {
       expect(y).toBeGreaterThanOrEqual(24);
       expect(x + width).toBeLessThanOrEqual(pageRight);
       expect(y + height).toBeLessThanOrEqual(pageBottom);
-      if (index > 0) {
+      if (index > 0 && y >= imageYPositions[index - 1]) {
         /** 前一张图片在真实 PDF 页面中的绘制参数。 */
         const previousCall = evidenceImageCalls[index - 1];
         /** 前一张图片不得与当前图片发生纵向重叠的底边。 */
@@ -1273,7 +1380,7 @@ describe('CopyTest format exporters', () => {
     });
   });
 
-  it('scales a very large PDF Evidence image cache within the safe page height', async () => {
+  it('paginates a very large PDF Evidence image cache at full image size', async () => {
     /** 模拟连续选择多个 Comparison Column 后累计缓存的大量 Evidence 图片。 */
     const images = Array.from({ length: 120 }, (_, index) => ({
       dataUrl: index % 2 === 0 ? ONE_PIXEL_PNG : RED_ONE_PIXEL_PNG,
@@ -1287,12 +1394,12 @@ describe('CopyTest format exporters', () => {
       images.map(image => image.label).join('\n'),
       images
     );
-    /** 捕获等比缩放后全部 Evidence 图片的实际 PDF 坐标。 */
+    /** 捕获跨页后全部 Evidence 图片的实际 PDF 坐标。 */
     const addImage = vi.spyOn(
       jsPDF.API as unknown as { addImage: (...args: unknown[]) => jsPDF },
       'addImage'
     );
-    /** 大量图片仍应生成一份不超过 jsPDF 安全边长的真实 PDF。 */
+    /** 大量图片应生成固定页面高度的真实多页 PDF。 */
     const pdfBlob = createCopyTestPdfBlob(model);
     /** 排除其他潜在栅格文字后剩余的 Evidence 绘制调用。 */
     const evidenceImageCalls = addImage.mock.calls.filter(call => {
@@ -1303,15 +1410,21 @@ describe('CopyTest format exporters', () => {
     /** 最后一张缓存图片的实际 PDF 底边。 */
     const lastImageCall = evidenceImageCalls[evidenceImageCalls.length - 1];
     const lastImageBottom = Number(lastImageCall[3]) + Number(lastImageCall[5]);
+    /** 图片纵坐标回到页面顶部表示图片栈确实跨入了下一页。 */
+    const imageYPositions = evidenceImageCalls.map(call => Number(call[3]));
+    const hasImagePageBreak = imageYPositions.some((imageY, index) => {
+      return index > 0 && imageY < imageYPositions[index - 1];
+    });
 
     expect(evidenceImageCalls).toHaveLength(images.length);
-    expect(Number(evidenceImageCalls[0][5])).toBeLessThan(120);
-    expect(mediaBox.height).toBeLessThanOrEqual(14_000);
+    expect(Number(evidenceImageCalls[0][5])).toBe(120);
+    expect(mediaBox.height).toBeCloseTo(841.89, 1);
     expect(lastImageBottom).toBeLessThanOrEqual(mediaBox.height - 24);
-    expect(await getTestPdfPageCount(pdfBlob)).toBe(1);
+    expect(hasImagePageBreak).toBe(true);
+    expect(await getTestPdfPageCount(pdfBlob)).toBeGreaterThan(1);
   });
 
-  it('expands for one indivisible Evidence row and rejects only the per-page size limit', async () => {
+  it('paginates long Evidence text instead of expanding beyond the page limit', async () => {
     /** 超长文字单元格中仍必须保留的一张真实图片。 */
     const image: CopyTestExportCellImage = {
       dataUrl: ONE_PIXEL_PNG,
@@ -1327,22 +1440,25 @@ describe('CopyTest format exporters', () => {
     /** 超过 jsPDF 单页安全边长的显式多行文字。 */
     const oversizedText = 'Evidence line\n'.repeat(1_600);
 
-    /** 单个可用高行应通过扩展页高保持完整。 */
+    /** 短内容保持单页，较长和超长内容分别拆为更多固定高度页面。 */
     const fittingPdf = createCopyTestPdfBlob(
       buildSingleEvidencePdfModel(fittingText, [image])
     );
     const tallPdf = createCopyTestPdfBlob(
       buildSingleEvidencePdfModel(tallText, [image])
     );
+    const oversizedPdf = createCopyTestPdfBlob(
+      buildSingleEvidencePdfModel(oversizedText, [image])
+    );
+    const tallPageCount = await getTestPdfPageCount(tallPdf);
     expect(await getTestPdfPageCount(fittingPdf)).toBe(1);
-    expect(await getTestPdfPageCount(tallPdf)).toBe(1);
+    expect(tallPageCount).toBeGreaterThan(1);
+    expect(await getTestPdfPageCount(oversizedPdf)).toBeGreaterThan(tallPageCount);
     expect(buildCopyTestPdfPageLayout(
       buildSingleEvidencePdfModel(tallText, [image])
-    ).height).toBeGreaterThan(buildCopyTestPdfPageLayout(
-      buildSingleEvidencePdfModel(fittingText, [image])
-    ).height);
-    expect(() => buildCopyTestPdfPageLayout(
+    ).height).toBeCloseTo(841.89, 1);
+    expect(buildCopyTestPdfPageLayout(
       buildSingleEvidencePdfModel(oversizedText, [image])
-    )).toThrow('row or columns that are too large for PDF export');
+    ).height).toBeCloseTo(841.89, 1);
   });
 });

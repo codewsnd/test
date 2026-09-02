@@ -55,9 +55,6 @@ const COPY_TEST_PDF_LAYOUT_HEIGHT_ALLOWANCE = 8;
 /** PDF 规范和 jsPDF 允许的单页安全最大点数边长。 */
 const COPY_TEST_PDF_MAX_PAGE_DIMENSION = 14_000;
 
-/** 为超大 Evidence 图片栈预留页眉、表头和页边距后的最大单元格高度。 */
-const COPY_TEST_PDF_MAX_EVIDENCE_CELL_HEIGHT = 12_000;
-
 /** 浏览器 Canvas 渲染非拉丁文字时使用的像素倍率。 */
 const COPY_TEST_PDF_CANVAS_SCALE = 2;
 
@@ -118,12 +115,30 @@ interface CopyTestPdfCellDef extends CellDef {
 
 /** 多页 PDF 使用的自然宽度和稳定页面高度。 */
 interface CopyTestPdfPageLayout {
-  /** 至少为 A4 纵向高度、且可以完整容纳单行内容的点数高度。 */
+  /** 每一页固定使用的 A4 纵向点数高度。 */
   height: number;
   /** 根据宽高关系选择的页面方向。 */
   orientation: 'landscape' | 'portrait';
   /** 自适应页面的点数宽度。 */
   width: number;
+}
+
+/** 单个 PDF continuation cell 中按顺序消费的文字与图片。 */
+interface CopyTestPdfCellFragment {
+  /** 当前 continuation cell 包含的 Evidence 图片。 */
+  images: CopyTestExportCellImage[];
+  /** 当前 continuation cell 包含的稳定换行文字。 */
+  textLines: string[];
+}
+
+/** 传给 AutoTable 的重复表头和正文行。 */
+interface CopyTestPdfTableRows {
+  /** 当前表格的全部正文行。 */
+  body: RowInput[];
+  /** 当前表格是否具有可重复的独立表头。 */
+  hasHeaderRow: boolean;
+  /** 当前表格顶部连续且可重复的表头行。 */
+  head: RowInput[];
 }
 
 /** jsPDF 可直接读取的图片格式。 */
@@ -516,6 +531,11 @@ const getPdfCellKey = (cell: CopyTestExportCell): string => {
   return `${cell.rowIndex}:${cell.columnIndex}`;
 };
 
+/** 将 AutoTable 为无文字单元格生成的单个空行恢复为空数组。 */
+const normalizePdfDrawTextLines = (lines: string[]): string[] => {
+  return lines.length === 1 && lines[0] === '' ? [] : lines;
+};
+
 /** 为非拉丁文字和 Emoji 创建透明背景的 Canvas 图片。 */
 const createRasterTextDataUrl = (
   doc: jsPDF,
@@ -755,6 +775,40 @@ const getPdfCellWidth = (
     .reduce((width, columnWidth) => width + columnWidth, 0);
 };
 
+/** 计算已经稳定换行并选择图片后的 PDF 单元格高度。 */
+const getPdfCellContentHeight = (
+  doc: jsPDF,
+  cell: CopyTestExportCell,
+  textLines: string[],
+  images: CopyTestExportCellImage[],
+  cellWidth: number
+): number => {
+  /** 仅包含当前分页片段内容的中立单元格。 */
+  const contentCell = {
+    ...cell,
+    images,
+    text: textLines.join('\n'),
+  };
+  /** 扣除左右 padding 后供 Evidence 图片使用的宽度。 */
+  const availableImageWidth = Math.max(
+    1,
+    cellWidth - COPY_TEST_PDF_CELL_PADDING * 2
+  );
+  /** 当前单元格全部可绘制图片及间距的自然高度。 */
+  const imageHeight = getPdfImageContentHeight(contentCell, availableImageWidth);
+  /** 文字和第一张图片之间需要保留的额外间距。 */
+  const textImageGap = textLines.length > 0 && imageHeight > 0
+    ? COPY_TEST_PDF_CELL_PADDING
+    : 0;
+  return Math.max(
+    18,
+    COPY_TEST_PDF_CELL_PADDING * 2
+      + getPdfTextHeight(doc, contentCell, textLines)
+      + textImageGap
+      + imageHeight
+  );
+};
+
 /** 计算单元格完整文字和图片在 PDF 布局中的自然高度。 */
 const getPdfNaturalCellHeight = (
   doc: jsPDF,
@@ -763,42 +817,212 @@ const getPdfNaturalCellHeight = (
 ): number => {
   /** 按当前单元格准确宽度换行后的文字行。 */
   const textLines = getPdfWrappedTextLines(doc, cell, cellWidth);
-  /** 扣除左右 padding 后供 Evidence 图片使用的宽度。 */
-  const availableImageWidth = Math.max(
-    1,
-    cellWidth - COPY_TEST_PDF_CELL_PADDING * 2
-  );
-  /** 当前单元格全部可绘制图片及间距的自然高度。 */
-  const imageHeight = getPdfImageContentHeight(cell, availableImageWidth);
-  /** 文字和第一张图片之间需要保留的额外间距。 */
-  const textImageGap = textLines.length > 0 && imageHeight > 0
-    ? COPY_TEST_PDF_CELL_PADDING
-    : 0;
-  /** 不包含图片的文字、间距和上下 padding 高度。 */
-  const contentHeightWithoutImages = COPY_TEST_PDF_CELL_PADDING * 2
-    + getPdfTextHeight(doc, cell, textLines)
-    + textImageGap;
-  /** 未压缩的完整单元格自然高度。 */
-  const naturalHeight = Math.max(
-    18,
-    contentHeightWithoutImages + imageHeight
-  );
-  if (
-    imageHeight <= 0
-    || contentHeightWithoutImages >= COPY_TEST_PDF_MAX_EVIDENCE_CELL_HEIGHT
-  ) {
-    return naturalHeight;
-  }
-  return Math.min(naturalHeight, COPY_TEST_PDF_MAX_EVIDENCE_CELL_HEIGHT);
+  return getPdfCellContentHeight(doc, cell, textLines, cell.images, cellWidth);
 };
 
-/** 校验页面宽度或单行所需页面高度不会超过 PDF 安全边长。 */
-const assertPdfPageDimension = (width: number, height: number): void => {
-  if (
-    width > COPY_TEST_PDF_MAX_PAGE_DIMENSION
-    || height > COPY_TEST_PDF_MAX_PAGE_DIMENSION
-  ) {
-    throw new Error('The selected table has a row or columns that are too large for PDF export');
+/** 判断当前 PDF 单元格分页片段是否已经包含内容。 */
+const hasPdfCellFragmentContent = (fragment: CopyTestPdfCellFragment): boolean => {
+  return fragment.textLines.length > 0 || fragment.images.length > 0;
+};
+
+/** 读取正在填充的最后一个 PDF 单元格分页片段。 */
+const getLastPdfCellFragment = (
+  fragments: CopyTestPdfCellFragment[]
+): CopyTestPdfCellFragment => {
+  return fragments[fragments.length - 1];
+};
+
+/** 按页面正文容量把稳定换行文字依次加入 continuation cell。 */
+const appendPdfTextFragments = (
+  doc: jsPDF,
+  cell: CopyTestExportCell,
+  cellWidth: number,
+  maximumHeight: number,
+  textLines: string[],
+  fragments: CopyTestPdfCellFragment[]
+): void => {
+  textLines.forEach(line => {
+    /** 当前正在填充的分页片段。 */
+    let fragment = getLastPdfCellFragment(fragments);
+    /** 追加当前文字行后的候选片段高度。 */
+    const candidateLines = [...fragment.textLines, line];
+    const candidateHeight = getPdfCellContentHeight(
+      doc,
+      cell,
+      candidateLines,
+      fragment.images,
+      cellWidth
+    );
+    if (hasPdfCellFragmentContent(fragment) && candidateHeight > maximumHeight) {
+      fragment = { images: [], textLines: [] };
+      fragments.push(fragment);
+    }
+    fragment.textLines.push(line);
+  });
+};
+
+/** 按页面正文容量把 Evidence 图片依次加入 continuation cell。 */
+const appendPdfImageFragments = (
+  doc: jsPDF,
+  cell: CopyTestExportCell,
+  cellWidth: number,
+  maximumHeight: number,
+  images: CopyTestExportCellImage[],
+  fragments: CopyTestPdfCellFragment[]
+): void => {
+  images.forEach(image => {
+    /** 当前正在填充的分页片段。 */
+    let fragment = getLastPdfCellFragment(fragments);
+    /** 追加当前图片后的候选片段高度。 */
+    const candidateImages = [...fragment.images, image];
+    const candidateHeight = getPdfCellContentHeight(
+      doc,
+      cell,
+      fragment.textLines,
+      candidateImages,
+      cellWidth
+    );
+    if (hasPdfCellFragmentContent(fragment) && candidateHeight > maximumHeight) {
+      fragment = { images: [], textLines: [] };
+      fragments.push(fragment);
+    }
+    fragment.images.push(image);
+  });
+};
+
+/** 把一个超高单元格拆为若干可以完整放入页面正文的 cell。 */
+const splitPdfCellIntoPageFragments = (
+  doc: jsPDF,
+  cell: CopyTestExportCell,
+  cellWidth: number,
+  maximumHeight: number
+): CopyTestExportCell[] => {
+  if (getPdfNaturalCellHeight(doc, cell, cellWidth) <= maximumHeight) {
+    return [cell];
+  }
+  /** 当前单元格按目标宽度得到的完整稳定文字行。 */
+  const textLines = getPdfWrappedTextLines(doc, cell, cellWidth);
+  /** 当前单元格中可以实际写入 PDF 的全部图片。 */
+  const drawableImages = cell.images.filter(isDrawablePdfImage);
+  /** 按文字在前、图片在后的原有绘制顺序生成的分页片段。 */
+  const fragments: CopyTestPdfCellFragment[] = [{ images: [], textLines: [] }];
+  appendPdfTextFragments(
+    doc,
+    cell,
+    cellWidth,
+    maximumHeight,
+    textLines,
+    fragments
+  );
+  appendPdfImageFragments(
+    doc,
+    cell,
+    cellWidth,
+    maximumHeight,
+    drawableImages,
+    fragments
+  );
+  return fragments.map(fragment => ({
+    ...cell,
+    images: fragment.images,
+    rowSpan: 1,
+    text: fragment.textLines.join('\n'),
+  }));
+};
+
+/** 为已在前一个 continuation row 消费完成的单元格创建占位。 */
+const createEmptyPdfCellFragment = (
+  cell: CopyTestExportCell
+): CopyTestExportCell => {
+  return {
+    ...cell,
+    images: [],
+    rowSpan: 1,
+    text: '',
+  };
+};
+
+/** 展开多页正文的全部 rowspan，并在每个被覆盖行补齐逻辑列占位。 */
+const expandPdfBodyRowSpans = (
+  rows: CopyTestExportRow[]
+): CopyTestExportRow[] => {
+  /** 所有原始正文单元格都先降级为单行锚点。 */
+  const expandedRows = rows.map(row => ({
+    ...row,
+    cells: row.cells.map(cell => ({ ...cell, rowSpan: 1 })),
+  }));
+  rows.forEach((row, rowPosition) => {
+    row.cells.forEach(cell => {
+      for (let offset = 1; offset < cell.rowSpan; offset += 1) {
+        /** 当前 rowspan 覆盖且需要补入空单元格的正文行。 */
+        const coveredRow = expandedRows[rowPosition + offset];
+        if (coveredRow) {
+          coveredRow.cells.push({
+            ...cell,
+            images: [],
+            rowIndex: coveredRow.index,
+            rowSpan: 1,
+            text: '',
+          });
+        }
+      }
+    });
+  });
+  expandedRows.forEach(row => {
+    row.cells.sort((left, right) => left.columnIndex - right.columnIndex);
+  });
+  return expandedRows;
+};
+
+/** 把一个超高物理行拆为列对齐的若干 continuation rows。 */
+const splitPdfRowIntoPageFragments = (
+  doc: jsPDF,
+  row: CopyTestExportRow,
+  columnWidths: number[],
+  maximumHeight: number
+): CopyTestExportRow[] => {
+  /** 当前行每个单元格各自按页面容量拆出的片段。 */
+  const cellFragments = row.cells.map(cell => {
+    return splitPdfCellIntoPageFragments(
+      doc,
+      cell,
+      getPdfCellWidth(columnWidths, cell),
+      maximumHeight
+    );
+  });
+  /** 当前行全部列所需的最大 continuation row 数量。 */
+  const fragmentCount = Math.max(1, ...cellFragments.map(fragments => fragments.length));
+  if (fragmentCount === 1) {
+    return [row];
+  }
+  return Array.from({ length: fragmentCount }, (_, fragmentIndex) => ({
+    cells: row.cells.map((cell, cellIndex) => {
+      return cellFragments[cellIndex][fragmentIndex]
+        || createEmptyPdfCellFragment(cell);
+    }),
+    index: row.index,
+  }));
+};
+
+/** 为 PDF 专用合成正文行重新分配不会冲突的稳定行下标。 */
+const reindexPdfBodyRows = (
+  rows: CopyTestExportRow[],
+  startingRowIndex: number
+): CopyTestExportRow[] => {
+  return rows.map((row, rowOffset) => {
+    /** 当前合成正文行在最终 PDF 表格中的唯一行下标。 */
+    const rowIndex = startingRowIndex + rowOffset;
+    return {
+      cells: row.cells.map(cell => ({ ...cell, rowIndex })),
+      index: rowIndex,
+    };
+  });
+};
+
+/** 校验表格自然宽度不会超过 PDF 安全边长。 */
+const assertPdfPageWidth = (width: number): void => {
+  if (width > COPY_TEST_PDF_MAX_PAGE_DIMENSION) {
+    throw new Error('The selected table has too many columns for PDF export');
   }
 };
 
@@ -814,33 +1038,11 @@ const buildPdfColumnStyles = (
   );
 };
 
-/** 将完整中立模型拆分为 AutoTable 的重复表头和全部正文行。 */
-export const buildCopyTestPdfTableRows = (
+/** 使用指定表头和正文行构建统一的 AutoTable 配置。 */
+const buildPdfTableOptionsFromRows = (
   model: CopyTestExportTableModel,
-  doc?: jsPDF
-) => {
-  /** 可以安全地从正文中拆出的连续 AutoTable 表头行数。 */
-  const headerRowCount = getPdfHeaderRowCount(model.rows);
-  /** 当前 PDF 文档中每个逻辑列的准确点数宽度。 */
-  const columnWidths = doc ? getPdfColumnWidths(model) : undefined;
-  return {
-    body: model.rows.slice(headerRowCount).map(row => {
-      return createPdfRow(row, doc, columnWidths);
-    }),
-    hasHeaderRow: headerRowCount > 0,
-    head: model.rows.slice(0, headerRowCount).map(row => {
-      return createPdfRow(row, doc, columnWidths);
-    }),
-  };
-};
-
-/** 构建测量和最终绘制共用的 AutoTable 布局配置。 */
-const buildPdfTableLayoutOptions = (
-  model: CopyTestExportTableModel,
-  doc: jsPDF
+  tableRows: CopyTestPdfTableRows
 ): UserOptions => {
-  /** 完整表格拆分后的 AutoTable 表头和正文行。 */
-  const tableRows = buildCopyTestPdfTableRows(model, doc);
   return {
     body: tableRows.body,
     columnStyles: buildPdfColumnStyles(model),
@@ -866,40 +1068,118 @@ const buildPdfTableLayoutOptions = (
   };
 };
 
-/** 使用 AutoTable 的真实合并布局计算能完整容纳任意单行的页面高度。 */
-const getPdfRequiredPageHeight = (
-  model: CopyTestExportTableModel,
-  pageWidth: number
+/** 读取固定页面扣除重复表头、边距和舍入余量后的正文容量。 */
+const getPdfBodyPageHeight = (
+  doc: jsPDF,
+  measuredTable: ReturnType<typeof __createTable>
 ): number => {
-  /** 只负责计算列宽、换行、rowSpan 和 colSpan 的临时 PDF 文档。 */
-  const measurementDocument = new jsPDF({
-    format: [pageWidth, COPY_TEST_PDF_DEFAULT_PAGE_HEIGHT],
-    orientation: pageWidth >= COPY_TEST_PDF_DEFAULT_PAGE_HEIGHT
-      ? 'landscape'
-      : 'portrait',
-    unit: 'pt',
-  });
-  measurementDocument.setLineHeightFactor(COPY_TEST_PDF_LINE_HEIGHT_FACTOR);
-  /** AutoTable 在不绘制时计算出的完整真实表格。 */
-  const measuredTable = __createTable(
-    measurementDocument,
-    buildPdfTableLayoutOptions(model, measurementDocument)
+  /** 每一页顶部需要重复绘制的完整表头高度。 */
+  const headerHeight = measuredTable.getHeadHeight(measuredTable.columns);
+  return Math.max(
+    18,
+    doc.internal.pageSize.getHeight()
+      - COPY_TEST_PDF_PAGE_MARGIN * 2
+      - headerHeight
+      - COPY_TEST_PDF_LAYOUT_HEIGHT_ALLOWANCE
   );
-  /** 每一页重复绘制的独立表头总高度。 */
-  const repeatedHeaderHeight = measuredTable.getHeadHeight(measuredTable.columns);
-  /** 正文中单行及其 rowspan 合并块需要的最大完整高度。 */
-  const tallestBodyRowHeight = measuredTable.body.reduce((height, row) => {
-    return Math.max(height, row.getMaxCellHeight(measuredTable.columns));
-  }, 0);
-  /** 表头加任意单行正文以及上下边距所需的安全页面高度。 */
-  const requiredHeight = repeatedHeaderHeight
-    + tallestBodyRowHeight
-    + COPY_TEST_PDF_PAGE_MARGIN * 2
-    + COPY_TEST_PDF_LAYOUT_HEIGHT_ALLOWANCE;
-  return Math.max(COPY_TEST_PDF_DEFAULT_PAGE_HEIGHT, requiredHeight);
 };
 
-/** 根据自然列宽和最高单行构建可纵向分页的 PDF 页面。 */
+/** 判断当前完整正文是否需要使用两个或更多 PDF 页面。 */
+const doesPdfBodyRequireMultiplePages = (
+  measuredTable: ReturnType<typeof __createTable>,
+  bodyPageHeight: number
+): boolean => {
+  /** AutoTable 计算出的全部正文物理行总高度。 */
+  const bodyHeight = measuredTable.body.reduce((height, row) => {
+    return height + row.height;
+  }, 0);
+  return bodyHeight > bodyPageHeight;
+};
+
+/** 创建不含超页 rowspan 或超高单行的 PDF 专用正文。 */
+const buildPaginatedPdfBodyRows = (
+  doc: jsPDF,
+  sourceRows: CopyTestExportRow[],
+  columnWidths: number[],
+  bodyPageHeight: number,
+  startingRowIndex: number
+): CopyTestExportRow[] => {
+  /** 多页正文中的 rowspan 全部展开后具有完整逻辑列占位的行。 */
+  const expandedRows = expandPdfBodyRowSpans(sourceRows);
+  /** 每个超高物理行拆分后得到的完整 continuation rows。 */
+  const fragmentedRows = expandedRows.flatMap(row => {
+    return splitPdfRowIntoPageFragments(
+      doc,
+      row,
+      columnWidths,
+      bodyPageHeight
+    );
+  });
+  return reindexPdfBodyRows(fragmentedRows, startingRowIndex);
+};
+
+/** 将完整中立模型拆分为 AutoTable 的重复表头和全部正文行。 */
+export const buildCopyTestPdfTableRows = (
+  model: CopyTestExportTableModel,
+  doc?: jsPDF
+): CopyTestPdfTableRows => {
+  /** 可以安全地从正文中拆出的连续 AutoTable 表头行数。 */
+  const headerRowCount = getPdfHeaderRowCount(model.rows);
+  /** 当前 PDF 文档中每个逻辑列的准确点数宽度。 */
+  const columnWidths = doc ? getPdfColumnWidths(model) : undefined;
+  /** 当前表格中可以在每页重复绘制的原始表头行。 */
+  const headerRows = model.rows.slice(0, headerRowCount);
+  /** 当前表格的原始正文物理行。 */
+  const bodyRows = model.rows.slice(headerRowCount);
+  /** 未进行多页降级前的原始 AutoTable 行。 */
+  const originalTableRows: CopyTestPdfTableRows = {
+    body: bodyRows.map(row => {
+      return createPdfRow(row, doc, columnWidths);
+    }),
+    hasHeaderRow: headerRowCount > 0,
+    head: headerRows.map(row => {
+      return createPdfRow(row, doc, columnWidths);
+    }),
+  };
+  if (!doc || !columnWidths) {
+    return originalTableRows;
+  }
+  /** 使用原始合并布局得到的精确表头和正文行高。 */
+  const measuredTable = __createTable(
+    doc,
+    buildPdfTableOptionsFromRows(model, originalTableRows)
+  );
+  /** 固定页面中每一页可以安全使用的正文高度。 */
+  const bodyPageHeight = getPdfBodyPageHeight(doc, measuredTable);
+  if (!doesPdfBodyRequireMultiplePages(measuredTable, bodyPageHeight)) {
+    return originalTableRows;
+  }
+  /** 多页正文展开合并并拆分超高内容后的 PDF 专用行。 */
+  const paginatedBodyRows = buildPaginatedPdfBodyRows(
+    doc,
+    bodyRows,
+    columnWidths,
+    bodyPageHeight,
+    headerRowCount
+  );
+  return {
+    body: paginatedBodyRows.map(row => createPdfRow(row, doc, columnWidths)),
+    hasHeaderRow: originalTableRows.hasHeaderRow,
+    head: originalTableRows.head,
+  };
+};
+
+/** 构建测量和最终绘制共用的 AutoTable 布局配置。 */
+const buildPdfTableLayoutOptions = (
+  model: CopyTestExportTableModel,
+  doc: jsPDF
+): UserOptions => {
+  /** 完整表格拆分后的 AutoTable 表头和正文行。 */
+  const tableRows = buildCopyTestPdfTableRows(model, doc);
+  return buildPdfTableOptionsFromRows(model, tableRows);
+};
+
+/** 根据自然列宽构建固定 A4 高度的纵向分页 PDF 页面。 */
 export const buildCopyTestPdfPageLayout = (
   model: CopyTestExportTableModel
 ): CopyTestPdfPageLayout => {
@@ -908,10 +1188,9 @@ export const buildCopyTestPdfPageLayout = (
     (totalWidth, columnWidth) => totalWidth + columnWidth,
     COPY_TEST_PDF_PAGE_MARGIN * 2
   );
-  assertPdfPageDimension(width, 0);
-  /** 至少使用标准页高，并确保任意单行不会被分页切开。 */
-  const height = getPdfRequiredPageHeight(model, width);
-  assertPdfPageDimension(width, height);
+  /** 所有纵向内容都通过 continuation rows 在固定 A4 高度内分页。 */
+  const height = COPY_TEST_PDF_DEFAULT_PAGE_HEIGHT;
+  assertPdfPageWidth(width);
   return {
     height,
     orientation: width >= height ? 'landscape' : 'portrait',
@@ -921,9 +1200,9 @@ export const buildCopyTestPdfPageLayout = (
 
 /** 使用中立模型创建 PDF Blob。 */
 export const createCopyTestPdfBlob = (model: CopyTestExportTableModel): Blob => {
-  /** 根据自然列宽和最高单行计算出的多页 PDF 画布。 */
+  /** 根据自然列宽和固定 A4 高度计算出的多页 PDF 画布。 */
   const pageLayout = buildCopyTestPdfPageLayout(model);
-  /** 使用自然列宽和稳定页高创建的可纵向分页 PDF 文档。 */
+  /** 使用自然列宽和固定页高创建的可纵向分页 PDF 文档。 */
   const doc = new jsPDF({
     compress: true,
     format: [pageLayout.width, pageLayout.height],
@@ -932,7 +1211,7 @@ export const createCopyTestPdfBlob = (model: CopyTestExportTableModel): Blob => 
   });
   doc.setLineHeightFactor(COPY_TEST_PDF_LINE_HEIGHT_FACTOR);
   /** 需要自定义绘制的 Result 或多语言单元格换行文本。 */
-  const customTextLines = new Map<string, string[]>();
+  const customTextLines = new WeakMap<object, string[]>();
   /** 已经绘制过 Evidence 图片的中立单元格键，避免分页片段重复图片。 */
   const drawnEvidenceCellKeys = new Set<string>();
   autoTable(doc, {
@@ -946,8 +1225,10 @@ export const createCopyTestPdfBlob = (model: CopyTestExportTableModel): Blob => 
       /** 当前单元格在 willDrawCell 阶段保存或 AutoTable 保留的文本行。 */
       const cellKey = getPdfCellKey(cell);
       /** 当前单元格在绘制前保存或 AutoTable 保留的完整换行文本。 */
-      const textLines = customTextLines.get(cellKey) || data.cell.text;
-      if (customTextLines.has(cellKey)) {
+      const textLines = normalizePdfDrawTextLines(
+        customTextLines.get(data.cell) || data.cell.text
+      );
+      if (customTextLines.has(data.cell)) {
         if (shouldRasterPdfText(textLines.join('\n'))) {
           drawRasterText(doc, data, cell, textLines);
         } else {
@@ -974,11 +1255,8 @@ export const createCopyTestPdfBlob = (model: CopyTestExportTableModel): Blob => 
       if (!customDraw) {
         return;
       }
-      /** 当前单元格首次绘制时保存的完整稳定换行文本。 */
-      const cellKey = getPdfCellKey(cell);
-      if (!customTextLines.has(cellKey)) {
-        customTextLines.set(cellKey, [...data.cell.text]);
-      }
+      /** 当前分页片段绘制时保存的完整稳定换行文本。 */
+      customTextLines.set(data.cell, [...data.cell.text]);
       data.cell.text = [];
     },
   });
