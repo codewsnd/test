@@ -55,6 +55,9 @@ const COPY_TEST_PDF_LAYOUT_HEIGHT_ALLOWANCE = 8;
 /** PDF 规范和 jsPDF 允许的单页安全最大点数边长。 */
 const COPY_TEST_PDF_MAX_PAGE_DIMENSION = 14_000;
 
+/** 为超大 Evidence 图片栈预留页眉、表头和页边距后的最大单元格高度。 */
+const COPY_TEST_PDF_MAX_EVIDENCE_CELL_HEIGHT = 12_000;
+
 /** 浏览器 Canvas 渲染非拉丁文字时使用的像素倍率。 */
 const COPY_TEST_PDF_CANVAS_SCALE = 2;
 
@@ -771,13 +774,22 @@ const getPdfNaturalCellHeight = (
   const textImageGap = textLines.length > 0 && imageHeight > 0
     ? COPY_TEST_PDF_CELL_PADDING
     : 0;
-  return Math.max(
+  /** 不包含图片的文字、间距和上下 padding 高度。 */
+  const contentHeightWithoutImages = COPY_TEST_PDF_CELL_PADDING * 2
+    + getPdfTextHeight(doc, cell, textLines)
+    + textImageGap;
+  /** 未压缩的完整单元格自然高度。 */
+  const naturalHeight = Math.max(
     18,
-    COPY_TEST_PDF_CELL_PADDING * 2
-      + getPdfTextHeight(doc, cell, textLines)
-      + textImageGap
-      + imageHeight
+    contentHeightWithoutImages + imageHeight
   );
+  if (
+    imageHeight <= 0
+    || contentHeightWithoutImages >= COPY_TEST_PDF_MAX_EVIDENCE_CELL_HEIGHT
+  ) {
+    return naturalHeight;
+  }
+  return Math.min(naturalHeight, COPY_TEST_PDF_MAX_EVIDENCE_CELL_HEIGHT);
 };
 
 /** 校验页面宽度或单行所需页面高度不会超过 PDF 安全边长。 */

@@ -1273,6 +1273,44 @@ describe('CopyTest format exporters', () => {
     });
   });
 
+  it('scales a very large PDF Evidence image cache within the safe page height', async () => {
+    /** 模拟连续选择多个 Comparison Column 后累计缓存的大量 Evidence 图片。 */
+    const images = Array.from({ length: 120 }, (_, index) => ({
+      dataUrl: index % 2 === 0 ? ONE_PIXEL_PNG : RED_ONE_PIXEL_PNG,
+      fileName: `cached-screen-${index + 1}.png`,
+      height: 200,
+      label: `Screen${String(index + 1).padStart(3, '0')}`,
+      width: 100,
+    }));
+    /** 单个 Evidence 单元格同时包含全部已缓存图片的真实导出模型。 */
+    const model = buildSingleEvidencePdfModel(
+      images.map(image => image.label).join('\n'),
+      images
+    );
+    /** 捕获等比缩放后全部 Evidence 图片的实际 PDF 坐标。 */
+    const addImage = vi.spyOn(
+      jsPDF.API as unknown as { addImage: (...args: unknown[]) => jsPDF },
+      'addImage'
+    );
+    /** 大量图片仍应生成一份不超过 jsPDF 安全边长的真实 PDF。 */
+    const pdfBlob = createCopyTestPdfBlob(model);
+    /** 排除其他潜在栅格文字后剩余的 Evidence 绘制调用。 */
+    const evidenceImageCalls = addImage.mock.calls.filter(call => {
+      return call[0] === ONE_PIXEL_PNG || call[0] === RED_ONE_PIXEL_PNG;
+    });
+    /** 真实 PDF 第一页声明的安全页面尺寸。 */
+    const mediaBox = await getTestPdfMediaBox(pdfBlob);
+    /** 最后一张缓存图片的实际 PDF 底边。 */
+    const lastImageCall = evidenceImageCalls[evidenceImageCalls.length - 1];
+    const lastImageBottom = Number(lastImageCall[3]) + Number(lastImageCall[5]);
+
+    expect(evidenceImageCalls).toHaveLength(images.length);
+    expect(Number(evidenceImageCalls[0][5])).toBeLessThan(120);
+    expect(mediaBox.height).toBeLessThanOrEqual(14_000);
+    expect(lastImageBottom).toBeLessThanOrEqual(mediaBox.height - 24);
+    expect(await getTestPdfPageCount(pdfBlob)).toBe(1);
+  });
+
   it('expands for one indivisible Evidence row and rejects only the per-page size limit', async () => {
     /** 超长文字单元格中仍必须保留的一张真实图片。 */
     const image: CopyTestExportCellImage = {
