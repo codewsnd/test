@@ -25,6 +25,20 @@ const AVAILABLE_IMAGE = {
   fileName: 'screen-a.png',
 };
 
+/** 包含 Alpha 和 Beta 两个 managed Pair 的导出表格。 */
+const MULTI_PAIR_TABLE_HTML = [
+  '<table><tr><th>Alpha</th>',
+  '<th data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Alpha">Test Evidence - Alpha</th>',
+  '<th>Beta</th>',
+  '<th data-copy-test-column-type="evidence" data-copy-test-source-column-key="2:Beta">Test Evidence - Beta</th></tr>',
+  '<tr><td>A</td>',
+  '<td data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Alpha">',
+  '<ac:image><ri:attachment ri:filename="alpha.png" /></ac:image></td>',
+  '<td>B</td>',
+  '<td data-copy-test-column-type="evidence" data-copy-test-source-column-key="2:Beta">',
+  '<ac:image><ri:attachment ri:filename="beta.png" /></ac:image></td></tr></table>',
+].join('');
+
 describe('buildCopyTestExportTableModel', () => {
   it('keeps anchor cells, merged positions, readable text and image order', () => {
     /** 由完整 workingHtml 构建出的中立表格模型。 */
@@ -50,13 +64,33 @@ describe('buildCopyTestExportTableModel', () => {
         fileName: 'screen-a.png',
         label: 'Screen01',
       }),
+    ]);
+    expect(model.missingImageFileNames).toEqual([]);
+  });
+
+  it('uses cached images from every visited Comparison Column Pair', () => {
+    /** 使用 Alpha 和 Beta 两个 Pair 会话缓存构建的共用导出模型。 */
+    const model = buildCopyTestExportTableModel(
+      MULTI_PAIR_TABLE_HTML,
+      [
+        { base64: AVAILABLE_IMAGE.base64, fileName: 'alpha.png' },
+        { base64: 'data:image/png;base64,REVG', fileName: 'beta.png' },
+      ]
+    );
+
+    expect(model.rows[1].cells[1].images).toEqual([
       expect.objectContaining({
-        dataUrl: undefined,
-        fileName: 'screen-b.png',
-        label: 'Screen02',
+        dataUrl: AVAILABLE_IMAGE.base64,
+        fileName: 'alpha.png',
       }),
     ]);
-    expect(model.missingImageFileNames).toEqual(['screen-b.png']);
+    expect(model.rows[1].cells[3].images).toEqual([
+      expect.objectContaining({
+        dataUrl: 'data:image/png;base64,REVG',
+        fileName: 'beta.png',
+      }),
+    ]);
+    expect(model.missingImageFileNames).toEqual([]);
   });
 
   it('ignores nested-table rows and rejects an out-of-range rowspan', () => {
@@ -109,8 +143,13 @@ describe('buildCopyTestExportTableModel', () => {
       '</td></tr></table>',
     ].join('');
 
-    /** 从缺失显式标签的 Evidence 构建出的中立模型。 */
-    const model = buildCopyTestExportTableModel(tableHtml, []);
+    /** 从已缓存、但缺失显式标签的 Evidence 构建出的中立模型。 */
+    const model = buildCopyTestExportTableModel(tableHtml, [
+      { base64: AVAILABLE_IMAGE.base64, fileName: 'captures/This is test.final.PNG' },
+      { base64: AVAILABLE_IMAGE.base64, fileName: '019c1234-5678-7abc-8def-0123456789ab.jpg' },
+      { base64: AVAILABLE_IMAGE.base64, fileName: '019c1234-5679-7abc-8def-0123456789ab.png' },
+      { base64: AVAILABLE_IMAGE.base64, fileName: '旧版首页-019c1234-5670-7abc-8def-0123456789ab.jpg' },
+    ]);
 
     expect(model.rows[0].cells[0].images.map(image => image.label)).toEqual([
       'This is test.final',

@@ -15,10 +15,10 @@ export type {
   CopyTestFileExportResult,
 } from './copyTestExportTypes';
 
-/** 任一 Test Evidence 图片不可用时阻止生成残缺文件的错误信息。 */
+/** 任一已缓存 Test Evidence 图片不可用时阻止生成残缺文件的错误信息。 */
 const COPY_TEST_EXPORT_MISSING_EVIDENCE_ERROR = 'Test Evidence images are unavailable for export';
 
-/** 确保中立模型中的每张 Test Evidence 图片都可以真实嵌入。 */
+/** 确保中立模型中的每张已缓存 Test Evidence 图片都可以真实嵌入。 */
 const assertCopyTestEvidenceImagesAvailable = (
   model: ReturnType<typeof buildCopyTestExportTableModel>
 ): void => {

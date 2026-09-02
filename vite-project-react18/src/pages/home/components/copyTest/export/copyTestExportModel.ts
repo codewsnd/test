@@ -150,6 +150,10 @@ const buildCellImage = (
   if (!fileName) {
     return null;
   }
+  /** Storage 中未加载到当前会话缓存的图片不参与本次导出。 */
+  if (!imageDataByFileName.has(fileName)) {
+    return null;
+  }
 
   /** 当前附件在浏览器内存中对应的 data URL。 */
   const dataUrl = imageDataByFileName.get(fileName) || '';

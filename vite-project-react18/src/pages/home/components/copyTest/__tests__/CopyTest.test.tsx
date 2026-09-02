@@ -11,8 +11,11 @@ const CONFLUENCE_URL_TITLE = 'Confluence URL';
 const hoisted = vi.hoisted(() => ({
   /** CopyTest 本地文件导出门面的测试替身。 */
   exportCopyTestTable: vi.fn(),
-  /** 当前 workingHtml 实际引用的最小 Evidence 图片。 */
-  previewImage: { base64: 'data:image/png;base64,QUJD', fileName: 'screen.png' },
+  /** 先后选择两个 Comparison Column 后累计的会话缓存。 */
+  previewImages: [
+    { base64: 'data:image/png;base64,QUxQSEE=', fileName: 'alpha.png' },
+    { base64: 'data:image/png;base64,QkVUQQ==', fileName: 'beta.png' },
+  ],
   controller: {
     canExportToConfluence: false,
     canUpload: false,
@@ -45,7 +48,8 @@ const hoisted = vi.hoisted(() => ({
     previewImage: null,
     tableState: {
       getCurrentPreviewImages: vi.fn(() => [
-        { base64: 'data:image/png;base64,QUJD', fileName: 'screen.png' },
+        { base64: 'data:image/png;base64,QUxQSEE=', fileName: 'alpha.png' },
+        { base64: 'data:image/png;base64,QkVUQQ==', fileName: 'beta.png' },
       ]),
       getCurrentValidationImages: vi.fn(() => []),
       revision: 1,
@@ -165,7 +169,7 @@ describe('CopyTest', () => {
   });
 
   it.each(['pdf', 'word', 'excel'] as const)(
-    'exports the selected working table and current preview images as %s',
+    'exports all cached Comparison Column images as %s',
     async format => {
       render(<CopyTest open={true} />);
       fireEvent.click(screen.getByText(`export-${format}`));
@@ -173,10 +177,11 @@ describe('CopyTest', () => {
       await waitFor(() => {
         expect(hoisted.exportCopyTestTable).toHaveBeenCalledWith({
           format,
-          images: [hoisted.previewImage],
+          images: hoisted.previewImages,
           tableHtml: '<table><tr><td>copy</td></tr></table>',
         });
       });
+      expect(hoisted.controller.tableState.getCurrentPreviewImages).toHaveBeenCalled();
       expect(hoisted.controller.handleExportToConfluence).not.toHaveBeenCalled();
     }
   );
