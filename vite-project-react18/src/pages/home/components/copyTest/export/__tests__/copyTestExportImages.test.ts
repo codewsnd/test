@@ -186,8 +186,8 @@ describe('copyTestExportImages', () => {
     expect(maximumActiveImageCount).toBe(1);
   });
 
-  it('aborts before download when a referenced Evidence image is unavailable', async () => {
-    /** 引用一张当前内存中不存在图片的最小 Evidence 表格。 */
+  it('aborts before download when a cached Evidence image is damaged', async () => {
+    /** 引用一张已进入缓存但内容损坏图片的最小 Evidence 表格。 */
     const tableHtml = [
       '<table><tr><th data-copy-test-column-type="evidence">Test Evidence - Feature</th></tr>',
       '<tr><td data-copy-test-column-type="evidence">',
@@ -198,7 +198,7 @@ describe('copyTestExportImages', () => {
 
     await expect(exportCopyTestTable({
       format: 'pdf',
-      images: [],
+      images: [{ base64: 'not-a-data-url', fileName: 'missing.png' }],
       tableHtml,
     })).rejects.toThrow('Test Evidence images are unavailable for export: missing.png');
   });

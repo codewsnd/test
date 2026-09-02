@@ -93,6 +93,22 @@ const importedStorageHtml = [
   '</tr></table>',
 ].join('');
 
+/** 两个 Comparison Column Pair 都已加载到会话缓存的导入表格。 */
+const pairCacheStorageHtml = [
+  '<table><tr><th>Alpha</th>',
+  '<th data-copy-test-column-type="result" data-copy-test-source-column-key="0:Alpha" data-copy-test-owner-id="0:Alpha" data-copy-test-schema="2">Test Result - Alpha</th>',
+  '<th data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Alpha" data-copy-test-owner-id="0:Alpha" data-copy-test-schema="2">Test Evidence - Alpha</th>',
+  '<th>Beta</th>',
+  '<th data-copy-test-column-type="result" data-copy-test-source-column-key="3:Beta" data-copy-test-owner-id="3:Beta" data-copy-test-schema="2">Test Result - Beta</th>',
+  '<th data-copy-test-column-type="evidence" data-copy-test-source-column-key="3:Beta" data-copy-test-owner-id="3:Beta" data-copy-test-schema="2">Test Evidence - Beta</th></tr>',
+  '<tr><td>A</td><td></td>',
+  '<td data-copy-test-column-type="evidence" data-copy-test-source-column-key="0:Alpha" data-copy-test-owner-id="0:Alpha" data-copy-test-schema="2">',
+  '<ac:image><ri:attachment ri:filename="alpha.png" /></ac:image></td>',
+  '<td>B</td><td></td>',
+  '<td data-copy-test-column-type="evidence" data-copy-test-source-column-key="3:Beta" data-copy-test-owner-id="3:Beta" data-copy-test-schema="2">',
+  '<ac:image><ri:attachment ri:filename="beta.png" /></ac:image></td></tr></table>',
+].join('');
+
 /** 读取指定状态分组内保持业务顺序的 Screen 图片 ID。 */
 const getStatusGroupImageIds = (document: Document, status: string): string[] => {
   const group = document.querySelector(
@@ -605,6 +621,37 @@ describe('useCopyTestSession', () => {
       result.current.resetValidationSnapshots();
     });
     expect(result.current.getCurrentPreviewImages()).toEqual([importedImage]);
+  });
+
+  it('keeps cached Evidence images after switching between Comparison Columns', () => {
+    /** 当前会话中已加载的 Alpha 附件。 */
+    const alphaImage = { base64: 'data:image/png;base64,QUxQSEE=', fileName: 'alpha.png' };
+    /** 当前会话中已加载的 Beta 附件。 */
+    const betaImage = { base64: 'data:image/png;base64,QkVUQQ==', fileName: 'beta.png' };
+    const { result } = renderHook(() => useCopyTestSession());
+
+    act(() => {
+      result.current.applyLoadedStorage(pairCacheStorageHtml);
+    });
+    expect(result.current.getCurrentPreviewImages()).toEqual([]);
+
+    act(() => {
+      /** 模拟选择 Alpha 后附件请求成功写入缓存。 */
+      const selection = result.current.handleComparisonColumnChange(0);
+      if (selection) {
+        result.current.applyComparisonColumnPreviewImages(selection, [alphaImage]);
+      }
+    });
+    expect(result.current.getCurrentPreviewImages()).toEqual([alphaImage]);
+
+    act(() => {
+      /** 切换 Beta 后继续合并，不覆盖 Alpha 缓存。 */
+      const selection = result.current.handleComparisonColumnChange(3);
+      if (selection) {
+        result.current.applyComparisonColumnPreviewImages(selection, [betaImage]);
+      }
+    });
+    expect(result.current.getCurrentPreviewImages()).toEqual([alphaImage, betaImage]);
   });
 
   it('立即迁移已导入 Result 和 Evidence 的历史 Screen 标签', () => {

@@ -13,7 +13,9 @@ import {
 } from '../copyTestPdfExporter';
 import { createCopyTestWordBlob } from '../copyTestWordExporter';
 import type {
+  CopyTestExportCell,
   CopyTestExportCellImage,
+  CopyTestExportRow,
   CopyTestExportTableModel,
 } from '../copyTestExportTypes';
 
@@ -211,6 +213,8 @@ interface PdfVectorTextDraw {
   color: string;
   /** 绘制当前文字时使用的字体样式。 */
   fontStyle: string;
+  /** 绘制当前文字时所在的真实 PDF 页码。 */
+  pageNumber: number;
   /** 当前绘制的文字。 */
   text: string;
 }
@@ -237,6 +241,7 @@ const installPdfTextCapture = (): {
       draws.push({
         color: this.getTextColor(),
         fontStyle: this.getFont().fontStyle,
+        pageNumber: this.getCurrentPageInfo().pageNumber,
         text: Array.isArray(args[0]) ? args[0].join('\n') : args[0],
       });
       return originalText.apply(this, args);
@@ -309,18 +314,39 @@ const getWidePdfCellText = (
   if (rowIndex === rowCount - 1 && columnIndex === columnCount - 1) {
     return 'LAST-ROW-LAST-COLUMN';
   }
+  if (rowIndex === rowCount - 1 && columnIndex === 9) {
+    return 'Passed:\n• LateScreen1\nFailed:\n• LateScreen2';
+  }
   if (rowIndex === 0) {
     return `Column ${columnIndex + 1}`;
   }
   return `Row ${rowIndex + 1} Column ${columnIndex + 1}`;
 };
 
-/** 构建同时超过 A4 宽度和高度的多行 PDF 表格模型。 */
+/** 为宽表最后一行 Evidence 单元格生成会触发整行换页的图片栈。 */
+const getWidePdfCellImages = (
+  rowIndex: number,
+  columnIndex: number,
+  rowCount: number
+): CopyTestExportCellImage[] => {
+  if (rowIndex !== rowCount - 1 || columnIndex !== 10) {
+    return [];
+  }
+  return Array.from({ length: 5 }, (_, imageIndex) => ({
+    dataUrl: imageIndex % 2 === 0 ? ONE_PIXEL_PNG : RED_ONE_PIXEL_PNG,
+    fileName: `late-screen-${imageIndex + 1}.png`,
+    height: 200,
+    label: `LateScreen${imageIndex + 1}`,
+    width: 100,
+  }));
+};
+
+/** 构建同时超过 A4 宽度和单页行容量的多行 PDF 表格模型。 */
 const buildWideMultiRowPdfModel = (): CopyTestExportTableModel => {
   /** 用于覆盖宽表分页风险的逻辑列数。 */
   const columnCount = 12;
-  /** 用于覆盖高表分页风险的物理行数。 */
-  const rowCount = 32;
+  /** 用于稳定超过单页容量并覆盖大量勾选行的物理行数。 */
+  const rowCount = 96;
   return {
     columnCount,
     missingImageFileNames: [],
@@ -330,7 +356,7 @@ const buildWideMultiRowPdfModel = (): CopyTestExportTableModel => {
         colSpan: 1,
         columnIndex,
         header: rowIndex === 0,
-        images: [],
+        images: getWidePdfCellImages(rowIndex, columnIndex, rowCount),
         kind: getWidePdfCellKind(columnIndex),
         rowIndex,
         rowSpan: 1,
@@ -338,6 +364,86 @@ const buildWideMultiRowPdfModel = (): CopyTestExportTableModel => {
       })),
       index: rowIndex,
     })),
+  };
+};
+
+/** 构建带完整两行 rowspan 表头的多页 PDF 模型。 */
+const buildMultiPageHeaderRowSpanPdfModel = (): CopyTestExportTableModel => {
+  /** 用于稳定触发至少两页的正文物理行数。 */
+  const bodyRowCount = 80;
+  /** 可以完整留在 AutoTable head 区域的前两行表头。 */
+  const headerRows = HEADER_ROWSPAN_PDF_MODEL.rows.slice(0, 2);
+  return {
+    columnCount: 3,
+    missingImageFileNames: [],
+    rowCount: headerRows.length + bodyRowCount,
+    rows: [
+      ...headerRows,
+      ...Array.from({ length: bodyRowCount }, (_, bodyIndex): CopyTestExportRow => {
+        /** 当前正文行在完整表格中的物理行下标。 */
+        const rowIndex = headerRows.length + bodyIndex;
+        return {
+          cells: [
+            { colSpan: 1, columnIndex: 0, header: false, images: [], kind: 'normal', rowIndex, rowSpan: 1, text: `Source ${bodyIndex + 1}` },
+            { colSpan: 1, columnIndex: 1, header: false, images: [], kind: 'normal', rowIndex, rowSpan: 1, text: `Detail ${bodyIndex + 1}` },
+            { colSpan: 1, columnIndex: 2, header: false, images: [], kind: 'result', rowIndex, rowSpan: 1, text: `Result ${bodyIndex + 1}` },
+          ],
+          index: rowIndex,
+        };
+      }),
+    ],
+  };
+};
+
+/** 构建两个高 rowspan 正文组，验证分页只发生在完整合并块之间。 */
+const buildMultiPageBodyRowSpanPdfModel = (): CopyTestExportTableModel => {
+  /** 每个合并组的物理行数会让整块高度超过默认 A4 页高。 */
+  const groupRowCount = 48;
+  /** 两个完整组用于验证真实纵向分页。 */
+  const groupCount = 2;
+  /** 除独立表头外的正文物理行数。 */
+  const bodyRowCount = groupRowCount * groupCount;
+  return {
+    columnCount: 2,
+    missingImageFileNames: [],
+    rowCount: bodyRowCount + 1,
+    rows: [
+      {
+        cells: [
+          { colSpan: 1, columnIndex: 0, header: true, images: [], kind: 'normal', rowIndex: 0, rowSpan: 1, text: 'Group' },
+          { colSpan: 1, columnIndex: 1, header: true, images: [], kind: 'normal', rowIndex: 0, rowSpan: 1, text: 'Detail' },
+        ],
+        index: 0,
+      },
+      ...Array.from({ length: bodyRowCount }, (_, bodyIndex) => {
+        /** 当前正文行在完整表格中的物理行下标。 */
+        const rowIndex = bodyIndex + 1;
+        /** 当前物理行直接拥有的普通和可选 rowspan 锚点单元格。 */
+        const cells: CopyTestExportCell[] = [{
+          colSpan: 1,
+          columnIndex: 1,
+          header: false,
+          images: [],
+          kind: 'normal',
+          rowIndex,
+          rowSpan: 1,
+          text: `Detail ${bodyIndex + 1}`,
+        }];
+        if (bodyIndex % groupRowCount === 0) {
+          cells.unshift({
+            colSpan: 1,
+            columnIndex: 0,
+            header: false,
+            images: [],
+            kind: 'normal',
+            rowIndex,
+            rowSpan: groupRowCount,
+            text: `Group ${bodyIndex / groupRowCount + 1}`,
+          });
+        }
+        return { cells, index: rowIndex };
+      }),
+    ],
   };
 };
 
@@ -967,45 +1073,147 @@ describe('CopyTest format exporters', () => {
     expect(addImage.mock.calls.some(call => call[0] === ONE_PIXEL_PNG)).toBe(true);
   });
 
-  it('keeps a wide multi-row table and its final cell on one oversized PDF page', async () => {
-    /** 同时要求页面横向和纵向扩展的完整表格。 */
+  it('splits a wide PDF table with many rows and late Evidence across pages', async () => {
+    /** 同时要求自然横向宽度和纵向分页的完整表格。 */
     const model = buildWideMultiRowPdfModel();
-    /** 使用真实 jsPDF 与 AutoTable 生成的宽高表格 PDF。 */
-    const pdfBlob = createCopyTestPdfBlob(model);
-    /** 真实 PDF 第一页声明的自适应页面尺寸。 */
+    /** 捕获最后一个高 Evidence 行中的真实图片绘制。 */
+    const addImage = vi.spyOn(
+      jsPDF.API as unknown as { addImage: (...args: unknown[]) => jsPDF },
+      'addImage'
+    );
+    /** 捕获每页真实绘制的表头和最后一个单元格。 */
+    const textCapture = installPdfTextCapture();
+    /** 使用真实 jsPDF 与 AutoTable 生成的多页表格 PDF。 */
+    const pdfBlob = (() => {
+      try {
+        return createCopyTestPdfBlob(model);
+      } finally {
+        textCapture.remove();
+      }
+    })();
+    /** 真实 PDF 第一页声明的自然宽度和稳定页面高度。 */
     const mediaBox = await getTestPdfMediaBox(pdfBlob);
+    /** 真实 PDF 输出的纵向分页数量。 */
+    const pageCount = await getTestPdfPageCount(pdfBlob);
     /** PDF 格式映射后的全部正文行。 */
     const pdfRows = buildCopyTestPdfTableRows(model);
+    /** AutoTable 最后一个真实正文物理行。 */
+    const lastPdfRow = pdfRows.body[pdfRows.body.length - 1] as unknown[];
     /** AutoTable 最后物理行中的最后逻辑单元格。 */
-    const lastPdfCell = (pdfRows.body.at(-1) as unknown[] | undefined)?.at(-1);
+    const lastPdfCell = lastPdfRow[lastPdfRow.length - 1];
+    /** 后续页高 Evidence 行中的全部真实图片绘制。 */
+    const evidenceImageCalls = addImage.mock.calls.filter(call => {
+      return call[0] === ONE_PIXEL_PNG || call[0] === RED_ONE_PIXEL_PNG;
+    });
+    /** 每一页都应按顺序绘制一次的真实页码。 */
+    const expectedPageNumbers = Array.from({ length: pageCount }, (_, index) => index + 1);
 
-    expect(await getTestPdfPageCount(pdfBlob)).toBe(1);
+    expect(pageCount).toBeGreaterThan(1);
     expect(mediaBox.width).toBeGreaterThan(841.89);
-    expect(mediaBox.height).toBeGreaterThan(595.28);
+    expect(mediaBox.height).toBeCloseTo(841.89, 1);
     expect(pdfRows.body).toHaveLength(model.rowCount - 1);
     expect(lastPdfCell).toEqual(expect.objectContaining({
       content: 'LAST-ROW-LAST-COLUMN',
     }));
+    expect(textCapture.draws
+      .filter(draw => draw.text === 'Column 1')
+      .map(draw => draw.pageNumber)).toEqual(expectedPageNumbers);
+    expect(textCapture.draws
+      .filter(draw => draw.text === 'LAST-ROW-LAST-COLUMN')
+      .map(draw => draw.pageNumber)).toEqual([pageCount]);
+    expect(textCapture.draws
+      .filter(draw => draw.text === 'Passed:' || draw.text === 'Failed:')
+      .map(draw => draw.pageNumber)).toEqual([pageCount, pageCount]);
+    expect(evidenceImageCalls).toHaveLength(5);
+    evidenceImageCalls.forEach(call => {
+      /** 当前图片在最终页中的实际纵坐标。 */
+      const imageY = Number(call[3]);
+      /** 当前图片在最终页中的实际点数高度。 */
+      const imageHeight = Number(call[5]);
+      expect(imageY).toBeGreaterThanOrEqual(24);
+      expect(imageY + imageHeight).toBeLessThanOrEqual(mediaBox.height - 24);
+    });
   });
 
-  it('keeps a header rowspan in the same PDF layout section without shifting columns', async () => {
-    /** 跨正文边界的表头不能被拆入独立 AutoTable head。 */
+  it('keeps a complete PDF header rowspan section without shifting columns', async () => {
+    /** 完整包含 rowspan 的连续表头应共同进入 AutoTable head。 */
     const pdfRows = buildCopyTestPdfTableRows(HEADER_ROWSPAN_PDF_MODEL);
     /** 使用真实布局生成的表头跨行 PDF。 */
     const pdfBlob = createCopyTestPdfBlob(HEADER_ROWSPAN_PDF_MODEL);
     /** 第二物理行中第一个真实单元格的原始模型。 */
-    const secondRowFirstCell = pdfRows.body[1][0] as {
+    const secondRowFirstCell = (pdfRows.head[1] as unknown[])[0] as {
       /** AutoTable 单元格附带的原始 CopyTest 单元格。 */
       copyTestCell: { columnIndex: number };
     };
 
-    expect(pdfRows.head).toEqual([]);
-    expect(pdfRows.body).toHaveLength(HEADER_ROWSPAN_PDF_MODEL.rowCount);
+    expect(pdfRows.head).toHaveLength(2);
+    expect(pdfRows.body).toHaveLength(1);
     expect(secondRowFirstCell.copyTestCell.columnIndex).toBe(1);
     expect(await getTestPdfPageCount(pdfBlob)).toBe(1);
   });
 
-  it('keeps a tall PDF Evidence stack on one self-sized page', async () => {
+  it('repeats a complete multi-row PDF header section on every page', async () => {
+    /** 带两行合并表头并具有大量正文的真实表格模型。 */
+    const model = buildMultiPageHeaderRowSpanPdfModel();
+    /** 捕获两行表头在每个真实 PDF 页面的绘制位置。 */
+    const textCapture = installPdfTextCapture();
+    const pdfBlob = (() => {
+      try {
+        return createCopyTestPdfBlob(model);
+      } finally {
+        textCapture.remove();
+      }
+    })();
+    /** 真实 PDF 输出的纵向分页数量。 */
+    const pageCount = await getTestPdfPageCount(pdfBlob);
+    /** 每一页应按顺序包含两行完整表头。 */
+    const expectedPageNumbers = Array.from({ length: pageCount }, (_, index) => index + 1);
+
+    expect(pageCount).toBeGreaterThan(1);
+    expect(textCapture.draws
+      .filter(draw => draw.text === 'Merged header')
+      .map(draw => draw.pageNumber)).toEqual(expectedPageNumbers);
+    expect(textCapture.draws
+      .filter(draw => draw.text === 'Subheader B')
+      .map(draw => draw.pageNumber)).toEqual(expectedPageNumbers);
+  });
+
+  it('paginates only between complete high PDF rowspan body groups', async () => {
+    /** 两个各自高于默认页内容区的 rowspan 正文组。 */
+    const model = buildMultiPageBodyRowSpanPdfModel();
+    /** AutoTable 不应记录无法正确绘制高 rowspan 的警告。 */
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    /** 捕获两个合并正文组及重复表头所在的真实页码。 */
+    const textCapture = installPdfTextCapture();
+    const pdfBlob = (() => {
+      try {
+        return createCopyTestPdfBlob(model);
+      } finally {
+        textCapture.remove();
+      }
+    })();
+    /** 根据最高完整 rowspan 块扩展后的单页布局。 */
+    const pageLayout = buildCopyTestPdfPageLayout(model);
+    /** 真实 PDF 输出的纵向分页数量。 */
+    const pageCount = await getTestPdfPageCount(pdfBlob);
+
+    expect(pageLayout.height).toBeGreaterThan(841.89);
+    expect(pageCount).toBe(2);
+    expect(textCapture.draws
+      .filter(draw => draw.text === 'Group')
+      .map(draw => draw.pageNumber)).toEqual([1, 2]);
+    expect(textCapture.draws
+      .filter(draw => draw.text === 'Group 1')
+      .map(draw => draw.pageNumber)).toEqual([1]);
+    expect(textCapture.draws
+      .filter(draw => draw.text === 'Group 2')
+      .map(draw => draw.pageNumber)).toEqual([2]);
+    expect(consoleLog).not.toHaveBeenCalledWith(
+      expect.stringContaining('will not be drawn correctly')
+    );
+  });
+
+  it('keeps one tall PDF Evidence row intact on a sufficiently high page', async () => {
     /** 六张纵向排列后会超过一页原始高度的 Evidence 图片。 */
     const images = Array.from({ length: 6 }, (_, index) => ({
       dataUrl: index % 2 === 0 ? ONE_PIXEL_PNG : RED_ONE_PIXEL_PNG,
@@ -1022,7 +1230,7 @@ describe('CopyTest format exporters', () => {
     );
     /** 捕获缩放后全部 Evidence 图片的实际 PDF 坐标。 */
     const addImage = vi.spyOn(jsPDF.API, 'addImage');
-    /** 使用自适应页面生成的真实高表格 PDF。 */
+    /** 使用可容纳单个高行的页面生成真实 PDF。 */
     const pdfBlob = createCopyTestPdfBlob(tallEvidenceModel);
     /** 排除其他潜在栅格文字后剩余的 Evidence 绘制调用。 */
     const evidenceImageCalls = addImage.mock.calls.filter(call => {
@@ -1065,7 +1273,45 @@ describe('CopyTest format exporters', () => {
     });
   });
 
-  it('expands one PDF page for long Evidence text and rejects only the PDF size limit', async () => {
+  it('scales a very large PDF Evidence image cache within the safe page height', async () => {
+    /** 模拟连续选择多个 Comparison Column 后累计缓存的大量 Evidence 图片。 */
+    const images = Array.from({ length: 120 }, (_, index) => ({
+      dataUrl: index % 2 === 0 ? ONE_PIXEL_PNG : RED_ONE_PIXEL_PNG,
+      fileName: `cached-screen-${index + 1}.png`,
+      height: 200,
+      label: `Screen${String(index + 1).padStart(3, '0')}`,
+      width: 100,
+    }));
+    /** 单个 Evidence 单元格同时包含全部已缓存图片的真实导出模型。 */
+    const model = buildSingleEvidencePdfModel(
+      images.map(image => image.label).join('\n'),
+      images
+    );
+    /** 捕获等比缩放后全部 Evidence 图片的实际 PDF 坐标。 */
+    const addImage = vi.spyOn(
+      jsPDF.API as unknown as { addImage: (...args: unknown[]) => jsPDF },
+      'addImage'
+    );
+    /** 大量图片仍应生成一份不超过 jsPDF 安全边长的真实 PDF。 */
+    const pdfBlob = createCopyTestPdfBlob(model);
+    /** 排除其他潜在栅格文字后剩余的 Evidence 绘制调用。 */
+    const evidenceImageCalls = addImage.mock.calls.filter(call => {
+      return call[0] === ONE_PIXEL_PNG || call[0] === RED_ONE_PIXEL_PNG;
+    });
+    /** 真实 PDF 第一页声明的安全页面尺寸。 */
+    const mediaBox = await getTestPdfMediaBox(pdfBlob);
+    /** 最后一张缓存图片的实际 PDF 底边。 */
+    const lastImageCall = evidenceImageCalls[evidenceImageCalls.length - 1];
+    const lastImageBottom = Number(lastImageCall[3]) + Number(lastImageCall[5]);
+
+    expect(evidenceImageCalls).toHaveLength(images.length);
+    expect(Number(evidenceImageCalls[0][5])).toBeLessThan(120);
+    expect(mediaBox.height).toBeLessThanOrEqual(14_000);
+    expect(lastImageBottom).toBeLessThanOrEqual(mediaBox.height - 24);
+    expect(await getTestPdfPageCount(pdfBlob)).toBe(1);
+  });
+
+  it('expands for one indivisible Evidence row and rejects only the per-page size limit', async () => {
     /** 超长文字单元格中仍必须保留的一张真实图片。 */
     const image: CopyTestExportCellImage = {
       dataUrl: ONE_PIXEL_PNG,
@@ -1081,7 +1327,7 @@ describe('CopyTest format exporters', () => {
     /** 超过 jsPDF 单页安全边长的显式多行文字。 */
     const oversizedText = 'Evidence line\n'.repeat(1_600);
 
-    /** 两种可用高度都必须输出为单个页面。 */
+    /** 单个可用高行应通过扩展页高保持完整。 */
     const fittingPdf = createCopyTestPdfBlob(
       buildSingleEvidencePdfModel(fittingText, [image])
     );
@@ -1097,6 +1343,6 @@ describe('CopyTest format exporters', () => {
     ).height);
     expect(() => buildCopyTestPdfPageLayout(
       buildSingleEvidencePdfModel(oversizedText, [image])
-    )).toThrow('too large for single-page PDF export');
+    )).toThrow('row or columns that are too large for PDF export');
   });
 });

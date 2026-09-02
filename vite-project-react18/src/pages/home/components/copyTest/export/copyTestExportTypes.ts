@@ -80,7 +80,7 @@ export interface CopyTestExportRow {
 export interface CopyTestExportTableModel {
   /** 合并关系展开后的最大逻辑列数。 */
   columnCount: number;
-  /** workingHtml 引用但当前内存中无法读取的图片文件名。 */
+  /** 已进入当前会话缓存，但内容无法转换的图片文件名。 */
   missingImageFileNames: string[];
   /** 表格物理行数。 */
   rowCount: number;

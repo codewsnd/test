@@ -46,11 +46,17 @@ const COPY_TEST_PDF_FONT_SIZE = 8;
 /** PDF 页面四周使用的点数边距。 */
 const COPY_TEST_PDF_PAGE_MARGIN = 24;
 
-/** 为 AutoTable 边框和分页舍入误差预留的 PDF 点数高度。 */
+/** PDF 默认使用的 A4 纵向页面点数高度。 */
+const COPY_TEST_PDF_DEFAULT_PAGE_HEIGHT = 841.89;
+
+/** 为 AutoTable 边框和行高舍入误差预留的 PDF 点数高度。 */
 const COPY_TEST_PDF_LAYOUT_HEIGHT_ALLOWANCE = 8;
 
 /** PDF 规范和 jsPDF 允许的单页安全最大点数边长。 */
 const COPY_TEST_PDF_MAX_PAGE_DIMENSION = 14_000;
+
+/** 为超大 Evidence 图片栈预留页眉、表头和页边距后的最大单元格高度。 */
+const COPY_TEST_PDF_MAX_EVIDENCE_CELL_HEIGHT = 12_000;
 
 /** 浏览器 Canvas 渲染非拉丁文字时使用的像素倍率。 */
 const COPY_TEST_PDF_CANVAS_SCALE = 2;
@@ -110,9 +116,9 @@ interface CopyTestPdfCellDef extends CellDef {
   statusColor?: [number, number, number];
 }
 
-/** 完整表格单页 PDF 使用的自适应页面尺寸。 */
+/** 多页 PDF 使用的自然宽度和稳定页面高度。 */
 interface CopyTestPdfPageLayout {
-  /** 自适应页面的点数高度。 */
+  /** 至少为 A4 纵向高度、且可以完整容纳单行内容的点数高度。 */
   height: number;
   /** 根据宽高关系选择的页面方向。 */
   orientation: 'landscape' | 'portrait';
@@ -480,13 +486,19 @@ const createPdfRow = (
   return row.cells.map(cell => createPdfCellDef(cell, doc, columnWidths));
 };
 
-/** 判断首行是否是不会跨入正文区域的独立表头。 */
-const isStandaloneHeaderRow = (row: CopyTestExportRow | undefined): boolean => {
-  return Boolean(
-    row
-    && row.cells.length > 0
-    && row.cells.every(cell => cell.header && cell.rowSpan === 1)
-  );
+/** 读取不会通过 rowspan 跨入正文区域的连续表头行数。 */
+const getPdfHeaderRowCount = (rows: CopyTestExportRow[]): number => {
+  /** 第一个包含正文单元格或不含锚点单元格的物理行位置。 */
+  const firstBodyRowIndex = rows.findIndex(row => {
+    return row.cells.length === 0 || row.cells.some(cell => !cell.header);
+  });
+  /** 从表格顶部开始连续出现的候选表头行数。 */
+  const headerRowCount = firstBodyRowIndex < 0 ? rows.length : firstBodyRowIndex;
+  /** 候选表头中是否存在跨入正文区域的纵向合并单元格。 */
+  const crossesIntoBody = rows.slice(0, headerRowCount).some(row => {
+    return row.cells.some(cell => cell.rowIndex + cell.rowSpan > headerRowCount);
+  });
+  return crossesIntoBody ? 0 : headerRowCount;
 };
 
 /** 从 AutoTable raw cell 中读取附带的中立单元格。 */
@@ -743,7 +755,7 @@ const getPdfCellWidth = (
     .reduce((width, columnWidth) => width + columnWidth, 0);
 };
 
-/** 计算单元格完整文字和图片在单页布局中的自然高度。 */
+/** 计算单元格完整文字和图片在 PDF 布局中的自然高度。 */
 const getPdfNaturalCellHeight = (
   doc: jsPDF,
   cell: CopyTestExportCell,
@@ -762,22 +774,31 @@ const getPdfNaturalCellHeight = (
   const textImageGap = textLines.length > 0 && imageHeight > 0
     ? COPY_TEST_PDF_CELL_PADDING
     : 0;
-  return Math.max(
+  /** 不包含图片的文字、间距和上下 padding 高度。 */
+  const contentHeightWithoutImages = COPY_TEST_PDF_CELL_PADDING * 2
+    + getPdfTextHeight(doc, cell, textLines)
+    + textImageGap;
+  /** 未压缩的完整单元格自然高度。 */
+  const naturalHeight = Math.max(
     18,
-    COPY_TEST_PDF_CELL_PADDING * 2
-      + getPdfTextHeight(doc, cell, textLines)
-      + textImageGap
-      + imageHeight
+    contentHeightWithoutImages + imageHeight
   );
+  if (
+    imageHeight <= 0
+    || contentHeightWithoutImages >= COPY_TEST_PDF_MAX_EVIDENCE_CELL_HEIGHT
+  ) {
+    return naturalHeight;
+  }
+  return Math.min(naturalHeight, COPY_TEST_PDF_MAX_EVIDENCE_CELL_HEIGHT);
 };
 
-/** 校验自适应页面尺寸不会超过 PDF 单页安全边长。 */
+/** 校验页面宽度或单行所需页面高度不会超过 PDF 安全边长。 */
 const assertPdfPageDimension = (width: number, height: number): void => {
   if (
     width > COPY_TEST_PDF_MAX_PAGE_DIMENSION
     || height > COPY_TEST_PDF_MAX_PAGE_DIMENSION
   ) {
-    throw new Error('The selected table is too large for single-page PDF export');
+    throw new Error('The selected table has a row or columns that are too large for PDF export');
   }
 };
 
@@ -798,16 +819,18 @@ export const buildCopyTestPdfTableRows = (
   model: CopyTestExportTableModel,
   doc?: jsPDF
 ) => {
-  /** 首行是否可以安全地从正文中拆为独立 AutoTable 表头。 */
-  const hasHeaderRow = isStandaloneHeaderRow(model.rows[0]);
+  /** 可以安全地从正文中拆出的连续 AutoTable 表头行数。 */
+  const headerRowCount = getPdfHeaderRowCount(model.rows);
   /** 当前 PDF 文档中每个逻辑列的准确点数宽度。 */
   const columnWidths = doc ? getPdfColumnWidths(model) : undefined;
   return {
-    body: model.rows.slice(hasHeaderRow ? 1 : 0).map(row => {
+    body: model.rows.slice(headerRowCount).map(row => {
       return createPdfRow(row, doc, columnWidths);
     }),
-    hasHeaderRow,
-    head: hasHeaderRow ? [createPdfRow(model.rows[0], doc, columnWidths)] : [],
+    hasHeaderRow: headerRowCount > 0,
+    head: model.rows.slice(0, headerRowCount).map(row => {
+      return createPdfRow(row, doc, columnWidths);
+    }),
   };
 };
 
@@ -825,9 +848,9 @@ const buildPdfTableLayoutOptions = (
     headStyles: { fillColor: COPY_TEST_PDF_HEADER_FILL },
     horizontalPageBreak: false,
     margin: COPY_TEST_PDF_PAGE_MARGIN,
-    pageBreak: 'avoid',
+    pageBreak: 'auto',
     rowPageBreak: 'avoid',
-    showHead: tableRows.hasHeaderRow ? 'firstPage' : 'never',
+    showHead: tableRows.hasHeaderRow ? 'everyPage' : 'never',
     styles: {
       cellPadding: COPY_TEST_PDF_CELL_PADDING,
       fontSize: COPY_TEST_PDF_FONT_SIZE,
@@ -843,15 +866,17 @@ const buildPdfTableLayoutOptions = (
   };
 };
 
-/** 使用 AutoTable 的真实合并布局测量完整表格高度。 */
-const getPdfMeasuredTableHeight = (
+/** 使用 AutoTable 的真实合并布局计算能完整容纳任意单行的页面高度。 */
+const getPdfRequiredPageHeight = (
   model: CopyTestExportTableModel,
   pageWidth: number
 ): number => {
   /** 只负责计算列宽、换行、rowSpan 和 colSpan 的临时 PDF 文档。 */
   const measurementDocument = new jsPDF({
-    format: [pageWidth, 100],
-    orientation: 'landscape',
+    format: [pageWidth, COPY_TEST_PDF_DEFAULT_PAGE_HEIGHT],
+    orientation: pageWidth >= COPY_TEST_PDF_DEFAULT_PAGE_HEIGHT
+      ? 'landscape'
+      : 'portrait',
     unit: 'pt',
   });
   measurementDocument.setLineHeightFactor(COPY_TEST_PDF_LINE_HEIGHT_FACTOR);
@@ -860,12 +885,21 @@ const getPdfMeasuredTableHeight = (
     measurementDocument,
     buildPdfTableLayoutOptions(model, measurementDocument)
   );
-  return measuredTable.allRows().reduce((height, row) => {
-    return height + row.height;
+  /** 每一页重复绘制的独立表头总高度。 */
+  const repeatedHeaderHeight = measuredTable.getHeadHeight(measuredTable.columns);
+  /** 正文中单行及其 rowspan 合并块需要的最大完整高度。 */
+  const tallestBodyRowHeight = measuredTable.body.reduce((height, row) => {
+    return Math.max(height, row.getMaxCellHeight(measuredTable.columns));
   }, 0);
+  /** 表头加任意单行正文以及上下边距所需的安全页面高度。 */
+  const requiredHeight = repeatedHeaderHeight
+    + tallestBodyRowHeight
+    + COPY_TEST_PDF_PAGE_MARGIN * 2
+    + COPY_TEST_PDF_LAYOUT_HEIGHT_ALLOWANCE;
+  return Math.max(COPY_TEST_PDF_DEFAULT_PAGE_HEIGHT, requiredHeight);
 };
 
-/** 根据完整表格真实布局构建不会分页的自适应 PDF 页面。 */
+/** 根据自然列宽和最高单行构建可纵向分页的 PDF 页面。 */
 export const buildCopyTestPdfPageLayout = (
   model: CopyTestExportTableModel
 ): CopyTestPdfPageLayout => {
@@ -875,12 +909,8 @@ export const buildCopyTestPdfPageLayout = (
     COPY_TEST_PDF_PAGE_MARGIN * 2
   );
   assertPdfPageDimension(width, 0);
-  /** AutoTable 处理复杂合并关系后得到的真实表格高度。 */
-  const tableHeight = getPdfMeasuredTableHeight(model, width);
-  /** 完整表格加上下边距和边框舍入余量后的页面高度。 */
-  const height = tableHeight
-    + COPY_TEST_PDF_PAGE_MARGIN * 2
-    + COPY_TEST_PDF_LAYOUT_HEIGHT_ALLOWANCE;
+  /** 至少使用标准页高，并确保任意单行不会被分页切开。 */
+  const height = getPdfRequiredPageHeight(model, width);
   assertPdfPageDimension(width, height);
   return {
     height,
@@ -891,9 +921,9 @@ export const buildCopyTestPdfPageLayout = (
 
 /** 使用中立模型创建 PDF Blob。 */
 export const createCopyTestPdfBlob = (model: CopyTestExportTableModel): Blob => {
-  /** 根据完整表格宽高计算出的单页 PDF 画布。 */
+  /** 根据自然列宽和最高单行计算出的多页 PDF 画布。 */
   const pageLayout = buildCopyTestPdfPageLayout(model);
-  /** 使用完整表格自适应尺寸和点数单位创建的单页 PDF 文档。 */
+  /** 使用自然列宽和稳定页高创建的可纵向分页 PDF 文档。 */
   const doc = new jsPDF({
     compress: true,
     format: [pageLayout.width, pageLayout.height],
@@ -952,9 +982,6 @@ export const createCopyTestPdfBlob = (model: CopyTestExportTableModel): Blob => 
       data.cell.text = [];
     },
   });
-  if (doc.getNumberOfPages() !== 1) {
-    throw new Error('The selected table could not fit on a single PDF page');
-  }
   /** jsPDF 输出的浏览器 Blob。 */
   const pdfBlob = doc.output('blob');
   return pdfBlob.type === COPY_TEST_PDF_MIME_TYPE
