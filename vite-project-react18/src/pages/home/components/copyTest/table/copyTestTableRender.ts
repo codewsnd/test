@@ -3,6 +3,7 @@
  */
 import type { CopyTestImage, CopyTestValidationResult } from '../api/copyTestApi';
 import {
+  COPY_TEST_AI_COMPARISON_LABEL,
   COPY_TEST_EVIDENCE_CARD_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE,
   COPY_TEST_EVIDENCE_GROUP_ID_ATTRIBUTE,
@@ -16,6 +17,7 @@ import {
   COPY_TEST_GENERATED_RESULT_TYPE,
   COPY_TEST_PASSED_COLOR,
   COPY_TEST_RESULT_FAILED_GROUP_VALUE,
+  COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE,
   COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE,
   COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE,
   COPY_TEST_RESULT_PASSED_GROUP_VALUE,
@@ -55,6 +57,8 @@ import {
 
 /** 支持 CopyTest Evidence 图片的校验结果。 */
 export interface CopyTestValidationResultWithEvidence extends CopyTestValidationResult {
+  /** 当前 Result 单元格是否仍为尚未人工确认的 AI 图片比较结果。 */
+  aiComparison?: boolean;
   /** 根据模型文件名绑定出的 Evidence 内存图片。 */
   evidenceImages: CopyTestImage[];
   /** 同一来源行内按图片文件名保存的人工 Screen 状态；缺省时继承行级 AI 结果。 */
@@ -207,6 +211,9 @@ export const COPY_TEST_CONTENT_LABEL_TAG = 'strong';
 
 /** DOM 布尔属性写入时使用的统一字符串值。 */
 const DOM_TRUE_ATTRIBUTE_VALUE = 'true';
+
+/** 将 AI 提示固定到 Result 内容区域顶部右侧的样式。 */
+const AI_COMPARISON_LABEL_STYLE = 'text-align:right;';
 
 /** 插入已创建的 Element，不解析 HTML 字符串。 */
 const appendElement = (parent: Element, child: Element): void => {
@@ -458,6 +465,23 @@ const appendResultStatusGroupSkeletons = (
     appendElement(container, group);
     return { screens };
   });
+};
+
+/** 在 Result 内容区域右上角写入唯一的 AI 比较提示。 */
+const appendAiComparisonLabel = (
+  doc: Document,
+  container: HTMLElement,
+  aiComparison: boolean
+): void => {
+  if (!aiComparison) {
+    return;
+  }
+
+  const marker = doc.createElement(COPY_TEST_CONTENT_BLOCK_TAG);
+  marker.setAttribute(COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE, DOM_TRUE_ATTRIBUTE_VALUE);
+  marker.setAttribute('style', AI_COMPARISON_LABEL_STYLE);
+  marker.textContent = COPY_TEST_AI_COMPARISON_LABEL;
+  appendElement(container, marker);
 };
 
 /** 在已安装的 Result 骨架上写入单个 Screen 的动态值。 */
@@ -920,8 +944,11 @@ export const writeResultCell = (
   applyCellRowSpan(cell, group.rowSpan);
   /** 先安装不包含 Result 业务值的 managed 根节点。 */
   const content = installManagedContentRoot(cell, COPY_TEST_GENERATED_RESULT_TYPE);
+  /** 当前 Result 中按 Screen 持久状态构建的全部条目。 */
+  const entries = buildResultScreenEntries(result, screens);
+  appendAiComparisonLabel(doc, content, result.aiComparison !== false);
   /** 按状态与顺序规范后的 Result 动态值。 */
-  const groups = buildResultStatusGroupValues(buildResultScreenEntries(result, screens));
+  const groups = buildResultStatusGroupValues(entries);
   /** 在任何动态值写入前完整插入的 Result 骨架。 */
   const skeletons = appendResultStatusGroupSkeletons(
     doc,

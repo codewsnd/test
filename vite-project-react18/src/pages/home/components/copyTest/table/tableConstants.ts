@@ -61,6 +61,12 @@ export const COPY_TEST_RESULT_SCREEN_ORDER_ATTRIBUTE = 'data-copy-test-result-sc
 /** 标记 Result 根节点内 Passed/Failed 分组的属性名。 */
 export const COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE = 'data-copy-test-result-status-group';
 
+/** 标记 Result 单元格仍来自 AI 图片比较的属性名。 */
+export const COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE = 'data-copy-test-result-ai-comparison';
+
+/** Result 单元格尚未被人工标记时显示的文案。 */
+export const COPY_TEST_AI_COMPARISON_LABEL = 'AI comparson';
+
 /** Result Passed 分组使用的属性值。 */
 export const COPY_TEST_RESULT_PASSED_GROUP_VALUE = 'passed';
 

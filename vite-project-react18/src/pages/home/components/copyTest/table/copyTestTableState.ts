@@ -3,6 +3,7 @@
  */
 import type { CopyTestImage } from '../api/copyTestApi';
 import {
+  COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE,
@@ -292,6 +293,9 @@ const hydrateValidationResult = (
     entries.flatMap(entry => entry.languageIssues)
   );
   return {
+    aiComparison: resultRoot.querySelector(
+      `[${COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE}]`
+    ) !== null,
     evidenceImageFileNames,
     evidenceImages: evidenceImageFileNames.flatMap(fileName => {
       /** 当前文件名对应的轻量图片引用。 */
