@@ -24,6 +24,12 @@ const DELETE_EVIDENCE_IMAGE_CONFIRM_TITLE = 'Delete screenshot?';
 /** Evidence 图片删除确认弹窗的风险提示。 */
 const DELETE_EVIDENCE_IMAGE_CONFIRM_CONTENT = 'This screenshot will be removed from Test Evidence and the matching Test Result entries.';
 
+/** Confluence 导出确认弹窗的标题。 */
+const EXPORT_CONFIRM_TITLE = 'Confirm export';
+
+/** Confluence 导出确认弹窗的风险提示。 */
+const EXPORT_CONFIRM_CONTENT = 'This operation will update the table in your Confluence page. Are you sure you want to proceed?';
+
 /** CopyTest 弹窗与视口四周保留的像素间距。 */
 const COPY_TEST_MODAL_VIEWPORT_MARGIN = 20;
 
@@ -268,6 +274,17 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
           previewImage={controller.previewImage}
           onClose={controller.handleClosePreviewImage}
         />
+        <Modal
+          title={EXPORT_CONFIRM_TITLE}
+          open={controller.exportConfirmOpen}
+          onCancel={controller.handleCancelExportToConfluence}
+          onOk={controller.handleConfirmExportToConfluence}
+          okText="Confirm"
+          cancelText="Cancel"
+          confirmLoading={controller.exportLoading}
+        >
+          <p>{EXPORT_CONFIRM_CONTENT}</p>
+        </Modal>
         <Modal
           title={DELETE_EVIDENCE_IMAGE_CONFIRM_TITLE}
           open={Boolean(controller.deleteImageTarget)}

@@ -2,7 +2,7 @@
  * 文件作用：封装 CopyTest 主流程的状态、请求和事件处理。
  */
 import { useRef, useState } from 'react';
-import { Modal, message } from 'antd';
+import { message } from 'antd';
 import { useRequest } from 'ahooks';
 import {
   copyTestAttachmentsApi,
@@ -62,6 +62,8 @@ interface CopyTestControllerState {
   deleteImageTarget: CopyTestEvidenceDeleteTarget | null;
   /** storage 导出请求是否正在执行。 */
   exportLoading: boolean;
+  /** Confluence 导出确认弹窗是否打开。 */
+  exportConfirmOpen: boolean;
   /** 当前输入 URL 是否对应一份已完成导入且仍有效的表格会话。 */
   hasActiveImportedSession: boolean;
   /** 导入链路是否占用主操作区。 */
@@ -86,6 +88,8 @@ interface CopyTestControllerState {
 interface CopyTestControllerHandlers {
   /** 取消 Evidence 图片删除确认。 */
   handleCancelEvidenceImageDelete: () => void;
+  /** 取消 Confluence 导出确认。 */
+  handleCancelExportToConfluence: () => void;
   /** 打开截图上传弹窗。 */
   handleChooseImages: () => void;
   /** 关闭 Evidence 大图预览。 */
@@ -96,6 +100,8 @@ interface CopyTestControllerHandlers {
   handleComparisonColumnChange: (value?: number) => Promise<void>;
   /** 确认删除一个 Evidence 图片实例。 */
   handleConfirmEvidenceImageDelete: () => void;
+  /** 确认并执行 Confluence 导出。 */
+  handleConfirmExportToConfluence: () => Promise<void>;
   /** 更新 Confluence URL 并清除旧输入错误。 */
   handleConfluenceUrlChange: (value: string) => void;
   /** 打开 Evidence 图片删除确认。 */
@@ -140,12 +146,6 @@ interface ComparisonAttachmentRequestContext {
 
 /** 页面状态和操作组成的 CopyTest 控制器结果。 */
 export interface CopyTestControllerResult extends CopyTestControllerState, CopyTestControllerHandlers {}
-
-/** 导出确认弹窗标题。 */
-const EXPORT_CONFIRM_TITLE = 'Confirm export';
-
-/** 导出确认弹窗风险提示。 */
-const EXPORT_CONFIRM_CONTENT = 'This operation will update the table in your Confluence page. Are you sure you want to proceed?';
 
 /** AI 校验和本地表格写入成功后的提示。 */
 const COPY_TEST_VALIDATION_SUCCESS_MESSAGE = 'Copy test validation completed';
@@ -258,6 +258,9 @@ export const useCopyTestController = ({
   /** Confluence 双读准备阶段是否已进入导出临界区。 */
   const [exportPreparing, setExportPreparing] = useState(false);
 
+  /** Confluence 导出确认弹窗开关。 */
+  const [exportConfirmOpen, setExportConfirmOpen] = useState(false);
+
   /** 当前 Comparison Column 的已有 Evidence 附件读取状态。 */
   const [comparisonColumnLoading, setComparisonColumnLoading] = useState(false);
 
@@ -267,7 +270,7 @@ export const useCopyTestController = ({
   /** 当前 CopyTest 表格会话状态。 */
   const tableState = useCopyTestSession();
 
-  /** 供静态确认弹窗在真正确认时读取最新表格会话。 */
+  /** 供用户确认导出时读取最新表格会话。 */
   const tableStateRef = useRef(tableState);
   tableStateRef.current = tableState;
 
@@ -353,6 +356,7 @@ export const useCopyTestController = ({
     setLoadedConfluenceUrl('');
     setComparisonColumnLoading(false);
     setValidationLoading(false);
+    setExportConfirmOpen(false);
     setUploadModalOpen(false);
     setDeleteImageTarget(null);
     uploadState.resetUploadState();
@@ -608,14 +612,26 @@ export const useCopyTestController = ({
       return;
     }
 
-    Modal.confirm({
-      title: EXPORT_CONFIRM_TITLE,
-      icon: null,
-      content: EXPORT_CONFIRM_CONTENT,
-      okText: 'Confirm',
-      cancelText: 'Cancel',
-      onOk: exportStorageToConfluence,
-    });
+    setExportConfirmOpen(true);
+  };
+
+  /** 取消非导出状态下的 Confluence 导出确认。 */
+  const handleCancelExportToConfluence = (): void => {
+    if (exportInProgressRef.current) {
+      return;
+    }
+
+    setExportConfirmOpen(false);
+  };
+
+  /** 从受控确认弹窗执行 Confluence 导出。 */
+  const handleConfirmExportToConfluence = async (): Promise<void> => {
+    if (exportInProgressRef.current) {
+      return;
+    }
+
+    await exportStorageToConfluence();
+    setExportConfirmOpen(false);
   };
 
   /** 非忙碌状态下关闭截图上传弹窗。 */
@@ -771,6 +787,7 @@ export const useCopyTestController = ({
 
     uploadState.resetUploadState();
     handleClosePreviewImage();
+    setExportConfirmOpen(false);
     setUploadModalOpen(false);
     onClose();
   };
@@ -784,14 +801,17 @@ export const useCopyTestController = ({
     comparisonColumnLoading,
     confluenceUrl,
     deleteImageTarget,
+    exportConfirmOpen,
     exportLoading,
     hasActiveImportedSession,
     handleCancelEvidenceImageDelete,
+    handleCancelExportToConfluence,
     handleChooseImages,
     handleClosePreviewImage,
     handleCloseUploadModal,
     handleComparisonColumnChange,
     handleConfirmEvidenceImageDelete,
+    handleConfirmExportToConfluence,
     handleConfluenceUrlChange,
     handleEvidenceImageDelete,
     handleEvidenceImagePreview,
