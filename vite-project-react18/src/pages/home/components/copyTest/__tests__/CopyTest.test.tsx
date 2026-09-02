@@ -23,13 +23,16 @@ const hoisted = vi.hoisted(() => ({
     comparisonColumnLoading: false,
     confluenceUrl: '',
     deleteImageTarget: { imageId: 'img' } as { imageId: string } | null,
+    exportConfirmOpen: false,
     exportLoading: false,
     handleCancelEvidenceImageDelete: vi.fn(),
+    handleCancelExportToConfluence: vi.fn(),
     handleChooseImages: vi.fn(),
     handleClosePreviewImage: vi.fn(),
     handleCloseUploadModal: vi.fn(),
     handleComparisonColumnChange: vi.fn(),
     handleConfirmEvidenceImageDelete: vi.fn(),
+    handleConfirmExportToConfluence: vi.fn(),
     handleConfluenceUrlChange: vi.fn(),
     handleEvidenceImageDelete: vi.fn(),
     handleEvidenceImagePreview: vi.fn(),
@@ -89,7 +92,7 @@ vi.mock('antd', () => ({
     error: vi.fn(),
     warning: vi.fn(),
   },
-  Modal: ({ children, onCancel, onOk, open, title }: { children?: React.ReactNode; onCancel?: () => void; onOk?: () => void; open?: boolean; title?: string }) => open ? (
+  Modal: ({ children, onCancel, onOk, open, title }: { children?: React.ReactNode; onCancel?: () => void; onOk?: () => void | Promise<void>; open?: boolean; title?: string }) => open ? (
     <section><h2>{title}</h2><button onClick={onCancel}>cancel-{title}</button><button onClick={onOk}>ok-{title}</button>{children}</section>
   ) : null,
 }));
@@ -99,15 +102,18 @@ vi.mock('../components', () => ({
   CopyTestLoadingBlock: ({ label }: { label?: string }) => (
     <div>{label || 'loading-block'}</div>
   ),
-  CopyTestSelectors: ({ onExportFile }: {
+  CopyTestSelectors: ({ onExportFile, onExportToConfluence }: {
     /** 按格式触发本地文件导出的组件测试回调。 */
     onExportFile: (format: 'pdf' | 'word' | 'excel') => void;
+    /** 打开 Confluence 受控导出确认框的回调。 */
+    onExportToConfluence: () => void;
   }) => (
     <div>
       selectors
       <button onClick={() => onExportFile('pdf')}>export-pdf</button>
       <button onClick={() => onExportFile('word')}>export-word</button>
       <button onClick={() => onExportFile('excel')}>export-excel</button>
+      <button onClick={onExportToConfluence}>export-confluence</button>
     </div>
   ),
   EvidenceImagePreview: () => <div>preview</div>,
@@ -116,6 +122,7 @@ vi.mock('../components', () => ({
 }));
 
 beforeEach(() => {
+  vi.clearAllMocks();
   hoisted.exportCopyTestTable.mockReset();
   hoisted.exportCopyTestTable.mockResolvedValue({
     fileName: '20260722150405.pdf',
@@ -123,6 +130,8 @@ beforeEach(() => {
   hoisted.controller.hasActiveImportedSession = true;
   hoisted.controller.importError = undefined;
   hoisted.controller.comparisonColumnLoading = false;
+  hoisted.controller.exportConfirmOpen = false;
+  hoisted.controller.exportLoading = false;
   hoisted.controller.importLoading = true;
 });
 
@@ -185,6 +194,26 @@ describe('CopyTest', () => {
       expect(hoisted.controller.handleExportToConfluence).not.toHaveBeenCalled();
     }
   );
+
+  it('routes Confluence export through the controlled confirmation modal', () => {
+    const view = render(<CopyTest open={true} />);
+
+    expect(screen.queryByText('Confirm export')).toBeNull();
+    fireEvent.click(screen.getByText('export-confluence'));
+    expect(hoisted.controller.handleExportToConfluence).toHaveBeenCalledTimes(1);
+
+    hoisted.controller.exportConfirmOpen = true;
+    view.rerender(<CopyTest open={true} />);
+    expect(screen.getByText('Confirm export')).toBeTruthy();
+    expect(screen.getByText(
+      'This operation will update the table in your Confluence page. Are you sure you want to proceed?'
+    )).toBeTruthy();
+
+    fireEvent.click(screen.getByText('cancel-Confirm export'));
+    fireEvent.click(screen.getByText('ok-Confirm export'));
+    expect(hoisted.controller.handleCancelExportToConfluence).toHaveBeenCalledTimes(1);
+    expect(hoisted.controller.handleConfirmExportToConfluence).toHaveBeenCalledTimes(1);
+  });
 
   it('opens one uncontrolled modal from class triggers in any DOM position', () => {
     hoisted.controller.deleteImageTarget = null;

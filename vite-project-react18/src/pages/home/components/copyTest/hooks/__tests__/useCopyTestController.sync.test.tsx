@@ -36,11 +36,6 @@ const hoisted = vi.hoisted(() => ({
 }));
 
 vi.mock('antd', () => ({
-  Modal: {
-    confirm: (config: { onOk?: () => unknown }) => {
-      config.onOk?.();
-    },
-  },
   message: {
     error: vi.fn(),
     success: vi.fn(),
@@ -98,13 +93,16 @@ describe('useCopyTestController synchronous guards', () => {
     hoisted.sessionState.originalStorageHtml = '';
   });
 
-  it('covers export storage and loaded URL guards', () => {
+  it('closes controlled export confirmation after storage and loaded URL guards', async () => {
     const emptyStorageHook = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
 
     act(() => {
       emptyStorageHook.result.current.handleExportToConfluence();
     });
+    expect(emptyStorageHook.result.current.exportConfirmOpen).toBe(true);
+    await act(() => emptyStorageHook.result.current.handleConfirmExportToConfluence());
     expect(hoisted.messageWarning).toHaveBeenCalledWith('No Confluence storage to export');
+    expect(emptyStorageHook.result.current.exportConfirmOpen).toBe(false);
     emptyStorageHook.unmount();
 
     hoisted.sessionState.originalStorageHtml = '<table></table>';
@@ -113,9 +111,37 @@ describe('useCopyTestController synchronous guards', () => {
     act(() => {
       invalidUrlHook.result.current.handleExportToConfluence();
     });
+    expect(invalidUrlHook.result.current.exportConfirmOpen).toBe(true);
+    await act(() => invalidUrlHook.result.current.handleConfirmExportToConfluence());
     expect(invalidUrlHook.result.current.importError).toBe(
       'Invalid URL format, Please enter a valid Http:// or https:// URL'
     );
+    expect(invalidUrlHook.result.current.exportConfirmOpen).toBe(false);
+
+    act(() => {
+      invalidUrlHook.result.current.handleExportToConfluence();
+    });
+    expect(invalidUrlHook.result.current.exportConfirmOpen).toBe(true);
+    act(() => {
+      invalidUrlHook.result.current.handleCancelExportToConfluence();
+    });
+    expect(invalidUrlHook.result.current.exportConfirmOpen).toBe(false);
+  });
+
+  it('closes the export confirmation with the main modal', () => {
+    const onClose = vi.fn();
+    const { result } = renderHook(() => useCopyTestController({ onClose }));
+
+    act(() => {
+      result.current.handleExportToConfluence();
+    });
+    expect(result.current.exportConfirmOpen).toBe(true);
+
+    act(() => {
+      result.current.handleMainClose();
+    });
+    expect(result.current.exportConfirmOpen).toBe(false);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('detects whether the raw Confluence storage changed', () => {

@@ -4,9 +4,6 @@ import { useCopyTestController } from '../useCopyTestController';
 
 const hoisted = vi.hoisted(() => ({
   attachmentsApi: vi.fn(),
-  confirm: vi.fn((config: { onOk?: () => unknown }) => {
-    return config.onOk?.();
-  }),
   messageError: vi.fn(),
   messageSuccess: vi.fn(),
   messageWarning: vi.fn(),
@@ -18,7 +15,6 @@ const hoisted = vi.hoisted(() => ({
 }));
 
 vi.mock('antd', () => ({
-  Modal: { confirm: hoisted.confirm },
   message: {
     error: hoisted.messageError,
     success: hoisted.messageSuccess,
@@ -188,9 +184,11 @@ describe('useCopyTestController', () => {
     act(() => {
       result.current.handleExportToConfluence();
     });
-    await act(() => Promise.resolve());
-    expect(hoisted.confirm).toHaveBeenCalled();
+    expect(result.current.exportConfirmOpen).toBe(true);
+    expect(hoisted.uploadApi).not.toHaveBeenCalled();
+    await act(() => result.current.handleConfirmExportToConfluence());
     expect(hoisted.uploadApi).toHaveBeenCalled();
+    expect(result.current.exportConfirmOpen).toBe(false);
     act(() => {
       result.current.handleEvidenceImageDelete({
         imageId: 'missing',
@@ -205,6 +203,7 @@ describe('useCopyTestController', () => {
       result.current.handleTableChange(0);
       result.current.handleMainClose();
     });
+    expect(result.current.exportConfirmOpen).toBe(false);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -380,15 +379,11 @@ describe('useCopyTestController', () => {
         fileName: 'screen.png',
       }], 1, 'Target', 0);
     });
-    /** 先只打开静态确认框，不立即执行其 onOk。 */
-    let confirmExport: (() => unknown) | undefined;
-    hoisted.confirm.mockImplementationOnce(config => {
-      confirmExport = config.onOk;
-      return undefined;
-    });
+    /** 先只打开受控确认框，不立即执行导出。 */
     act(() => {
       result.current.handleExportToConfluence();
     });
+    expect(result.current.exportConfirmOpen).toBe(true);
     expect(result.current.exportLoading).toBe(false);
 
     /** 确认前的合法状态变化必须成为随后导出的最新快照。 */
@@ -412,9 +407,9 @@ describe('useCopyTestController', () => {
       .mockImplementationOnce(() => firstExportRead.promise)
       .mockResolvedValue({ storage: storageHtml });
 
-    let exportPromise: Promise<void> | undefined;
+    let exportPromise!: Promise<void>;
     act(() => {
-      exportPromise = confirmExport?.() as Promise<void>;
+      exportPromise = result.current.handleConfirmExportToConfluence();
     });
     /** 等待同步导出锁进入 storage 第一次读取。 */
     await act(() => Promise.resolve());
@@ -436,6 +431,7 @@ describe('useCopyTestController', () => {
     firstExportRead.resolve({ storage: storageHtml });
     await act(() => exportPromise);
     expect(result.current.exportLoading).toBe(false);
+    expect(result.current.exportConfirmOpen).toBe(false);
     expect(hoisted.uploadApi).toHaveBeenCalledTimes(1);
     const uploadRequest = hoisted.uploadApi.mock.calls[0][0] as { storageHtml: string };
     expect(uploadRequest.storageHtml).toContain('Failed:');
