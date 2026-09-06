@@ -4,6 +4,7 @@
 import type { CopyTestImage } from '../api/copyTestApi';
 import {
   COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE,
+  COPY_TEST_RESULT_AI_PASSED_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE,
@@ -196,6 +197,24 @@ const hasUniqueResultScreenIdentities = (entries: ResultScreenEntry[]): boolean 
     && orders.size === entries.length;
 };
 
+/** 读取 Screen 的最初 AI 判定；旧版可见 AI 标签仅用于补齐缺失基线。 */
+const readScreenAiPassed = (
+  reference: Element,
+  resultRoot: Element,
+  passed: boolean
+): boolean | undefined => {
+  const value = reference.getAttribute(COPY_TEST_RESULT_AI_PASSED_ATTRIBUTE);
+  if (value === 'true' || value === 'false') {
+    return value === 'true';
+  }
+  if (value !== null) {
+    return undefined;
+  }
+  return resultRoot.querySelector(`[${COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE}]`)
+    ? passed
+    : undefined;
+};
+
 /** 从 Result 根节点恢复所有 Screen 的独立状态。 */
 const readResultScreenEntries = (resultRoot: Element): ResultScreenEntry[] => {
   /** 按当前 DOM 扫描出的候选 Screen 引用。 */
@@ -216,6 +235,7 @@ const readResultScreenEntries = (resultRoot: Element): ResultScreenEntry[] => {
       return [];
     }
     return [{
+      aiPassed: readScreenAiPassed(reference, resultRoot, passed),
       image: { base64: '', fileName: imageId },
       imageId,
       instanceId,
@@ -307,6 +327,7 @@ const hydrateValidationResult = (
     passed: entries.some(entry => entry.passed),
     rowIndex,
     screenStatuses: entries.map(entry => ({
+      aiPassed: entry.aiPassed,
       imageId: entry.imageId,
       languageIssues: entry.languageIssues,
       passed: entry.passed,

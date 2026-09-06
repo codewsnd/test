@@ -64,7 +64,10 @@ export const COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE = 'data-copy-test-result-st
 /** 标记 Result 单元格仍来自 AI 图片比较的属性名。 */
 export const COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE = 'data-copy-test-result-ai-comparison';
 
-/** Result 单元格尚未被人工标记时显示的文案。 */
+/** 保存每个 Screen 最初的 AI 判定，供人工状态往返比较。 */
+export const COPY_TEST_RESULT_AI_PASSED_ATTRIBUTE = 'data-copy-test-result-ai-passed';
+
+/** Result 单元格与最初 AI 判定一致时显示的文案。 */
 export const COPY_TEST_AI_COMPARISON_LABEL = 'AI comparson';
 
 /** Result Passed 分组使用的属性值。 */

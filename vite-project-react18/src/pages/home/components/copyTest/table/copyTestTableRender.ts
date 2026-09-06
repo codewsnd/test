@@ -18,6 +18,7 @@ import {
   COPY_TEST_PASSED_COLOR,
   COPY_TEST_RESULT_FAILED_GROUP_VALUE,
   COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE,
+  COPY_TEST_RESULT_AI_PASSED_ATTRIBUTE,
   COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE,
   COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE,
   COPY_TEST_RESULT_PASSED_GROUP_VALUE,
@@ -57,7 +58,7 @@ import {
 
 /** 支持 CopyTest Evidence 图片的校验结果。 */
 export interface CopyTestValidationResultWithEvidence extends CopyTestValidationResult {
-  /** 当前 Result 单元格是否仍为尚未人工确认的 AI 图片比较结果。 */
+  /** 当前 Result 单元格是否与最初的 AI 图片比较结果一致。 */
   aiComparison?: boolean;
   /** 根据模型文件名绑定出的 Evidence 内存图片。 */
   evidenceImages: CopyTestImage[];
@@ -67,6 +68,8 @@ export interface CopyTestValidationResultWithEvidence extends CopyTestValidation
 
 /** 单个 Result Screen 的持久状态。 */
 export interface CopyTestResultScreenStatus {
+  /** 当前 Screen 最初的 AI 判定；旧数据无法确定时缺省。 */
+  aiPassed?: boolean;
   /** Evidence 附件文件名，也是同一来源行内的稳定 Screen 身份。 */
   imageId: string;
   /** 当前 Screen 在 Failed 状态下需要显示或往返保留的问题。 */
@@ -145,6 +148,8 @@ export interface ScreenRef {
 
 /** Result DOM 中可独立移动的单个 Screen。 */
 export interface ResultScreenEntry extends ScreenRef {
+  /** 当前 Screen 最初的 AI 判定，不随人工切换改变。 */
+  aiPassed?: boolean;
   /** 当前 Screen 往返保留的问题说明。 */
   languageIssues: string[];
   /** 当前 Screen 是否位于 Passed 分组。 */
@@ -361,12 +366,14 @@ const buildResultScreenEntries = (
   return screens.map(screen => {
     /** 当前图片可选的人工状态。 */
     const status = statusByImageId.get(screen.imageId);
+    const passed = status?.passed ?? result.passed;
     return {
       ...screen,
+      aiPassed: status?.aiPassed ?? (result.aiComparison !== false ? passed : undefined),
       languageIssues: status
         ? normalizeLanguageIssues(status.languageIssues)
         : fallbackLanguageIssues,
-      passed: status?.passed ?? result.passed,
+      passed,
     };
   });
 };
@@ -467,13 +474,16 @@ const appendResultStatusGroupSkeletons = (
   });
 };
 
-/** 在 Result 内容区域右上角写入唯一的 AI 比较提示。 */
+/** 全部 Screen 与最初 AI 判定一致时，在 Result 右上角写入唯一提示。 */
 const appendAiComparisonLabel = (
   doc: Document,
   container: HTMLElement,
-  aiComparison: boolean
+  entries: ResultScreenEntry[]
 ): void => {
-  if (!aiComparison) {
+  const matchesAiResult = entries.length > 0 && entries.every(entry => {
+    return entry.aiPassed !== undefined && entry.passed === entry.aiPassed;
+  });
+  if (!matchesAiResult) {
     return;
   }
 
@@ -492,6 +502,9 @@ const applyResultScreenValues = (
   skeleton.item.setAttribute(COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE, entry.imageId);
   skeleton.item.setAttribute(COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE, entry.instanceId);
   skeleton.item.setAttribute(COPY_TEST_RESULT_SCREEN_ORDER_ATTRIBUTE, String(entry.order));
+  if (entry.aiPassed !== undefined) {
+    skeleton.item.setAttribute(COPY_TEST_RESULT_AI_PASSED_ATTRIBUTE, String(entry.aiPassed));
+  }
   writeRetainedLanguageIssues(skeleton.item, entry.languageIssues);
   skeleton.label.textContent = entry.label;
   skeleton.issueItems.forEach((issueItem, issueIndex) => {
@@ -531,6 +544,7 @@ export const createResultContentFromEntries = (
   entries: ResultScreenEntry[]
 ): HTMLElement => {
   const container = createManagedContentRoot(doc, COPY_TEST_GENERATED_RESULT_TYPE);
+  appendAiComparisonLabel(doc, container, entries);
   /** 按状态与顺序规范后的 Result 动态值。 */
   const groups = buildResultStatusGroupValues(entries);
   /** 在任何动态值写入前完整插入的 Result 骨架。 */
@@ -650,6 +664,7 @@ export const replaceResultContentFromEntries = (
   entries: ResultScreenEntry[]
 ): void => {
   const replacement = replaceWithEmptyResultContentRoot(current);
+  appendAiComparisonLabel(replacement.ownerDocument, replacement, entries);
   /** 按状态与顺序规范后的 Result 动态值。 */
   const groups = buildResultStatusGroupValues(entries);
   /** 在任何动态值写入前完整插入的 Result 骨架。 */
@@ -946,7 +961,7 @@ export const writeResultCell = (
   const content = installManagedContentRoot(cell, COPY_TEST_GENERATED_RESULT_TYPE);
   /** 当前 Result 中按 Screen 持久状态构建的全部条目。 */
   const entries = buildResultScreenEntries(result, screens);
-  appendAiComparisonLabel(doc, content, result.aiComparison !== false);
+  appendAiComparisonLabel(doc, content, entries);
   /** 按状态与顺序规范后的 Result 动态值。 */
   const groups = buildResultStatusGroupValues(entries);
   /** 在任何动态值写入前完整插入的 Result 骨架。 */

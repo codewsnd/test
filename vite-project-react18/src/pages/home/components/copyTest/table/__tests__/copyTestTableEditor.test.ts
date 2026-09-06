@@ -11,6 +11,7 @@ import {
 import { buildCopyTestExportTableModel } from '../../export/copyTestExportModel';
 import { getCopyTestImageId } from '../copyTestImageUtils';
 import { buildCurrentColumnExportStorage } from '../copyTestTableExporter';
+import { buildConfluenceStorageTableExportPayload } from '../copyTestTableImages';
 import {
   buildCopyTestRowGroups,
   findGeneratedColumnIndexes,
@@ -32,6 +33,7 @@ import {
   COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE,
   COPY_TEST_RESULT_FAILED_GROUP_VALUE,
   COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE,
+  COPY_TEST_RESULT_AI_PASSED_ATTRIBUTE,
   COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE,
   COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE,
   COPY_TEST_RESULT_PASSED_GROUP_VALUE,
@@ -489,6 +491,10 @@ describe('copyTestTableEditor', () => {
     expect(Array.from(confluenceResult?.querySelectorAll('strong') || [])
       .map(status => status.textContent)).toEqual(['Passed:']);
     expect(confluenceResult?.textContent).not.toContain('Visible copy differs.');
+    expect(confluenceStorage).not.toContain(COPY_TEST_AI_COMPARISON_LABEL);
+    expect(confluenceResult?.querySelector(
+      `[${COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE}]`
+    )).toBeNull();
     expect(confluenceStorage).not.toContain('Set to Failed');
     expect(confluenceStorage).not.toContain('data-copy-test-result-status-button');
     expect(passed.table.workingHtml).not.toContain('data-copy-test-result-status-button');
@@ -516,7 +522,7 @@ describe('copyTestTableEditor', () => {
       COPY_TEST_RESULT_FAILED_GROUP_VALUE
     )).toEqual([SCREEN_1.fileName]);
     expect(failedRoot.textContent).toContain('Visible copy differs.');
-    expect(failedRoot.textContent).not.toContain(COPY_TEST_AI_COMPARISON_LABEL);
+    expect(failedRoot.textContent).toContain(COPY_TEST_AI_COMPARISON_LABEL);
     expect(failed.table.model.rows[1]
       .slots[initialIndexes.evidence!]!.cell.element.outerHTML).toBe(evidenceBefore);
 
@@ -553,17 +559,17 @@ describe('copyTestTableEditor', () => {
     })).toEqual({ changed: false, table: invalidWorkingTable });
   });
 
-  it('shows one AI comparison label at the Result top right and removes it after Mark as', () => {
+  it.each([true, false])('restores the original AI label after export, reimport and status reversal (AI passed: %s)', initialPassed => {
     const table = parseCopyTestStorageTables(
       '<table><tr><th>Target</th></tr><tr><td>copy</td></tr></table>'
     )[0];
     const results = bindResultImages([{
-      evidenceImageFileNames: [SCREEN_1.fileName, SCREEN_2.fileName],
-      languageIssues: [],
-      passed: true,
+      evidenceImageFileNames: [SCREEN_1.fileName],
+      languageIssues: initialPassed ? [] : ['Visible copy differs.'],
+      passed: initialPassed,
       rowIndex: 0,
-    }], images);
-    const validated = applyCopyTestValidationResults(table, results, 0, 'Target', images);
+    }], [SCREEN_1]);
+    const validated = applyCopyTestValidationResults(table, results, 0, 'Target', [SCREEN_1]);
     const initialRoot = parseHtml(validated.workingHtml).querySelector(
       `[${COPY_TEST_GENERATED_CONTENT_ATTRIBUTE}="${COPY_TEST_GENERATED_RESULT_TYPE}"]`
     )!;
@@ -584,7 +590,7 @@ describe('copyTestTableEditor', () => {
     const marked = setCopyTestResultStatus(validated, 0, 'Target', {
       imageId: SCREEN_1.fileName,
       instanceId: screen1InstanceId,
-      passed: false,
+      passed: !initialPassed,
       rowIndex: 0,
       sourceColumnKey: getSourceColumnKey(0, 'Target'),
     });
@@ -599,6 +605,118 @@ describe('copyTestTableEditor', () => {
     )).toBeNull();
     expect(markedRoot.textContent).not.toContain(COPY_TEST_AI_COMPARISON_LABEL);
     expect(snapshot?.results[0].aiComparison).toBe(false);
+    expect(snapshot?.results[0].screenStatuses?.[0].aiPassed).toBe(initialPassed);
+
+    const exportScope = 'copytest-cccccccccccccccccccccccccccccccc';
+    const hiddenStorage = buildCurrentColumnExportStorage({
+      exportScope,
+      originalStorageHtml: table.originalHtml,
+      selectedColumnIndex: 0,
+      selectedColumnLabel: 'Target',
+      selectedRowIndexes: [0],
+      table: marked.table,
+    });
+    expect(hiddenStorage).not.toBeNull();
+    const hiddenPayload = buildConfluenceStorageTableExportPayload(
+      hiddenStorage!, getSourceColumnKey(0, 'Target'), exportScope, [SCREEN_1]
+    );
+    expect(hiddenPayload.storageHtml).not.toContain(COPY_TEST_AI_COMPARISON_LABEL);
+    expect(hiddenPayload.storageHtml).not.toContain(COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE);
+
+    const reimported = parseCopyTestStorageTables(hiddenPayload.storageHtml)[0];
+    const reimportedSnapshot = hydrateCopyTestValidationSnapshot(reimported, 0, 'Target');
+    expect(reimportedSnapshot).not.toBeNull();
+    const rehydrated = applyCopyTestValidationResults(
+      reimported, reimportedSnapshot!.results, 0, 'Target', [SCREEN_1]
+    );
+    expect(rehydrated.workingHtml).not.toContain(COPY_TEST_AI_COMPARISON_LABEL);
+    const restored = setCopyTestResultStatus(rehydrated, 0, 'Target', {
+      imageId: SCREEN_1.fileName,
+      instanceId: screen1InstanceId,
+      passed: initialPassed,
+      rowIndex: 0,
+      sourceColumnKey: getSourceColumnKey(0, 'Target'),
+    });
+    expect(restored.changed).toBe(true);
+    const restoredSnapshot = hydrateCopyTestValidationSnapshot(restored.table, 0, 'Target');
+    expect(restoredSnapshot?.results[0].aiComparison).toBe(true);
+    const restoredStorage = buildCurrentColumnExportStorage({
+      exportScope,
+      originalStorageHtml: hiddenPayload.storageHtml,
+      selectedColumnIndex: 0,
+      selectedColumnLabel: 'Target',
+      selectedRowIndexes: [0],
+      table: restored.table,
+    });
+    expect(restoredStorage).not.toBeNull();
+    const restoredPayload = buildConfluenceStorageTableExportPayload(
+      restoredStorage!, getSourceColumnKey(0, 'Target'), exportScope, [SCREEN_1]
+    );
+    const restoredMarkers = parseHtml(restoredPayload.storageHtml).querySelectorAll(
+      `[${COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE}]`
+    );
+    expect(restoredMarkers).toHaveLength(1);
+    expect(restoredMarkers[0].textContent).toBe(COPY_TEST_AI_COMPARISON_LABEL);
+    expect(restoredMarkers[0].getAttribute('style')).toBe('text-align:right;');
+  });
+
+  it('uses the latest AI validation as the baseline for subsequent manual changes', () => {
+    const table = parseCopyTestStorageTables(
+      '<table><tr><th>Target</th></tr><tr><td>copy</td></tr></table>'
+    )[0];
+    const results = bindResultImages([{
+      evidenceImageFileNames: [SCREEN_1.fileName],
+      languageIssues: [],
+      passed: true,
+      rowIndex: 0,
+    }], [SCREEN_1]);
+    const initial = applyCopyTestValidationResults(table, results, 0, 'Target', [SCREEN_1]);
+    const latestResults = bindResultImages([{
+      evidenceImageFileNames: [SCREEN_1.fileName],
+      languageIssues: ['Latest mismatch.'],
+      passed: false,
+      rowIndex: 0,
+    }], [SCREEN_1]);
+    const latest = applyCopyTestValidationResults(initial, latestResults, 0, 'Target', [SCREEN_1]);
+    const latestDocument = parseHtml(latest.workingHtml);
+    expect(latestDocument.body.textContent).toContain(COPY_TEST_AI_COMPARISON_LABEL);
+    const update = {
+      imageId: SCREEN_1.fileName,
+      instanceId: getResultImageInstanceId(latestDocument.body, SCREEN_1.fileName),
+      rowIndex: 0,
+      sourceColumnKey: getSourceColumnKey(0, 'Target'),
+    };
+    const changed = setCopyTestResultStatus(latest, 0, 'Target', { ...update, passed: true });
+    expect(changed.table.workingHtml).not.toContain(COPY_TEST_AI_COMPARISON_LABEL);
+    const restored = setCopyTestResultStatus(changed.table, 0, 'Target', { ...update, passed: false });
+    expect(restored.table.workingHtml).toContain(COPY_TEST_AI_COMPARISON_LABEL);
+  });
+
+  it('restores the AI label for legacy results with a visible marker but no stored baseline', () => {
+    const table = parseCopyTestStorageTables(
+      '<table><tr><th>Target</th></tr><tr><td>copy</td></tr></table>'
+    )[0];
+    const results = bindResultImages([{
+      evidenceImageFileNames: [SCREEN_1.fileName],
+      languageIssues: [],
+      passed: true,
+      rowIndex: 0,
+    }], [SCREEN_1]);
+    const validated = applyCopyTestValidationResults(table, results, 0, 'Target', [SCREEN_1]);
+    const legacyDocument = parseHtml(validated.workingHtml);
+    const screen = legacyDocument.querySelector(`[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`)!;
+    screen.removeAttribute(COPY_TEST_RESULT_AI_PASSED_ATTRIBUTE);
+    const legacyTable = parseCopyTestStorageTables(legacyDocument.body.innerHTML)[0];
+    const update = {
+      imageId: SCREEN_1.fileName,
+      instanceId: getResultImageInstanceId(legacyDocument.body, SCREEN_1.fileName),
+      rowIndex: 0,
+      sourceColumnKey: getSourceColumnKey(0, 'Target'),
+    };
+    const changed = setCopyTestResultStatus(legacyTable, 0, 'Target', { ...update, passed: false });
+    expect(changed.table.workingHtml).not.toContain(COPY_TEST_AI_COMPARISON_LABEL);
+    const restored = setCopyTestResultStatus(changed.table, 0, 'Target', { ...update, passed: true });
+    expect(restored.table.workingHtml).toContain(COPY_TEST_AI_COMPARISON_LABEL);
   });
 
   it('upgrades a legacy single-status singleton Result when its status changes', () => {
@@ -620,6 +738,7 @@ describe('copyTestTableEditor', () => {
     const legacyItems = Array.from(legacyRoot.querySelectorAll<HTMLLIElement>(
       `[${COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE}]`
     )).map(item => {
+      item.removeAttribute(COPY_TEST_RESULT_AI_PASSED_ATTRIBUTE);
       item.removeAttribute(COPY_TEST_RESULT_RETAINED_LANGUAGE_ISSUES_ATTRIBUTE);
       return item.outerHTML;
     });
@@ -659,6 +778,16 @@ describe('copyTestTableEditor', () => {
     expect(Array.from(upgradedRoot.children).every(child => {
       return child.hasAttribute(COPY_TEST_RESULT_STATUS_GROUP_ATTRIBUTE);
     })).toBe(true);
+
+    const restored = setCopyTestResultStatus(upgraded.table, 0, 'Target', {
+      imageId: SCREEN_1.fileName,
+      instanceId: screen1InstanceId,
+      passed: true,
+      rowIndex: 0,
+      sourceColumnKey,
+    });
+    expect(restored.changed).toBe(true);
+    expect(restored.table.workingHtml).not.toContain(COPY_TEST_AI_COMPARISON_LABEL);
   });
 
   it('uses Column N labels for new and existing managed pairs with a blank source header', () => {

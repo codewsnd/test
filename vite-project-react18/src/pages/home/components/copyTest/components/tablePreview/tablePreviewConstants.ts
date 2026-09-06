@@ -11,6 +11,7 @@ import {
   COPY_TEST_GENERATED_CONTENT_ATTRIBUTE,
   COPY_TEST_GENERATED_EVIDENCE_TYPE,
   COPY_TEST_GENERATED_RESULT_TYPE,
+  COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE,
   COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE,
 } from '../../table/tableConstants';
 
@@ -310,6 +311,17 @@ export const PREVIEW_DOCUMENT_STYLE = `
   th {
     background: #f4f5f7;
     font-weight: 600;
+  }
+
+  /* AI 比较标签边框仅用于预览，不写入 Confluence storage。 */
+  [${COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE}="${DOM_TRUE_ATTRIBUTE_VALUE}"] {
+    box-sizing: border-box;
+    width: fit-content;
+    max-width: 100%;
+    margin: 0 0 8px auto;
+    border: 1px solid #172b4d;
+    border-radius: 0;
+    padding: 2px 8px;
   }
 
   [${COPY_TEST_EVIDENCE_CARD_ATTRIBUTE}] {
