@@ -750,7 +750,8 @@ const buildEvidenceSourceGroups = (
 const buildEvidenceGroupRows = (
   rowResults: CopyTestEvidenceRowResultPlan[],
   itemByAnchorRowIndex: Map<number, LogicalRowResult>,
-  screens: ScreenRef[]
+  screens: ScreenRef[],
+  matchedScreensOnly: boolean
 ): EvidenceGroupRow[] => {
   return rowResults.flatMap(rowResult => {
     /** 与 Planner 来源原子组锚点对应的逻辑行结果。 */
@@ -762,7 +763,12 @@ const buildEvidenceGroupRows = (
     return [{
       ...item.rowGroup,
       result: item.result,
-      screens,
+      screens: matchedScreensOnly ? screens.filter(screen => {
+        return item.result?.evidenceImages.some(image => {
+          return image.fileName === screen.image.fileName
+            || (image.base64.trim() !== '' && image.base64 === screen.image.base64);
+        });
+      }) : screens,
     }];
   });
 };
@@ -785,7 +791,8 @@ export const buildEvidenceGroups = (
   results: CopyTestValidationResultWithEvidence[],
   uploadedImages: CopyTestImage[],
   sourceColumnKey: string,
-  currentResults: CopyTestValidationResultWithEvidence[] = []
+  currentResults: CopyTestValidationResultWithEvidence[] = [],
+  matchedScreensOnly = false
 ): EvidenceGroup[] => {
   /** 所有原子来源行组与聚合校验结果的顺序绑定。 */
   const items = buildLogicalRowResults(rowGroups, results);
@@ -801,7 +808,7 @@ export const buildEvidenceGroups = (
     const screens = createScreenRefs(plan.screens, plan.anchorRowIndex, sourceColumnKey);
     return {
       anchorRowIndex: plan.anchorRowIndex,
-      rowGroups: buildEvidenceGroupRows(plan.rowResults, itemByAnchorRowIndex, screens),
+      rowGroups: buildEvidenceGroupRows(plan.rowResults, itemByAnchorRowIndex, screens, matchedScreensOnly),
       rowSpan: plan.rowSpan,
       screens,
       sourceRowGroups: buildEvidenceSourceRowGroups(
@@ -1051,7 +1058,8 @@ export const applyCopyTestValidationResults = (
   selectedColumnIndex: number,
   selectedColumnLabel: string,
   uploadedImages: CopyTestImage[],
-  currentResults: CopyTestValidationResultWithEvidence[] = results
+  currentResults: CopyTestValidationResultWithEvidence[] = results,
+  matchedScreensOnly = false
 ): CopyTestWorkingTable => {
   /** 已补齐当前来源列双列及严格 ownership 的编辑上下文。 */
   const ensured = ensureCopyTestGeneratedColumns(table.workingHtml, selectedColumnIndex, selectedColumnLabel);
@@ -1080,7 +1088,8 @@ export const applyCopyTestValidationResults = (
     results,
     uploadedImages,
     context.sourceColumnKey,
-    currentResults
+    currentResults,
+    matchedScreensOnly
   );
   writeEvidenceGroupMetadata(doc, context, rowGroups, evidenceGroups);
   /** 本次实际拥有可渲染图片 Result 的来源物理锚点集合。 */

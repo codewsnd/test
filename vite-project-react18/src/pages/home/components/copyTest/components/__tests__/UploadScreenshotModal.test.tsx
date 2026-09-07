@@ -1,14 +1,17 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import UploadScreenshotModal from '../UploadScreenshotModal';
+import { DEFAULT_COPY_TEST_DISPLAY_CONFIGURATION } from '../../types';
 
 vi.mock('@ant-design/icons', () => ({
   DeleteOutlined: () => <span>delete-icon</span>,
   UploadOutlined: () => <span>upload-icon</span>,
+  QuestionCircleOutlined: () => <span>help-icon</span>,
 }));
 
-vi.mock('antd', () => {
+vi.mock('antd', async importOriginal => {
+  const actual = await importOriginal<typeof import('antd')>();
   const Button = ({ children, disabled, loading, onClick, ...props }: { children?: React.ReactNode; disabled?: boolean; loading?: boolean; onClick?: () => void }) => {
     void loading;
     return <button disabled={disabled} onClick={onClick} {...props}>{children}</button>;
@@ -18,7 +21,7 @@ vi.mock('antd', () => {
   ) : null;
   const Space = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>;
   const Typography = { Text: ({ children }: { children?: React.ReactNode }) => <span>{children}</span> };
-  return { Button, Modal, Space, Typography };
+  return { ...actual, Button, Modal, Space, Typography };
 });
 
 describe('UploadScreenshotModal', () => {
@@ -28,6 +31,8 @@ describe('UploadScreenshotModal', () => {
     const onValidate = vi.fn();
     render(
       <UploadScreenshotModal
+        displayConfiguration={DEFAULT_COPY_TEST_DISPLAY_CONFIGURATION}
+        onDisplayConfigurationChange={vi.fn()}
         canValidate={true}
         onClose={vi.fn()}
         onFilesSelected={onFilesSelected}
@@ -58,6 +63,8 @@ describe('UploadScreenshotModal', () => {
 
     render(
       <UploadScreenshotModal
+        displayConfiguration={DEFAULT_COPY_TEST_DISPLAY_CONFIGURATION}
+        onDisplayConfigurationChange={vi.fn()}
         canValidate={false}
         onClose={vi.fn()}
         onFilesSelected={vi.fn()}
@@ -70,7 +77,45 @@ describe('UploadScreenshotModal', () => {
         uploadTotalSize={0}
       />
     );
-    expect(screen.getByText('No screenshots selected')).toBeTruthy();
+    expect(screen.getByText('Drag screenshots here')).toBeTruthy();
+  });
+
+  it.each([true, false])('accepts dropped files without opening the picker on area click when empty=%s', empty => {
+    const onFilesSelected = vi.fn(() => Promise.resolve());
+    render(
+      <UploadScreenshotModal
+        displayConfiguration={DEFAULT_COPY_TEST_DISPLAY_CONFIGURATION}
+        onDisplayConfigurationChange={vi.fn()}
+        canValidate={!empty}
+        onClose={vi.fn()}
+        onFilesSelected={onFilesSelected}
+        onRemoveImage={vi.fn()}
+        onValidate={vi.fn()}
+        open
+        preparingUpload={false}
+        processing={false}
+        uploadImages={empty ? [] : [{ fileName: 'old.png', md5: 'old', base64: 'data:image/png;base64,QQ==', size: 1 }]}
+        uploadTotalSize={empty ? 0 : 1}
+      />
+    );
+    const zone = screen.getByRole('region', { name: 'Screenshot drop area' });
+    const files = [new File(['x'], 'new.png', { type: 'image/png' }), new File(['y'], 'next.png', { type: 'image/png' })];
+    const dataTransfer = { files, dropEffect: 'none' };
+    const dragEvent = createEvent.dragOver(zone, { dataTransfer }) as DragEvent;
+    expect(fireEvent(zone, dragEvent)).toBe(false);
+    expect(dragEvent.dataTransfer?.dropEffect).toBe('copy');
+    expect(fireEvent.drop(zone, { dataTransfer })).toBe(false);
+    expect(onFilesSelected).toHaveBeenCalledExactlyOnceWith(files);
+    fireEvent.drop(zone, { dataTransfer: { files: [] } });
+    expect(onFilesSelected).toHaveBeenCalledTimes(1);
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const click = vi.spyOn(input, 'click').mockImplementation(() => {});
+    fireEvent.click(screen.getByText(/Drag .*screenshots here/));
+    fireEvent.click(zone);
+    expect(click).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Select screenshots'));
+    expect(click).toHaveBeenCalledTimes(1);
+    click.mockRestore();
   });
 
   it.each([
@@ -89,6 +134,8 @@ describe('UploadScreenshotModal', () => {
 
     render(
       <UploadScreenshotModal
+        displayConfiguration={DEFAULT_COPY_TEST_DISPLAY_CONFIGURATION}
+        onDisplayConfigurationChange={vi.fn()}
         canValidate={true}
         onClose={vi.fn()}
         onFilesSelected={onFilesSelected}
@@ -124,6 +171,14 @@ describe('UploadScreenshotModal', () => {
     fireEvent.click(selectButton as HTMLButtonElement);
     fireEvent.click(deleteButton);
     fireEvent.click(validateButton as HTMLButtonElement);
+    const zone = screen.getByRole('region', { name: 'Screenshot drop area' });
+    const dataTransfer = { files: [new File(['x'], 'new.png', { type: 'image/png' })], dropEffect: 'copy' };
+    const dragEvent = createEvent.dragOver(zone, { dataTransfer }) as DragEvent;
+    fireEvent(zone, dragEvent);
+    expect(dragEvent.dataTransfer?.dropEffect).toBe('none');
+    fireEvent.drop(zone, { dataTransfer });
+    expect(zone.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(screen.getByText('Drag more screenshots here'));
     expect(onFilesSelected).not.toHaveBeenCalled();
     expect(onRemoveImage).not.toHaveBeenCalled();
     expect(onValidate).not.toHaveBeenCalled();

@@ -4,12 +4,14 @@
 import { useMemo, useReducer, useRef } from 'react';
 import type { CopyTestImage, CopyTestRowInput } from '../api/copyTestApi';
 import type {
+  CopyTestDisplayConfiguration,
   CopyTestEvidenceDeleteTarget,
   CopyTestHeader,
   CopyTestResultStatusUpdate,
   CopyTestTableEntry,
   CopyTestValidationResultWithEvidence,
 } from '../types';
+import { mergeCopyTestMatchedResults } from '../utils/copyTestValidationMerge';
 import {
   applyCopyTestValidationResults,
   bindResultImages,
@@ -72,7 +74,8 @@ export interface UseCopyTestSessionResult {
     images: CopyTestImage[],
     selectedColumnIndex: number,
     selectedColumnLabel: string,
-    tableIndex: number
+    tableIndex: number,
+    configuration?: CopyTestDisplayConfiguration
   ) => void;
   /** 生成当前选中来源原子组的 AI 校验输入。 */
   buildSelectedRowsForValidation: () => CopyTestRowInput[];
@@ -131,6 +134,7 @@ const EMPTY_VALIDATION_IMAGES: CopyTestImage[] = [];
 
 /** 构建局部校验覆盖快照所需的上下文。 */
 interface BuildOverwrittenValidationSnapshotParams {
+  configuration?: CopyTestDisplayConfiguration;
   /** 当前 Comparison Column 的逻辑列下标。 */
   columnIndex: number;
   /** 当前 Comparison Column 的原始表头文本。 */
@@ -254,6 +258,7 @@ const getReferencedValidationImageFileNames = (
 
 /** 从 working DOM 恢复历史结果，并用本批结果覆盖目标行。 */
 const buildOverwrittenValidationSnapshot = ({
+  configuration,
   columnIndex,
   columnLabel,
   currentImages,
@@ -281,14 +286,16 @@ const buildOverwrittenValidationSnapshot = ({
     availableImages
   );
   /** 本批结果覆盖同行历史后的完整逐行结果。 */
-  const overwrittenResults = overwriteCopyTestValidationResults(
-    historicalResults,
-    currentResults
-  );
+  const overwrittenResults = configuration
+    ? mergeCopyTestMatchedResults(historicalResults, currentResults, configuration.evidenceUpdateMode)
+    : overwriteCopyTestValidationResults(historicalResults, currentResults);
   /** 完整结果当前仍实际引用的 Evidence 文件名。 */
   const referencedFileNames = getReferencedValidationImageFileNames(overwrittenResults);
   /** 仅保存仍被结果引用的图片，并优先沿用真实 base64。 */
-  const referencedImages = availableImages.filter(image => referencedFileNames.has(image.fileName));
+  const orderedImages = configuration?.evidenceUpdateMode === 'add'
+    ? mergeCopyTestImageIdentities(historicalResults.flatMap(result => result.evidenceImages), availableImages)
+    : availableImages;
+  const referencedImages = orderedImages.filter(image => referencedFileNames.has(image.fileName));
   return {
     images: referencedImages,
     results: bindResultImages(overwrittenResults, referencedImages),
@@ -612,12 +619,19 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
 
   /** 应用校验结果。 */
   const applyValidationResults = (
-    results: CopyTestValidationResultWithEvidence[],
+    inputResults: CopyTestValidationResultWithEvidence[],
     images: CopyTestImage[],
     columnIndex: number,
     columnLabel: string,
-    tableIndex: number
+    tableIndex: number,
+    configuration?: CopyTestDisplayConfiguration
   ): void => {
+    const results = configuration
+      ? inputResults.filter(result => result.evidenceImages.length > 0)
+      : inputResults;
+    if (configuration && results.length === 0) {
+      return;
+    }
     /** 校验发起时锁定的目标工作表格。 */
     const targetTable = tables.find(table => table.index === tableIndex);
     if (!targetTable) {
@@ -628,6 +642,7 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     const snapshotKey = buildSnapshotKey(tableIndex, columnIndex, columnLabel);
     /** working DOM 历史由本次局部结果覆盖后的完整 Pair 快照。 */
     const overwrittenSnapshot = buildOverwrittenValidationSnapshot({
+      configuration,
       columnIndex,
       columnLabel,
       currentImages: images,
@@ -647,7 +662,8 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
       columnIndex,
       columnLabel,
       overwrittenSnapshot.images,
-      results
+      results,
+      Boolean(configuration)
     );
     /** 以 Planner 已写入的规范 Screen 身份作为快照唯一真相。 */
     const renderedSnapshot = buildRenderedValidationSnapshot(

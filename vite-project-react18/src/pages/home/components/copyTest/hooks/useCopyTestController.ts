@@ -17,11 +17,16 @@ import { parseCopyTestStorageTables } from '../table/copyTestTableParser';
 import { buildConfluenceStorageTableExportPayload } from '../table/copyTestTableImages';
 import { getCopyTestImageId } from '../table/copyTestImageUtils';
 import { createCopyTestExportScope } from '../table/copyTestExportScope';
+import { CopyTestExportError } from '../table/copyTestExportErrors';
 import type {
+  CopyTestDisplayConfiguration,
   CopyTestEvidenceDeleteTarget,
   CopyTestEvidencePreviewInfo,
   CopyTestResultStatusUpdate,
 } from '../types';
+import { DEFAULT_COPY_TEST_DISPLAY_CONFIGURATION } from '../types';
+import { resetCopyTestValidationMockSequence } from '../mock/validationMock';
+import { countCopyTestMatchedImages, selectCopyTestMatchedResults } from '../utils/copyTestValidationMerge';
 import {
   getConfluenceTableError,
   getConfluenceUrlError,
@@ -30,7 +35,7 @@ import {
 } from '../utils/urlUtils';
 import {
   getCopyTestValidationContext,
-  getRequiredExportStorage,
+  getRequiredExportStorageOrThrow,
   type CopyTestValidationContext,
 } from '../utils/copyTestControllerUtils';
 import {
@@ -42,12 +47,14 @@ import { useCopyTestUpload, type UseCopyTestUploadResult } from './useCopyTestUp
 
 /** CopyTest 控制器初始化参数。 */
 interface CopyTestControllerParams {
+  notifications?: Pick<typeof message, 'error' | 'success' | 'warning'>;
   /** 主弹窗关闭后的外部回调。 */
   onClose: () => void;
 }
 
 /** CopyTest 页面直接消费的控制器状态。 */
 interface CopyTestControllerState {
+  displayConfiguration: CopyTestDisplayConfiguration;
   /** 当前生成双列是否允许导出到 Confluence。 */
   canExportToConfluence: boolean;
   /** 当前选择是否允许打开截图上传弹窗。 */
@@ -86,6 +93,7 @@ interface CopyTestControllerState {
 
 /** CopyTest 页面可触发的控制器操作。 */
 interface CopyTestControllerHandlers {
+  handleDisplayConfigurationChange: (value: CopyTestDisplayConfiguration) => void;
   /** 取消 Evidence 图片删除确认。 */
   handleCancelEvidenceImageDelete: () => void;
   /** 取消 Confluence 导出确认。 */
@@ -147,9 +155,6 @@ interface ComparisonAttachmentRequestContext {
 /** 页面状态和操作组成的 CopyTest 控制器结果。 */
 export interface CopyTestControllerResult extends CopyTestControllerState, CopyTestControllerHandlers {}
 
-/** AI 校验和本地表格写入成功后的提示。 */
-const COPY_TEST_VALIDATION_SUCCESS_MESSAGE = 'Copy test validation completed';
-
 /** Confluence storage 或附件导入失败时显示在输入框下方的文案。 */
 const CONFLUENCE_IMPORT_ERROR = 'Failed to load Confluence tables. Please check whether your Confluence URL or Confluence token is correct.';
 
@@ -174,9 +179,13 @@ const waitForNextPaint = async (): Promise<void> => {
 
 /** 读取最新 Confluence storage 作为导出基线。 */
 const loadLatestExportStorage = async (confluenceUrl: string): Promise<string> => {
-  /** 最新 Confluence storage 接口响应。 */
-  const response = await copyTestStorageApi(confluenceUrl);
-  return response.storage;
+  try {
+    const response = await copyTestStorageApi(confluenceUrl);
+    return response.storage;
+  } catch (error) {
+    console.error('Failed to load Confluence storage for export:', error);
+    throw new CopyTestExportError('STORAGE_READ_FAILED');
+  }
 };
 
 /** 判断两次读取的 Confluence Storage 是否发生变化。 */
@@ -211,16 +220,13 @@ export const mergeCopyTestExportImages = (
 const prepareLatestExportStorage = async (
   confluenceUrl: string,
   tableState: UseCopyTestSessionResult
-): Promise<PreparedExportStorage | null> => {
+): Promise<PreparedExportStorage> => {
   /** 本次双读和 rebase 全程复用的导出作用域。 */
   const exportScope = createCopyTestExportScope();
   /** 第一次读取的最新 storage 候选基线。 */
   const firstBase = await loadLatestExportStorage(confluenceUrl);
   /** 在第一次候选基线上生成的当前 Pair patch。 */
-  const firstPatch = getRequiredExportStorage(tableState, exportScope, firstBase);
-  if (!firstPatch) {
-    return null;
-  }
+  const firstPatch = getRequiredExportStorageOrThrow(tableState, exportScope, firstBase);
 
   /** POST 前确认 Confluence 未被再次修改的第二份 storage。 */
   const confirmedBase = await loadLatestExportStorage(confluenceUrl);
@@ -228,14 +234,16 @@ const prepareLatestExportStorage = async (
     return { exportScope, storageHtml: firstPatch };
   }
   /** storage 已变化时在第二份基线上重放的当前 Pair patch。 */
-  const rebasedPatch = getRequiredExportStorage(tableState, exportScope, confirmedBase);
-  return rebasedPatch ? { exportScope, storageHtml: rebasedPatch } : null;
+  const rebasedPatch = getRequiredExportStorageOrThrow(tableState, exportScope, confirmedBase);
+  return { exportScope, storageHtml: rebasedPatch };
 };
 
 /** 封装 useCopyTestController Hook 的状态和操作。 */
 export const useCopyTestController = ({
   onClose,
+  notifications = message,
 }: CopyTestControllerParams): CopyTestControllerResult => {
+  const [displayConfiguration, setDisplayConfiguration] = useState(DEFAULT_COPY_TEST_DISPLAY_CONFIGURATION);
 
   /** URL 输入框值及其更新函数。 */
   const [confluenceUrl, setConfluenceUrl] = useState('');
@@ -285,6 +293,7 @@ export const useCopyTestController = ({
 
   /** 只允许当前会话中最后一次 AI 校验请求提交状态。 */
   const validationRequestIdRef = useRef(0);
+  const validationInProgressRef = useRef(false);
 
   /** 同步标记当前是否存在可操作的已导入会话。 */
   const sessionReadyRef = useRef(false);
@@ -293,7 +302,7 @@ export const useCopyTestController = ({
   const exportInProgressRef = useRef(false);
 
   /** 当前截图上传列表状态。 */
-  const uploadState = useCopyTestUpload();
+  const uploadState = useCopyTestUpload(notifications);
 
   /** 手动触发的 Confluence storage 请求状态。 */
   const storageRequest = useRequest(copyTestStorageApi, {
@@ -345,6 +354,12 @@ export const useCopyTestController = ({
     validationLoading,
   });
 
+  const handleDisplayConfigurationChange = (value: CopyTestDisplayConfiguration): void => {
+    if (!uploadBusy && !validationInProgressRef.current) {
+      setDisplayConfiguration(value);
+    }
+  };
+
   /** 关闭当前 Evidence 大图预览。 */
   const handleClosePreviewImage = (): void => {
     setPreviewImage(null);
@@ -369,6 +384,7 @@ export const useCopyTestController = ({
     sessionIdRef.current += 1;
     comparisonAttachmentRequestIdRef.current += 1;
     validationRequestIdRef.current += 1;
+    validationInProgressRef.current = false;
     resetImportedSessionState();
   };
 
@@ -427,6 +443,7 @@ export const useCopyTestController = ({
         return;
       }
       sessionReadyRef.current = true;
+      resetCopyTestValidationMockSequence();
       setLoadedConfluenceUrl(trimmedUrl);
     } catch (error) {
       if (requestId !== importRequestIdRef.current) {
@@ -480,7 +497,7 @@ export const useCopyTestController = ({
         return;
       }
       console.error('Failed to load Test Evidence attachments:', error);
-      message.error(CONFLUENCE_ATTACHMENT_ERROR);
+      notifications.error(CONFLUENCE_ATTACHMENT_ERROR);
     } finally {
       if (isCurrentComparisonAttachmentRequest(context)) {
         setComparisonColumnLoading(false);
@@ -548,7 +565,7 @@ export const useCopyTestController = ({
     /** 用户点击 Confirm 时的最新表格会话，避免使用打开弹窗时的旧闭包。 */
     const exportTableState = tableStateRef.current;
     if (!exportTableState.originalStorageHtml) {
-      message.warning('No Confluence storage to export');
+      notifications.warning('No Confluence storage to export');
       return;
     }
 
@@ -566,10 +583,6 @@ export const useCopyTestController = ({
 
       /** 在最新 storage 上生成或 rebase 后的导出内容。 */
       const preparedStorage = await prepareLatestExportStorage(trimmedUrl, exportTableState);
-      if (!preparedStorage) {
-        message.warning('Confluence table changed. Please import the page again.');
-        return;
-      }
 
       /** 当前 Pair 校验快照与临时上传列表的去重合集。 */
       const exportImages = mergeCopyTestExportImages(
@@ -580,7 +593,7 @@ export const useCopyTestController = ({
       /** 当前 Comparison Column 的严格 ownership 键。 */
       const sourceColumnKey = exportTableState.selectedColumnContext?.sourceColumnKey;
       if (!sourceColumnKey) {
-        message.warning('Please select a table and column first');
+        notifications.warning('Please select a table and column first');
         return;
       }
       /** 仅包含实际 Evidence 附件的最终 storage 上传数据。 */
@@ -595,10 +608,14 @@ export const useCopyTestController = ({
         ...payload,
       });
       exportTableState.commitExportedStorage(payload.storageHtml);
-      message.success('Export to Confluence successful');
+      notifications.success('Export to Confluence successful');
     } catch (error) {
+      if (error instanceof CopyTestExportError) {
+        notifications.warning(error.message);
+        return;
+      }
       console.error('Export to Confluence failed:', error);
-      message.error('Export to Confluence failed');
+      notifications.error('Export to Confluence failed');
       throw error;
     } finally {
       exportInProgressRef.current = false;
@@ -655,28 +672,37 @@ export const useCopyTestController = ({
     context: CopyTestValidationContext,
     images: CopyTestImage[],
     requestId: number,
-    sessionId: number
-  ): Promise<boolean> => {
+    sessionId: number,
+    configuration: CopyTestDisplayConfiguration
+  ): Promise<number | null> => {
     /** mock 或真实 aiChat 返回的严格校验结果。 */
     const results = await copyTestValidationApi(
       images,
       context.rows,
-      context.selectedColumnLabel
+      context.selectedColumnLabel,
+      configuration
     );
     if (!isCurrentValidationRequest(requestId, sessionId)) {
-      return false;
+      return null;
+    }
+
+    const matchedResults = selectCopyTestMatchedResults(results, images, context.rows, configuration.evidenceMode);
+    const matchedCount = countCopyTestMatchedImages(matchedResults);
+    if (matchedCount === 0) {
+      return 0;
     }
 
     /** 按返回的附件文件名绑定本次上传内存图片后的结果。 */
-    const boundResults = bindResultImages(results, images);
+    const boundResults = bindResultImages(matchedResults, images);
     tableState.applyValidationResults(
       boundResults,
       images,
       context.selectedColumnIndex,
       context.selectedColumnLabel,
-      context.selectedTable.index
+      context.selectedTable.index,
+      configuration
     );
-    return true;
+    return matchedCount;
   };
 
   /** 记录等待用户确认删除的 Evidence 图片实例。 */
@@ -702,7 +728,7 @@ export const useCopyTestController = ({
     /** 当前 source Pair 内精确图片实例的删除结果。 */
     const result = tableState.deleteEvidenceImage(deleteImageTarget);
     if (!result.removed) {
-      message.warning('Screenshot cannot be deleted from the current table');
+      notifications.warning('Screenshot cannot be deleted from the current table');
     }
     if (previewImage?.imageId === deleteImageTarget.imageId && !result.imageStillUsed) {
       handleClosePreviewImage();
@@ -735,7 +761,7 @@ export const useCopyTestController = ({
 
   /** 校验上传与选择上下文并执行一次 AI 校验。 */
   const handleValidateClick = async (): Promise<void> => {
-    if (!sessionReadyRef.current || comparisonColumnLoading) {
+    if (!canValidate || validationInProgressRef.current) {
       return;
     }
 
@@ -752,28 +778,36 @@ export const useCopyTestController = ({
     validationRequestIdRef.current = requestId;
     /** 校验发起时所属的导入会话编号。 */
     const sessionId = sessionIdRef.current;
+    const configuration = { ...displayConfiguration };
+    validationInProgressRef.current = true;
     setValidationLoading(true);
     try {
-      const applied = await applyValidationResults(
+      const matchedCount = await applyValidationResults(
         context,
         requestImages,
         requestId,
-        sessionId
+        sessionId,
+        configuration
       );
-      if (!applied) {
+      if (matchedCount === null) {
+        return;
+      }
+      if (matchedCount === 0) {
+        notifications.warning('No matching screenshots found. Existing results and evidence were kept.');
         return;
       }
       setUploadModalOpen(false);
       uploadState.resetUploadState();
-      message.success(COPY_TEST_VALIDATION_SUCCESS_MESSAGE);
+      notifications.success(`Matched ${matchedCount} screenshot${matchedCount === 1 ? '' : 's'}. Results updated.`);
     } catch (error) {
       if (!isCurrentValidationRequest(requestId, sessionId)) {
         return;
       }
       console.error('Copy test validation failed:', error);
-      message.error('Copy test validation failed');
+      notifications.error('Copy test validation failed');
     } finally {
       if (isCurrentValidationRequest(requestId, sessionId)) {
+        validationInProgressRef.current = false;
         setValidationLoading(false);
       }
     }
@@ -793,6 +827,8 @@ export const useCopyTestController = ({
   };
 
   return {
+    displayConfiguration,
+    handleDisplayConfigurationChange,
     canExportToConfluence: hasActiveImportedSession
       && !comparisonColumnLoading
       && canExportToConfluence,

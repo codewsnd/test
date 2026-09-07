@@ -2,23 +2,27 @@
  * 文件作用：渲染截图上传弹窗、截图列表和 Validate 操作入口。
  */
 import React, { useRef } from 'react';
-import { Button, Modal, Space, Typography } from 'antd';
+import { Button, Image, Modal, Space, Typography } from 'antd';
 import { DeleteOutlined, UploadOutlined } from '@ant-design/icons';
 import { MAX_UPLOAD_IMAGE_COUNT, MAX_UPLOAD_TOTAL_LABEL } from '../constants';
 import type { CopyTestMemoryImage } from '../types';
 import { formatFileSize } from '../utils/uploadUtils';
+import { CopyTestDisplayConfiguration } from './CopyTestDisplayConfiguration';
+import type { CopyTestDisplayConfiguration as DisplayConfiguration } from '../types';
 
 /** Ant Design 文本组件的局部别名。 */
 const { Text } = Typography;
 
 /** 截图缩略图尺寸。 */
-const IMAGE_PREVIEW_SIZE = 64;
+const IMAGE_PREVIEW_HEIGHT = 60;
 
 /** 截图辅助信息使用的 Ant Design 文本类型。 */
 const TEXT_TYPE_SECONDARY = 'secondary';
 
 /** 上传截图弹窗组件的入参。 */
 interface UploadScreenshotModalProps {
+  displayConfiguration: DisplayConfiguration;
+  onDisplayConfigurationChange: (value: DisplayConfiguration) => void;
   /** 当前截图集合是否满足校验前置条件。 */
   canValidate: boolean;
   /** 关闭上传弹窗的回调。 */
@@ -41,8 +45,8 @@ interface UploadScreenshotModalProps {
   uploadTotalSize: number;
 }
 
-/** 单张上传截图行的入参。 */
-interface UploadImageRowProps {
+/** 单张上传截图卡片的入参。 */
+interface UploadImageCardProps {
   /** 当前截图列表交互是否被异步任务锁定。 */
   disabled: boolean;
   /** 需要展示的内存截图。 */
@@ -71,8 +75,8 @@ const UploadLimitSummary: React.FC<Pick<
   );
 };
 
-/** 渲染单张截图预览行。 */
-const UploadImageRow: React.FC<UploadImageRowProps> = ({
+/** 渲染支持放大预览的截图卡片。 */
+const UploadImageCard: React.FC<UploadImageCardProps> = ({
   disabled,
   image,
   onRemoveImage,
@@ -80,26 +84,27 @@ const UploadImageRow: React.FC<UploadImageRowProps> = ({
   /** 上传列表展示原始文件名，内部 AI/附件标识保持 ASCII-safe。 */
   const displayName = image.originalFileName || image.fileName;
   return (
-    <div className="flex items-center gap-3 rounded border border-gray-200 px-3 py-2">
-      <img
+    <div className="min-w-0 rounded border border-gray-200 p-1">
+      <Image
         alt={displayName}
         src={image.base64}
-        className="shrink-0 rounded border border-gray-200 object-cover"
-        style={{
-          width: IMAGE_PREVIEW_SIZE,
-          height: IMAGE_PREVIEW_SIZE,
-        }}
+        width="100%"
+        height={IMAGE_PREVIEW_HEIGHT}
+        className="rounded bg-gray-50 object-contain"
       />
-      <div className="min-w-0 flex-1">
-        <Text className="block truncate">{displayName}</Text>
-        <Text type={TEXT_TYPE_SECONDARY}>{formatFileSize(image.size)}</Text>
+      <Text className="mt-1 block truncate text-xs" title={displayName}>{displayName}</Text>
+      <div className="mt-1 flex min-w-0 flex-col items-center gap-1">
+        <Text className="block w-full truncate text-xs" type={TEXT_TYPE_SECONDARY} title={formatFileSize(image.size)}>
+          {formatFileSize(image.size)}
+        </Text>
+        <Button
+          size="small"
+          aria-label={`Delete ${displayName}`}
+          disabled={disabled}
+          icon={<DeleteOutlined />}
+          onClick={() => onRemoveImage(image.md5)}
+        />
       </div>
-      <Button
-        aria-label={`Delete ${displayName}`}
-        disabled={disabled}
-        icon={<DeleteOutlined />}
-        onClick={() => onRemoveImage(image.md5)}
-      />
     </div>
   );
 };
@@ -118,29 +123,73 @@ const UploadImageList: React.FC<Pick<
   const disabled = preparingUpload || processing;
 
   if (uploadImages.length === 0) {
-    return (
-      <div className="rounded border border-dashed border-gray-300 px-4 py-8 text-center">
-        <Text type={TEXT_TYPE_SECONDARY}>No screenshots selected</Text>
-      </div>
-    );
+    return null;
   }
 
   return (
-    <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
-      {uploadImages.map(image => (
-        <UploadImageRow
-          key={image.md5}
-          disabled={disabled}
-          image={image}
-          onRemoveImage={onRemoveImage}
-        />
-      ))}
-    </div>
+    <Image.PreviewGroup>
+      <div
+        className="grid max-h-[360px] gap-1 overflow-y-auto pr-1"
+        style={{ gridTemplateColumns: 'repeat(10, minmax(0, 1fr))' }}
+      >
+        {uploadImages.map(image => (
+          <UploadImageCard
+            key={image.md5}
+            disabled={disabled}
+            image={image}
+            onRemoveImage={onRemoveImage}
+          />
+        ))}
+      </div>
+    </Image.PreviewGroup>
+  );
+};
+
+/** 空列表和已有图片时均支持拖入文件，统一交给现有上传校验处理。 */
+const ScreenshotDropZone: React.FC<{
+  children: React.ReactNode;
+  disabled: boolean;
+  empty: boolean;
+  onFilesSelected: UploadScreenshotModalProps['onFilesSelected'];
+}> = ({ children, disabled, empty, onFilesSelected }) => {
+  const handleDragOver = (event: React.DragEvent<HTMLElement>): void => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = disabled ? 'none' : 'copy';
+  };
+
+  const handleDrop = async (event: React.DragEvent<HTMLElement>): Promise<void> => {
+    event.preventDefault();
+    event.stopPropagation();
+    const files = Array.from(event.dataTransfer.files);
+    if (disabled || files.length === 0) {
+      return;
+    }
+    await onFilesSelected(files);
+  };
+
+  return (
+    <section
+      aria-label="Screenshot drop area"
+      aria-disabled={disabled}
+      className="rounded border border-dashed border-gray-300 p-2"
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      <div
+        className={`flex w-full items-center justify-center gap-2 text-gray-500 ${disabled ? 'opacity-50' : ''} ${empty ? 'py-8' : 'mb-2 py-2'}`}
+      >
+        <UploadOutlined />
+        {empty ? 'Drag screenshots here' : 'Drag more screenshots here'}
+      </div>
+      {children}
+    </section>
   );
 };
 
 /** 渲染上传截图并触发校验的弹窗。 */
 export const UploadScreenshotModal: React.FC<UploadScreenshotModalProps> = ({
+  displayConfiguration,
+  onDisplayConfigurationChange,
   canValidate,
   onClose,
   onFilesSelected,
@@ -202,6 +251,11 @@ export const UploadScreenshotModal: React.FC<UploadScreenshotModalProps> = ({
         >
           Select screenshots
         </Button>
+        <CopyTestDisplayConfiguration
+          disabled={uploadInteractionDisabled}
+          value={displayConfiguration}
+          onChange={onDisplayConfigurationChange}
+        />
         <input
           ref={fileInputRef}
           type="file"
@@ -211,12 +265,18 @@ export const UploadScreenshotModal: React.FC<UploadScreenshotModalProps> = ({
           className="hidden"
           onChange={handleFilesSelected}
         />
-        <UploadImageList
-          onRemoveImage={onRemoveImage}
-          preparingUpload={preparingUpload}
-          processing={processing}
-          uploadImages={uploadImages}
-        />
+        <ScreenshotDropZone
+          disabled={uploadInteractionDisabled}
+          empty={uploadImages.length === 0}
+          onFilesSelected={onFilesSelected}
+        >
+          <UploadImageList
+            onRemoveImage={onRemoveImage}
+            preparingUpload={preparingUpload}
+            processing={processing}
+            uploadImages={uploadImages}
+          />
+        </ScreenshotDropZone>
       </Space>
     </Modal>
   );

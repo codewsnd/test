@@ -8,6 +8,7 @@ import {
 import { getEmployeeId } from '@/utils/userUtils';
 import {
   buildCopyTestValidationPrompt,
+  COPY_TEST_CONFIGURED_VALIDATION_SYSTEM_PROMPT,
   COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS,
   COPY_TEST_MAX_LANGUAGE_ISSUES_PER_ROW,
   COPY_TEST_MAX_OUTPUT_TOKENS,
@@ -15,6 +16,7 @@ import {
   COPY_TEST_VALIDATION_SYSTEM_PROMPT,
 } from '../prompt/copyTestValidationPrompt';
 import { mockCopyTestAiChat } from '../mock/validationMock';
+import type { CopyTestDisplayConfiguration } from '../types';
 
 /** Spring Boot 后端服务地址。 */
 const API_URL = import.meta.env.VITE_API_SPRINGBOOT3_BACKEND_URL || 'http://localhost:8081';
@@ -39,7 +41,7 @@ const IMAGE_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i;
 /** 轮次 Mock 保持 loading 可感知的最短等待时间。 */
 const MOCK_VALIDATION_DELAY_MS = 300;
 
-/** 仅在显式的本地环境开关为 true 时启用按调用轮次变化的 AI 校验结果。 */
+/** 当前组件固定启用本地 Mock，使用真实接口时显式关闭。 */
 export const COPY_TEST_AI_CHAT_MOCK_ENABLED = true;
 
 /** Confluence storage 查询接口的返回结构。 */
@@ -381,7 +383,8 @@ const getImageDataUrl = (image: CopyTestImage): string => {
 export const buildCopyTestValidationRequest = (
   images: CopyTestImage[],
   rows: CopyTestRowInput[],
-  targetColumnName: string
+  targetColumnName: string,
+  configuration?: CopyTestDisplayConfiguration
 ): AiChatRequest => {
   return {
     maxTokens: COPY_TEST_MAX_OUTPUT_TOKENS,
@@ -395,14 +398,15 @@ export const buildCopyTestValidationRequest = (
     messages: [
       {
         role: 'system',
-        content: COPY_TEST_VALIDATION_SYSTEM_PROMPT,
+        content: configuration ? COPY_TEST_CONFIGURED_VALIDATION_SYSTEM_PROMPT : COPY_TEST_VALIDATION_SYSTEM_PROMPT,
       },
       {
         role: 'user',
         content: buildCopyTestValidationPrompt(
           rows,
           targetColumnName,
-          images.map(image => image.fileName)
+          images.map(image => image.fileName),
+          configuration?.evidenceMode
         ),
       },
     ],
@@ -436,10 +440,11 @@ const executeValidationRequest = async (
 export const copyTestValidationApi = async (
   images: CopyTestImage[],
   rows: CopyTestRowInput[],
-  targetColumnName: string
+  targetColumnName: string,
+  configuration?: CopyTestDisplayConfiguration
 ): Promise<CopyTestValidationResult[]> => {
   /** 当前校验稳定 system prompt 与运行时 JSON 分离后的请求。 */
-  const request = buildCopyTestValidationRequest(images, rows, targetColumnName);
+  const request = buildCopyTestValidationRequest(images, rows, targetColumnName, configuration);
   /** Mock 与真实 aiChat 完全相同的响应外层对象。 */
   const response = await executeValidationRequest(request);
   return parseCopyTestValidationResponse(response, images, rows);

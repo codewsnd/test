@@ -9,6 +9,7 @@ import CopyTest, {
 const CONFLUENCE_URL_TITLE = 'Confluence URL';
 
 const hoisted = vi.hoisted(() => ({
+  notifications: { error: vi.fn(), warning: vi.fn(), success: vi.fn() },
   /** CopyTest 本地文件导出门面的测试替身。 */
   exportCopyTestTable: vi.fn(),
   /** 先后选择两个 Comparison Column 后累计的会话缓存。 */
@@ -89,6 +90,7 @@ vi.mock('../hooks/useCopyTestController', () => ({
 
 vi.mock('antd', () => ({
   message: {
+    useMessage: () => [hoisted.notifications, <span key="notifications" data-testid="copy-test-notifications" />],
     error: vi.fn(),
     warning: vi.fn(),
   },
@@ -140,6 +142,7 @@ describe('CopyTest', () => {
     render(<CopyTest open={true} onClose={vi.fn()} />);
     expect(screen.getByText(CONFLUENCE_URL_TITLE)).toBeTruthy();
     expect(screen.getByText('import-bar')).toBeTruthy();
+    expect(screen.getByTestId('copy-test-notifications')).toBeTruthy();
     expect(screen.getByText('loading-block')).toBeTruthy();
     expect(screen.getByText('selectors')).toBeTruthy();
     expect(screen.getByText('table-preview')).toBeTruthy();

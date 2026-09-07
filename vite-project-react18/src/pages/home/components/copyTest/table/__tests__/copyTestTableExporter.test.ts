@@ -11,7 +11,8 @@ import {
   parseCopyTestStorageTables,
   type CopyTestWorkingTable,
 } from '../copyTestTableParser';
-import { buildCurrentColumnExportStorage } from '../copyTestTableExporter';
+import { buildCurrentColumnExportStorage, buildCurrentColumnExportStorageOrThrow } from '../copyTestTableExporter';
+import { CopyTestExportError, type CopyTestExportErrorCode } from '../copyTestExportErrors';
 import {
   getRawRangeText,
   hasUnchangedNonTargetRaw,
@@ -301,6 +302,51 @@ const buildSelectedRowSpanTable = (
 };
 
 describe('copyTestTableExporter', () => {
+  it('expands overlapping latest and working Evidence ranges transitively while preserving other rows and columns', () => {
+    const buildChainedTable = (prefix: string, evidenceSpans: number[]): string => {
+      const rows = evidenceSpans.map((span, index) => [
+        `<tr><td>${index + 1}</td><td>French ${index + 1}</td><td>German ${index + 1}</td>`,
+        buildOwnedCell('result', FRENCH_SOURCE_KEY, `${prefix} result ${index + 1}`),
+        span > 0 ? buildOwnedCell('evidence', FRENCH_SOURCE_KEY, `${prefix} evidence ${index + 1}`, span) : '',
+        buildOwnedCell('result', GERMAN_SOURCE_KEY, `${prefix} German result ${index + 1}`),
+        index === 0 ? buildOwnedCell('evidence', GERMAN_SOURCE_KEY, `${prefix} German evidence`, 5) : '',
+        '</tr>',
+      ].join(''));
+      return [
+        '<table><tr><th>ID</th><th>French</th><th>German</th>',
+        buildOwnedHeader('result', FRENCH_SOURCE_KEY, 'Test Result - French'),
+        buildOwnedHeader('evidence', FRENCH_SOURCE_KEY, 'Test Evidence - French'),
+        buildOwnedHeader('result', GERMAN_SOURCE_KEY, 'Test Result - German'),
+        buildOwnedHeader('evidence', GERMAN_SOURCE_KEY, 'Test Evidence - German'),
+        '</tr>', ...rows, '</table>',
+      ].join('');
+    };
+    const latest = buildChainedTable('Latest', [2, 0, 2, 0, 1]);
+    const working = buildChainedTable('Working', [1, 2, 0, 1, 1]);
+    const otherTable = buildSimpleTable('Unrelated');
+    const table = parseCopyTestStorageTables(latest)[0];
+    const selected = [2];
+    const output = buildCurrentColumnExportStorageOrThrow({
+      exportScope: EXPORT_SCOPE_A,
+      originalStorageHtml: latest + otherTable,
+      selectedColumnIndex: 1,
+      selectedColumnLabel: 'French',
+      selectedRowIndexes: selected,
+      table: { ...table, workingHtml: working },
+    });
+    [1, 2, 3, 4].forEach(row => expect(output).toContain(`Working result ${row}`));
+    expect(output).toContain('Latest result 5');
+    expect(output).toContain('Latest evidence 5');
+    expect(output).not.toContain('Working result 5');
+    expect(output).not.toContain('Working German');
+    expect(output).toContain('Latest German evidence');
+    expect(output.endsWith(otherTable)).toBe(true);
+    expect(selected).toEqual([2]);
+    const exportedModel = parseCopyTestStorageTables(output)[0].model;
+    expect(exportedModel.rows.map(row => row.slots.length)).toEqual(table.model.rows.map(row => row.slots.length));
+    expect(exportedModel.rows[2].slots[4]?.cell.rowSpan).toBe(2);
+  });
+
   it('finds reordered Table3 and patches only owner A while preserving foreign, owner B, and other tables raw', () => {
     const importedTarget = buildTargetTable();
     const importStorage = buildPage([
@@ -732,7 +778,7 @@ describe('copyTestTableExporter', () => {
     expect(Array.from(scopedCells).filter(cell => cell.getAttribute('rowspan') === '2')).toHaveLength(2);
   });
 
-  it('fails closed when a latest managed cell crosses the selected-row boundary', () => {
+  it('includes unselected rows covered by the latest Evidence merge', () => {
     const imported = buildSelectedRowSpanTable(
       'Imported grouped result',
       'Imported grouped evidence',
@@ -754,14 +800,46 @@ describe('copyTestTableExporter', () => {
     );
     const importedTable = parseCopyTestStorageTables(imported)[0];
 
-    expect(buildCurrentColumnExportStorage({
+    const exported = buildCurrentColumnExportStorageOrThrow({
       exportScope: EXPORT_SCOPE_A,
       originalStorageHtml: latest,
       selectedColumnIndex: 1,
       selectedColumnLabel: 'French',
       selectedRowIndexes: [0],
       table: { ...importedTable, workingHtml: working },
-    })).toBeNull();
+    });
+    expect(exported).toContain('Working grouped result');
+    expect(exported).toContain('Working grouped evidence');
+    expect(exported).toContain('Stale working trailing result');
+    expect(exported).toContain('Stale working trailing evidence');
+    expect(exported).not.toContain('Latest trailing result');
+  });
+
+  it.each([
+    { code: 'TABLE_NOT_FOUND', latest: '<p>No table</p>' },
+    { code: 'TABLE_AMBIGUOUS', latest: buildTargetTable() + buildTargetTable() },
+    { code: 'SOURCE_COLUMN_CHANGED', latest: buildTargetTable({ sourceText: 'Changed copy' }) },
+    { code: 'WORKING_TABLE_INVALID', working: '<p>No table</p>' },
+    { code: 'WORKING_STRUCTURE_CHANGED', working: buildTargetTable().replace('French</th>', 'Renamed</th>') },
+    { code: 'DUPLICATE_CELLS', working: buildTargetTable().replace('</tr>', `${buildOwnedHeader('result', FRENCH_SOURCE_KEY, 'Duplicate')}</tr>`) },
+    { code: 'IMPORTED_TABLE_INVALID', original: '<p>No table</p>' },
+    { code: 'INVALID_EXPORT_SCOPE', scope: 'invalid' },
+  ] satisfies Array<{ code: CopyTestExportErrorCode; latest?: string; working?: string; original?: string; scope?: string }>)('classifies $code without losing the reason', scenario => {
+    const imported = buildTargetTable();
+    const table = parseCopyTestStorageTables(imported)[0];
+    const input = {
+      exportScope: scenario.scope ?? EXPORT_SCOPE_A,
+      originalStorageHtml: scenario.latest ?? imported,
+      selectedColumnIndex: 1,
+      selectedColumnLabel: 'French',
+      table: {
+        ...table,
+        originalHtml: scenario.original ?? table.originalHtml,
+        workingHtml: scenario.working ?? imported,
+      },
+    };
+    expect(() => buildCurrentColumnExportStorageOrThrow(input)).toThrow(new CopyTestExportError(scenario.code));
+    expect(buildCurrentColumnExportStorage(input)).toBeNull();
   });
 
   it('returns conflict for ambiguous table, changed source text or span, polluted working source, and invalid input', () => {

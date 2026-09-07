@@ -20,6 +20,20 @@ export interface CopyTestProps {
   open?: boolean;
 }
 
+/** 两项配置均针对本批匹配的 Test Evidence，Test Result 根据最终 Evidence 生成。 */
+export interface CopyTestDisplayConfiguration {
+  /** 匹配行的 Evidence 追加或替换方式，无匹配行不变。 */
+  evidenceUpdateMode: 'add' | 'replace';
+  /** 仅限制本批每组匹配图片数量，不裁剪 Add 保留的历史图片。 */
+  evidenceMode: 'single' | 'multiple';
+}
+
+/** 默认保留已有 Evidence，每次为一组追加一张匹配截图。 */
+export const DEFAULT_COPY_TEST_DISPLAY_CONFIGURATION: CopyTestDisplayConfiguration = {
+  evidenceUpdateMode: 'add',
+  evidenceMode: 'single',
+};
+
 /** Confluence 表格的列头信息。 */
 export type CopyTestHeader = CopyTestModelHeader;
 

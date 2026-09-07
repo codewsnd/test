@@ -7,6 +7,7 @@ import {
   COPY_TEST_GENERATED_RESULT_TYPE,
 } from './tableConstants';
 import { isValidCopyTestExportScope } from './copyTestExportScope';
+import { CopyTestExportError } from './copyTestExportErrors';
 import {
   normalizeLabel,
   parseSingleTable,
@@ -41,7 +42,7 @@ export interface BuildCurrentColumnExportStorageParams {
   /** 用户在导入快照中选择的 Comparison Column 标题。 */
   selectedColumnLabel: string;
   /**
-   * 本次允许导出的零基业务数据行；组内任一行命中时会整体导出来源 rowspan 原子组。
+   * 导出的零基业务数据行；自动扩展到来源原子组及最新/本地 Evidence 合并范围。
    * 省略时保留历史全行导出行为，调用方应在用户显式选择行时传入该字段。
    */
   selectedRowIndexes?: readonly number[];
@@ -233,14 +234,20 @@ const locateLatestTable = (
   storageHtml: string,
   oldIndex: number,
   signature: string
-): RawTableView | null => {
+): RawTableView => {
   /** latest storage 中与导入定位签名完全一致的候选表格。 */
   const matches = prioritizeTableViews(createStorageTableViews(storageHtml), oldIndex)
     .filter(
       /** 只保留不可重建内容与导入快照完全一致的表格。 */
       view => buildTableLocatorSignature(view.model) === signature
     );
-  return matches.length === 1 ? matches[0] : null;
+  if (matches.length === 0) {
+    throw new CopyTestExportError('TABLE_NOT_FOUND');
+  }
+  if (matches.length > 1) {
+    throw new CopyTestExportError('TABLE_AMBIGUOUS');
+  }
+  return matches[0];
 };
 
 /** 读取 header 中所有 non-managed 逻辑列。 */
@@ -391,6 +398,59 @@ const buildSelectedPhysicalRowIndexes = (
     }
   });
   return selectedPhysicalRows;
+};
+
+/** 同一来源列的 Evidence 合并范围，排除其他列、表头及非 managed 单元格。 */
+const getEvidenceExportRanges = (
+  model: CopyTestTableModel,
+  sourceColumnKey: string
+): Array<{ anchorRowIndex: number; rowSpan: number }> => {
+  return model.rows.slice(1).flatMap(row => row.cells
+    .filter(cell => isTargetManagedCell(cell, COPY_TEST_GENERATED_EVIDENCE_TYPE, sourceColumnKey))
+    .map(cell => ({ anchorRowIndex: cell.rowIndex, rowSpan: cell.rowSpan })));
+};
+
+/** 判断合并范围中是否包含任意已纳入导出的物理行。 */
+const intersectsExportRows = (
+  selectedRows: Set<number>,
+  anchorRowIndex: number,
+  rowSpan: number,
+  rowCount: number
+): boolean => {
+  const rowEnd = Math.min(anchorRowIndex + rowSpan, rowCount);
+  for (let rowIndex = anchorRowIndex; rowIndex < rowEnd; rowIndex += 1) {
+    if (selectedRows.has(rowIndex)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/** 扩展直到来源原子组和两份 Evidence 合并范围均完整覆盖，不修改界面勾选状态。 */
+const expandEvidenceExportRows = (
+  selectedRows: Set<number> | undefined,
+  sourceGroups: Array<{ anchorRowIndex: number; rowSpan: number }>,
+  baseModel: CopyTestTableModel,
+  workingModel: CopyTestTableModel,
+  sourceColumnKey: string
+): void => {
+  if (!selectedRows || selectedRows.size === 0) {
+    return;
+  }
+  const ranges = [
+    ...sourceGroups,
+    ...getEvidenceExportRanges(baseModel, sourceColumnKey),
+    ...getEvidenceExportRanges(workingModel, sourceColumnKey),
+  ];
+  let previousSize: number;
+  do {
+    previousSize = selectedRows.size;
+    ranges.forEach(range => {
+      if (intersectsExportRows(selectedRows, range.anchorRowIndex, range.rowSpan, baseModel.rows.length)) {
+        addSelectedPhysicalRows(selectedRows, range.anchorRowIndex, range.rowSpan, baseModel.rows.length);
+      }
+    });
+  } while (selectedRows.size !== previousSize);
 };
 
 /** 构建 logical header identity，用于缺失 owned cell 的稳定插入位置。 */
@@ -549,10 +609,13 @@ const getSingleTargetCell = (
   row: CopyTestRowModel | undefined,
   type: CopyTestGeneratedColumnType,
   sourceColumnKey: string
-): { cell?: CopyTestCellModel } | null => {
+): { cell?: CopyTestCellModel } => {
   /** 当前行属于目标来源列和生成类型的 owned 单元格。 */
   const cells = getTargetCells(row, type, sourceColumnKey);
-  return cells.length <= 1 ? { cell: cells[0] } : null;
+  if (cells.length > 1) {
+    throw new CopyTestExportError('DUPLICATE_CELLS');
+  }
+  return { cell: cells[0] };
 };
 
 /** 将可选 DOM cell 安全解析到 raw range。 */
@@ -583,9 +646,6 @@ const resolveCellPatch = (context: CellPatchContext): ResolvedCellPatch | null =
     context.type,
     context.sourceColumnKey
   );
-  if (!baseCell || !workingCell) {
-    return null;
-  }
   /** latest 目标单元格的可选 raw 区间。 */
   const baseRange = resolveOptionalCellRange(context.baseView, context.rowIndex, baseCell.cell);
   /** working 目标单元格的可选 raw 区间。 */
@@ -693,14 +753,11 @@ const appendUnselectedCellPlaceholder = (context: CellPatchContext): boolean => 
     context.type,
     context.sourceColumnKey
   );
-  if (!baseCell || !workingCell) {
-    return false;
-  }
   if (baseCell.cell || !workingCell.cell) {
     return true;
   }
   if (placeholderCrossesExistingCell(context, workingCell.cell)) {
-    return false;
+    throw new CopyTestExportError('MERGED_SELECTION_CONFLICT');
   }
   /** working 结构单元格对应的精确 raw 区间。 */
   const workingRange = getCellRawRange(
@@ -729,12 +786,12 @@ const buildPairReplacements = (
   selectedPhysicalRows?: Set<number>
 ): CopyTestRawReplacement[] | null => {
   if (baseView.model.rows.length !== workingView.model.rows.length) {
-    return null;
+    throw new CopyTestExportError('ROW_COUNT_CHANGED');
   }
   if (selectedPhysicalRows
     && (hasTargetCellCrossingSelection(baseView.model, sourceColumnKey, selectedPhysicalRows)
       || hasTargetCellCrossingSelection(workingView.model, sourceColumnKey, selectedPhysicalRows))) {
-    return null;
+    throw new CopyTestExportError('MERGED_SELECTION_CONFLICT');
   }
   /** 当前来源列双列在全部物理行上累计的 raw replacements。 */
   const replacements: CopyTestRawReplacement[] = [];
@@ -790,34 +847,34 @@ const hasUnchangedStorageOutsideTable = (
 };
 
 /** 构建只包含当前 Comparison Column 双列改动的完整 export storage。 */
-export const buildCurrentColumnExportStorage = ({
+export const buildCurrentColumnExportStorageOrThrow = ({
   exportScope,
   originalStorageHtml,
   selectedColumnIndex,
   selectedColumnLabel,
   selectedRowIndexes,
   table,
-}: BuildCurrentColumnExportStorageParams): string | null => {
+}: BuildCurrentColumnExportStorageParams): string => {
   if (!isValidCopyTestExportScope(exportScope)) {
-    return null;
+    throw new CopyTestExportError('INVALID_EXPORT_SCOPE');
   }
   /** 从导入快照重新解析的目标表格。 */
   const originalTable = parseSingleTable(table.originalHtml);
   /** 从本地 working html 解析且 raw 行列对齐的唯一表格视图。 */
   const workingView = createWorkingTableView(table.workingHtml);
-  if (!originalTable || !workingView) {
-    return null;
+  if (!originalTable) {
+    throw new CopyTestExportError('IMPORTED_TABLE_INVALID');
+  }
+  if (!workingView) {
+    throw new CopyTestExportError('WORKING_TABLE_INVALID');
   }
   /** 由导入快照非 managed 内容和合并拓扑构成的表格定位签名。 */
   const locatorSignature = buildTableLocatorSignature(originalTable.model);
   if (buildTableLocatorSignature(workingView.model) !== locatorSignature) {
-    return null;
+    throw new CopyTestExportError('WORKING_STRUCTURE_CHANGED');
   }
   /** 在 latest storage 中唯一匹配导入定位签名的目标表格。 */
   const latestView = locateLatestTable(originalStorageHtml, table.index, locatorSignature);
-  if (!latestView) {
-    return null;
-  }
   if (!hasStableSourceColumn(
     originalTable.model,
     latestView.model,
@@ -825,7 +882,7 @@ export const buildCurrentColumnExportStorage = ({
     selectedColumnIndex,
     selectedColumnLabel
   )) {
-    return null;
+    throw new CopyTestExportError('SOURCE_COLUMN_CHANGED');
   }
   /** 将本次 Result/Evidence 双列绑定到 Comparison Column 的稳定键。 */
   const sourceColumnKey = getSourceColumnKey(selectedColumnIndex, selectedColumnLabel);
@@ -834,6 +891,13 @@ export const buildCurrentColumnExportStorage = ({
     originalTable.model,
     selectedColumnIndex,
     selectedRowIndexes
+  );
+  expandEvidenceExportRows(
+    selectedPhysicalRows,
+    buildCopyTestRowGroups({ headers: originalTable.model.headers, model: originalTable.model }, selectedColumnIndex),
+    latestView.model,
+    workingView.model,
+    sourceColumnKey
   );
   /** 在 latest 目标表格上应用当前双列所需的最小 raw replacements。 */
   const replacements = buildPairReplacements(
@@ -844,11 +908,24 @@ export const buildCurrentColumnExportStorage = ({
     selectedPhysicalRows
   );
   if (!replacements) {
-    return null;
+    throw new CopyTestExportError('CELL_MAPPING_FAILED');
   }
   /** 从后向前应用目标双列补丁后的完整 latest storage。 */
   const patchedStorage = replaceRangesDescending(originalStorageHtml, replacements);
-  return hasUnchangedStorageOutsideTable(originalStorageHtml, latestView.rawTable, patchedStorage)
-    ? patchedStorage
-    : null;
+  if (!hasUnchangedStorageOutsideTable(originalStorageHtml, latestView.rawTable, patchedStorage)) {
+    throw new CopyTestExportError('PATCH_SCOPE_MISMATCH');
+  }
+  return patchedStorage;
+};
+
+/** 保持现有 string/null 接口，导出界面使用 OrThrow 入口获取具体失败原因。 */
+export const buildCurrentColumnExportStorage = (params: BuildCurrentColumnExportStorageParams): string | null => {
+  try {
+    return buildCurrentColumnExportStorageOrThrow(params);
+  } catch (error) {
+    if (error instanceof CopyTestExportError) {
+      return null;
+    }
+    throw error;
+  }
 };

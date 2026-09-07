@@ -39,6 +39,21 @@ CopyTest 用于比较 Confluence 表格中的文案与页面截图，并生成�
 2. 点击 **Select screenshots**，选择一张或多张图片。
 3. 确认图片列表后，点击 **Validate**。
 
+**Select screenshots** 下方的 **Display Configuration** 提供两组配置，默认 **Add + Single-image**：
+
+| 配置 | 行为 |
+|---|---|
+| Test Evidence：Add | 保留历史 Evidence，追加本批匹配的新图片；重复图片不重复追加，对应历史图片的人工状态保留 |
+| Test Evidence：Replace | 仅替换本批有匹配图片的行的 Evidence，未匹配行保持原样 |
+| Test Evidence：Single-image | 本批每个 Evidence 组最多匹配一张图片；Add 仍保留历史图片 |
+| Test Evidence：Multi-images | 本批允许每组匹配多张相关图片 |
+
+两组配置都只应用于已匹配的 Test Evidence；先确定保留、追加或替换后的 Evidence，再生成对应图片的 Test Result。未匹配的图片不参与追加或替换，也不会产生 Test Result。
+匹配表示截图与待检查文案相关，不等于文案校验通过；相关但文案不同的截图会作为 Failed 结果保留。
+Validate 完成后提示匹配的图片数量，同一图片被多行引用只计一次。无匹配时保留原表格和上传列表，方便调整或重试。
+
+当前 AI 使用 mock，不读取真实截图文字。每次成功 Import 后轮次重置，依次模拟全部匹配、部分匹配、无匹配，再循环，并继续轮换图片数量、匹配分组和通过状态；对有效非空输入，工厂会避免连续两次返回相同的校验内容。部分匹配轮还会在多行 Evidence 组内保留一个未匹配行，并在后续周期轮换该行，用于检查共享图片不会误更新未匹配行。单行、单图场景下部分匹配数量可能与全部匹配相同。Single-image 和 Multi-images 都遵循当前配置。
+
 每次最多选择 50 张图片，总容量不能超过 10 MB。重复图片会自动去重。
 
 [截图]
@@ -84,12 +99,25 @@ CopyTest 用于比较 Confluence 表格中的文案与页面截图，并生成�
 
 ### 回写到 Confluence
 
-1. 确认当前选择的 Table 和 Comparison Column 正确。
+1. 确认当前选择的 Table 和 Comparison Column 正确。导出范围以勾选行为起点，自动包含相关 Test Evidence 合并单元格覆盖的全部行，即使部分行未勾选；这些行的当前 Test Result 也一起导出。
 2. 选择 **Export > Confluence**。
 3. 在确认窗口中点击 **Confirm**。
 4. 等待成功提示。
 
 回写成功后，建议重新 Import 一次，确认 Confluence 页面与当前预览一致。
+
+导出失败时会按实际原因提示，不再统一显示“Confluence table changed”：
+
+| 原因 | 处理方式 |
+|---|---|
+| 未选择表格、比较列或数据行 | 完成选择后重试 |
+| 无法读取最新页面 | 检查连接和访问权限后重试 |
+| 原表格无法定位，或有多张相同结构的候选表 | 检查表格结构；歧义时使用不同表头，再重新 Import |
+| 比较列文案或合并结构发生变化 | 重新 Import 并校验最新内容 |
+| 重复 Result / Evidence 单元格或单元格映射失败 | 检查重复列及合并布局，再重新 Import |
+| 本地表格无法解析、结构变化或导出超出目标范围 | 按提示重新 Import 或重试 |
+
+失败不会清除本地校验结果；需要重新 Import 时，本地修改需重新进行。
 
 [截图]
 

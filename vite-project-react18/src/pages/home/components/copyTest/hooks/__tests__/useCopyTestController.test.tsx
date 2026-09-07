@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCopyTestController } from '../useCopyTestController';
+import { COPY_TEST_EXPORT_ERROR_MESSAGES } from '../../table/copyTestExportErrors';
 
 const hoisted = vi.hoisted(() => ({
   attachmentsApi: vi.fn(),
@@ -128,6 +129,150 @@ describe('useCopyTestController', () => {
     hoisted.requestLoading = false;
     hoisted.uuid.mockReturnValue('uuid-value');
     installBrowserMocks();
+  });
+
+  it.each([
+    { code: 'TABLE_NOT_FOUND', storage: '' },
+    { code: 'TABLE_NOT_FOUND', storage: '<p>No table</p>' },
+    { code: 'TABLE_AMBIGUOUS', storage: storageHtml + storageHtml },
+    { code: 'SOURCE_COLUMN_CHANGED', storage: storageHtml.replace('你好', '已更新') },
+  ] as const)('shows $code and does not upload after export preparation fails', async scenario => {
+    hoisted.storageApi.mockResolvedValueOnce({ storage: storageHtml }).mockResolvedValue({ storage: scenario.storage });
+    const notifications = { error: vi.fn(), success: vi.fn(), warning: vi.fn() };
+    const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn(), notifications }));
+    act(() => { result.current.handleConfluenceUrlChange('http://wiki'); });
+    await act(() => result.current.handleLoadTables());
+    await act(() => result.current.handleComparisonColumnChange(1));
+    const before = result.current.tableState.selectedTable?.workingHtml;
+    await act(() => result.current.handleConfirmExportToConfluence());
+    expect(notifications.warning).toHaveBeenCalledExactlyOnceWith(COPY_TEST_EXPORT_ERROR_MESSAGES[scenario.code]);
+    expect(notifications.error).not.toHaveBeenCalled();
+    expect(hoisted.uploadApi).not.toHaveBeenCalled();
+    expect(result.current.tableState.selectedTable?.workingHtml).toBe(before);
+    expect(result.current.exportLoading).toBe(false);
+  });
+
+  it.each([1, 2])('shows a read error when export storage read %s fails', async failingRead => {
+    hoisted.storageApi.mockResolvedValueOnce({ storage: storageHtml });
+    if (failingRead === 2) {
+      hoisted.storageApi.mockResolvedValueOnce({ storage: storageHtml });
+    }
+    hoisted.storageApi.mockRejectedValueOnce(new Error('offline'));
+    const notifications = { error: vi.fn(), success: vi.fn(), warning: vi.fn() };
+    const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn(), notifications }));
+    act(() => { result.current.handleConfluenceUrlChange('http://wiki'); });
+    await act(() => result.current.handleLoadTables());
+    await act(() => result.current.handleComparisonColumnChange(1));
+    await act(() => result.current.handleConfirmExportToConfluence());
+    expect(notifications.warning).toHaveBeenCalledExactlyOnceWith(COPY_TEST_EXPORT_ERROR_MESSAGES.STORAGE_READ_FAILED);
+    expect(hoisted.uploadApi).not.toHaveBeenCalled();
+    expect(result.current.exportLoading).toBe(false);
+  });
+
+  it('exports the entire shared Evidence range without changing checked rows', async () => {
+    const attributes = 'data-copy-test-schema="2" data-copy-test-source-column-key="1:Target" data-copy-test-owner-id="1:Target"';
+    const sharedEvidenceStorage = [
+      '<table><tr><th>Reference</th><th>Target</th>',
+      `<th ${attributes} data-copy-test-column-type="result">Test Result - Target</th>`,
+      `<th ${attributes} data-copy-test-column-type="evidence">Test Evidence - Target</th></tr>`,
+      '<tr><td>A</td><td>甲</td>',
+      `<td ${attributes} data-copy-test-column-type="result">Passed</td>`,
+      `<td ${attributes} data-copy-test-column-type="evidence" rowspan="2">Shared evidence</td></tr>`,
+      `<tr><td>B</td><td>乙</td><td ${attributes} data-copy-test-column-type="result">Passed</td></tr></table>`,
+    ].join('');
+    hoisted.storageApi.mockResolvedValue({ storage: sharedEvidenceStorage });
+    hoisted.uploadApi.mockResolvedValue(undefined);
+    const notifications = { error: vi.fn(), success: vi.fn(), warning: vi.fn() };
+    const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn(), notifications }));
+    act(() => { result.current.handleConfluenceUrlChange('http://wiki'); });
+    await act(() => result.current.handleLoadTables());
+    await act(() => result.current.handleComparisonColumnChange(1));
+    act(() => { result.current.tableState.setSelectedRowIndexes([0]); });
+    await act(() => result.current.handleConfirmExportToConfluence());
+    expect(notifications.warning).not.toHaveBeenCalled();
+    expect(hoisted.messageWarning).not.toHaveBeenCalled();
+    expect(notifications.error).not.toHaveBeenCalled();
+    expect(hoisted.uploadApi).toHaveBeenCalledTimes(1);
+    const payload = hoisted.uploadApi.mock.calls[0][0] as { storageHtml: string };
+    expect(payload.storageHtml).toContain('Shared evidence');
+    expect(payload.storageHtml).toContain('乙');
+    expect(notifications.success).toHaveBeenCalledWith('Export to Confluence successful');
+    expect(result.current.tableState.selectedRowIndexes).toEqual([0]);
+    expect(result.current.exportLoading).toBe(false);
+  });
+
+  it('preserves the specific reason when the second export read changes the source copy', async () => {
+    hoisted.storageApi.mockResolvedValueOnce({ storage: storageHtml })
+      .mockResolvedValueOnce({ storage: storageHtml })
+      .mockResolvedValueOnce({ storage: storageHtml.replace('你好', '已更新') });
+    const notifications = { error: vi.fn(), success: vi.fn(), warning: vi.fn() };
+    const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn(), notifications }));
+    act(() => { result.current.handleConfluenceUrlChange('http://wiki'); });
+    await act(() => result.current.handleLoadTables());
+    await act(() => result.current.handleComparisonColumnChange(1));
+    await act(() => result.current.handleConfirmExportToConfluence());
+    expect(notifications.warning).toHaveBeenCalledExactlyOnceWith(COPY_TEST_EXPORT_ERROR_MESSAGES.SOURCE_COLUMN_CHANGED);
+    expect(hoisted.uploadApi).not.toHaveBeenCalled();
+    expect(hoisted.storageApi).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(['add', 'replace'] as const)('%s reports no match without clearing existing content or the upload list', async evidenceUpdateMode => {
+    hoisted.storageApi.mockResolvedValue({ storage: storageHtml });
+    const notifications = { error: vi.fn(), success: vi.fn(), warning: vi.fn() };
+    const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn(), notifications }));
+    act(() => { result.current.handleConfluenceUrlChange('http://wiki'); });
+    await act(() => result.current.handleLoadTables());
+    await act(() => result.current.handleComparisonColumnChange(1));
+    await act(() => result.current.handleFilesSelected([new File(['a'], 'first.png', { type: 'image/png' })]));
+    hoisted.validationApi.mockResolvedValueOnce([{
+      rowIndex: 0, passed: true, evidenceImageFileNames: ['uuid-value.png'], languageIssues: [],
+    }]);
+    await act(() => result.current.handleValidateClick());
+    const before = result.current.tableState.selectedTable?.workingHtml;
+    const revision = result.current.tableState.revision;
+    act(() => {
+      result.current.handleDisplayConfigurationChange({ evidenceUpdateMode, evidenceMode: 'multiple' });
+      result.current.handleChooseImages();
+    });
+    await act(() => result.current.handleFilesSelected([new File(['b'], 'second.png', { type: 'image/png' })]));
+    hoisted.validationApi.mockResolvedValueOnce([{
+      rowIndex: 0, passed: false, evidenceImageFileNames: [], languageIssues: ['No matching screenshot.'],
+    }]);
+    notifications.success.mockClear();
+    await act(() => result.current.handleValidateClick());
+    expect(result.current.tableState.selectedTable?.workingHtml).toBe(before);
+    expect(result.current.tableState.revision).toBe(revision);
+    expect(result.current.uploadState.uploadImages).toHaveLength(1);
+    expect(result.current.uploadModalOpen).toBe(true);
+    expect(result.current.validationLoading).toBe(false);
+    expect(notifications.success).not.toHaveBeenCalled();
+    expect(notifications.warning).toHaveBeenCalledWith('No matching screenshots found. Existing results and evidence were kept.');
+  });
+
+  it('passes Multi-images configuration and reports distinct matched images even for failed copy', async () => {
+    const twoRows = storageHtml.replace('</table>', '<tr><td>Next</td><td>下一页</td></tr></table>');
+    hoisted.storageApi.mockResolvedValue({ storage: twoRows });
+    hoisted.uuid.mockReturnValueOnce('first').mockReturnValueOnce('second');
+    const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
+    act(() => {
+      result.current.handleConfluenceUrlChange('http://wiki');
+      result.current.handleDisplayConfigurationChange({ evidenceUpdateMode: 'add', evidenceMode: 'multiple' });
+    });
+    await act(() => result.current.handleLoadTables());
+    await act(() => result.current.handleComparisonColumnChange(1));
+    await act(() => result.current.handleFilesSelected([
+      new File(['a'], 'first.png', { type: 'image/png' }),
+      new File(['b'], 'second.png', { type: 'image/png' }),
+    ]));
+    hoisted.validationApi.mockResolvedValueOnce([0, 1].map(rowIndex => ({
+      rowIndex, passed: false, evidenceImageFileNames: ['first.png', 'second.png'], languageIssues: ['Different copy.'],
+    })));
+    await act(() => result.current.handleValidateClick());
+    expect(hoisted.validationApi.mock.lastCall?.[3]).toEqual({ evidenceUpdateMode: 'add', evidenceMode: 'multiple' });
+    expect(hoisted.messageSuccess).toHaveBeenCalledWith('Matched 2 screenshots. Results updated.');
+    expect(result.current.uploadState.uploadImages).toEqual([]);
+    expect(result.current.tableState.getCurrentValidationImages()).toHaveLength(2);
+    expect(hoisted.uploadApi).not.toHaveBeenCalled();
   });
 
   it('covers import, upload, validate, export, evidence delete, and close flows', async () => {
@@ -287,7 +432,7 @@ describe('useCopyTestController', () => {
     expect(result.current.tableState.getCurrentPreviewImages()).toEqual([betaImage]);
   });
 
-  it('keeps only the latest batch winner even when its content repeats', async () => {
+  it('Replace keeps only the latest batch winner even when its content repeats', async () => {
     hoisted.storageApi.mockResolvedValue({ storage: storageHtml });
     hoisted.attachmentsApi.mockResolvedValue({ images: [] });
     hoisted.uuid
@@ -316,6 +461,7 @@ describe('useCopyTestController', () => {
     const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
 
     act(() => {
+      result.current.handleDisplayConfigurationChange({ evidenceUpdateMode: 'replace', evidenceMode: 'single' });
       result.current.handleConfluenceUrlChange('http://wiki');
     });
     await act(() => result.current.handleLoadTables());

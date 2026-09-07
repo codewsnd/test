@@ -12,7 +12,8 @@ import {
   getConfluenceStorageTableImageFileNames,
   type CopyTestStorageImagePreviewBundle,
 } from '../table/copyTestTableImages';
-import { buildCurrentColumnExportStorage } from '../table/copyTestTableExporter';
+import { buildCurrentColumnExportStorageOrThrow } from '../table/copyTestTableExporter';
+import { CopyTestExportError } from '../table/copyTestExportErrors';
 import { createCopyTestExportScope } from '../table/copyTestExportScope';
 import type { CopyTestMemoryImage, CopyTestTableEntry } from '../types';
 import type { UseCopyTestSessionResult } from '../hooks/useCopyTestSession';
@@ -56,29 +57,44 @@ export const getEmptyAttachmentPreviewBundle = (
 ): CopyTestStorageImagePreviewBundle => ({ images: [], storageHtml });
 
 /** 校验当前表格选择并构建只包含目标双列改动的 export storage。 */
-export const getRequiredExportStorage = (
+export const getRequiredExportStorageOrThrow = (
   tableState: UseCopyTestSessionResult,
   exportScope = createCopyTestExportScope(),
   baseStorageHtml?: string
-): string | null => {
+): string => {
   if (!tableState.selectedTable || tableState.selectedColumnIndex === undefined || !tableState.selectedHeader) {
-    message.warning('Please select a table and column first');
-    return null;
+    throw new CopyTestExportError('SELECTION_REQUIRED');
   }
 
   if (tableState.selectedRowIndexes.length === 0) {
-    message.warning('Please select at least one row');
-    return null;
+    throw new CopyTestExportError('ROWS_REQUIRED');
   }
 
-  return buildCurrentColumnExportStorage({
+  return buildCurrentColumnExportStorageOrThrow({
     exportScope,
-    originalStorageHtml: baseStorageHtml || tableState.originalStorageHtml,
+    originalStorageHtml: baseStorageHtml ?? tableState.originalStorageHtml,
     selectedColumnIndex: tableState.selectedColumnIndex,
     selectedColumnLabel: tableState.selectedHeader.label,
     selectedRowIndexes: tableState.selectedRowIndexes,
     table: tableState.selectedTable,
   });
+};
+
+/** 兼容旧调用方的空值返回；当前导出链路直接传递分类错误。 */
+export const getRequiredExportStorage = (
+  tableState: UseCopyTestSessionResult,
+  exportScope = createCopyTestExportScope(),
+  baseStorageHtml?: string
+): string | null => {
+  try {
+    return getRequiredExportStorageOrThrow(tableState, exportScope, baseStorageHtml);
+  } catch (error) {
+    if (!(error instanceof CopyTestExportError)) {
+      throw error;
+    }
+    message.warning(error.message);
+    return null;
+  }
 };
 
 /** 构建 storage 和独立内存图片 bundle，避免把 base64 写入整页 HTML。 */

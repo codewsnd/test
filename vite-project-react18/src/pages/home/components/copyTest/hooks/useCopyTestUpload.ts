@@ -28,7 +28,9 @@ export interface UseCopyTestUploadResult {
 }
 
 /** 管理截图上传、base64 转换、MD5 去重和进度状态。 */
-export const useCopyTestUpload = (): UseCopyTestUploadResult => {
+export const useCopyTestUpload = (
+  notifications: Pick<typeof message, 'error' | 'warning'> = message
+): UseCopyTestUploadResult => {
 
   /** 当前上传图片及其状态更新函数。 */
   const [uploadImages, setUploadImages] = useState<CopyTestMemoryImage[]>([]);
@@ -82,7 +84,7 @@ export const useCopyTestUpload = (): UseCopyTestUploadResult => {
     /** 合并后的图片数量或总大小错误。 */
     const imageLimitError = getImageLimitError(nextImages);
     if (imageLimitError) {
-      message.warning(imageLimitError);
+      notifications.warning(imageLimitError);
       return;
     }
 
@@ -122,7 +124,7 @@ export const useCopyTestUpload = (): UseCopyTestUploadResult => {
   /** 处理截图准备失败。 */
   const handlePrepareError = (error: unknown): void => {
     console.error('Failed to prepare images:', error);
-    message.error('Failed to prepare images');
+    notifications.error('Failed to prepare images');
   };
 
   /** 将用户选择的图片准备为内存态 base64 数据。 */
@@ -134,7 +136,7 @@ export const useCopyTestUpload = (): UseCopyTestUploadResult => {
     /** 新旧文件合并前即可判定的上传限制错误。 */
     const uploadError = getUploadLimitError(files, uploadImagesRef.current);
     if (uploadError) {
-      message.warning(uploadError);
+      notifications.warning(uploadError);
       return;
     }
 

@@ -33,6 +33,13 @@ const RANDOM_FAILURE_REASONS = [
   'The image is missing some expected text.',
 ] as const;
 
+/** 无匹配轮次也轮换说明，便于反复检查“保持原结果”行为。 */
+const NO_MATCH_FAILURE_REASONS = [
+  'No matching screenshot was found.',
+  'None of the uploaded screenshots shows this UI content.',
+  'Please choose a screenshot containing the expected UI content.',
+] as const;
+
 /** 连续调用 Mock 工厂时可注入的确定性依赖。 */
 export interface CopyTestValidationMockOptions {
   /** 从 0 开始的确定性 Mock 轮次。 */
@@ -119,6 +126,7 @@ const isRuntimeContext = (
   }
   const rows = value.selectedRows;
   return typeof value.targetColumnName === 'string'
+    && (value.evidenceMode === undefined || value.evidenceMode === 'single' || value.evidenceMode === 'multiple')
     && hasUniqueRowIndexes(rows)
     && hasExpectedOutputLimits(value, rows)
     && Array.isArray(value.uploadedScreenshots)
@@ -311,6 +319,9 @@ const buildMockValidationResults = (
   imageFileNames: string[],
   options: CopyTestValidationResponseOptions
 ): CopyTestValidationResult[] => {
+  if (runtimeContext.evidenceMode) {
+    return buildConfiguredMockResults(runtimeContext, imageFileNames, options.sequenceIndex ?? 0);
+  }
   const sequenceIndex = options.sequenceIndex;
   /** 按行连续性和应用层分组锁定的本轮 Evidence。 */
   const fileNameByGroupId = buildEvidenceFileNameByGroupId(
@@ -338,6 +349,103 @@ const buildMockValidationResults = (
       random
     );
   });
+};
+
+/** 每三轮覆盖全匹配、部分匹配、无匹配；后续周期继续轮换图片数量和匹配分组。 */
+const getConfiguredGroupImages = (
+  fileNames: string[],
+  groupPosition: number,
+  evidenceMode: CopyTestValidationRuntimeContext['evidenceMode'],
+  sequenceIndex: number
+): string[] => {
+  const scenario = sequenceIndex % 3;
+  const cycle = Math.floor(sequenceIndex / 3);
+  if (scenario === 2 || fileNames.length === 0 || (scenario === 1 && (groupPosition + cycle) % 2 === 1)) {
+    return [];
+  }
+  const rotated = fileNames.map((_, index) => fileNames[(index + sequenceIndex + cycle + groupPosition) % fileNames.length]);
+  const multipleCount = scenario === 1
+    ? 1 + cycle % Math.max(1, rotated.length - 1)
+    : rotated.length - cycle % rotated.length;
+  const count = evidenceMode === 'single' ? 1 : multipleCount;
+  return rotated.slice(0, count);
+};
+
+/** 部分匹配轮在同组内轮换一个未匹配行，验证共享 Evidence 不会误更新该行。 */
+const getConfiguredUnmatchedRows = (
+  rows: CopyTestValidationRuntimeContext['selectedRows'],
+  sequenceIndex: number
+): Set<number> => {
+  const unmatched = new Set<number>();
+  if (sequenceIndex % 3 !== 1) {
+    return unmatched;
+  }
+  const rowsByGroup = new Map<number, number[]>();
+  rows.forEach(row => {
+    const groupRows = rowsByGroup.get(row.evidenceGroupId) || [];
+    groupRows.push(row.rowIndex);
+    rowsByGroup.set(row.evidenceGroupId, groupRows);
+  });
+  const cycle = Math.floor(sequenceIndex / 3);
+  rowsByGroup.forEach(groupRows => {
+    if (groupRows.length > 1) {
+      unmatched.add(groupRows[(Math.floor(cycle / 2) + 1) % groupRows.length]);
+    }
+  });
+  return unmatched;
+};
+
+/** 同组匹配行共享候选图片，覆盖 Passed、Failed 和组内无匹配三种状态。 */
+const buildConfiguredMockResults = (
+  context: CopyTestValidationRuntimeContext,
+  fileNames: string[],
+  sequenceIndex: number
+): CopyTestValidationResult[] => {
+  const groups = [...new Set(context.selectedRows.map(row => row.evidenceGroupId))];
+  const imagesByGroup = new Map(groups.map((groupId, index) => [
+    groupId,
+    getConfiguredGroupImages(fileNames, index, context.evidenceMode, sequenceIndex),
+  ]));
+  const unmatchedRows = getConfiguredUnmatchedRows(context.selectedRows, sequenceIndex);
+  return context.selectedRows.map((row, index) => {
+    const evidenceImageFileNames = unmatchedRows.has(row.rowIndex)
+      ? []
+      : imagesByGroup.get(row.evidenceGroupId) || [];
+    const cycle = Math.floor(sequenceIndex / 3);
+    const passed = evidenceImageFileNames.length > 0 && (index + sequenceIndex + cycle) % 3 !== 1;
+    const reason = evidenceImageFileNames.length === 0
+      ? NO_MATCH_FAILURE_REASONS[cycle % NO_MATCH_FAILURE_REASONS.length]
+      : RANDOM_FAILURE_REASONS[(index + sequenceIndex) % RANDOM_FAILURE_REASONS.length];
+    return { rowIndex: row.rowIndex, passed, evidenceImageFileNames, languageIssues: passed ? [] : [reason] };
+  });
+};
+
+/** 单图、单行等组合退化时，仍让相邻两次的业务结果不同，而非仅更新时间戳。 */
+const varyRepeatedMockResult = (result: CopyTestValidationResult): CopyTestValidationResult => {
+  if (result.evidenceImageFileNames.length === 0) {
+    const reason = NO_MATCH_FAILURE_REASONS.find(item => !result.languageIssues.includes(item))
+      || NO_SCREENSHOT_FAILURE_REASON;
+    return { ...result, languageIssues: [reason] };
+  }
+  const passed = !result.passed;
+  return { ...result, passed, languageIssues: passed ? [] : [RANDOM_FAILURE_REASONS[0]] };
+};
+
+/** 工厂保证有效非空输入的连续响应内容不同，保持严格的四字段行契约。 */
+const ensureChangedMockResponse = (
+  response: ApiResponse<AiChatResponse>,
+  previousContent: string | undefined
+): ApiResponse<AiChatResponse> => {
+  const data = response.data;
+  if (!data || data.content !== previousContent) {
+    return response;
+  }
+  const payload: { results: CopyTestValidationResult[] } = JSON.parse(data.content);
+  if (payload.results.length === 0) {
+    return response;
+  }
+  const content = JSON.stringify({ results: [varyRepeatedMockResult(payload.results[0]), ...payload.results.slice(1)] });
+  return { ...response, data: { ...data, content, characterCount: content.length } };
 };
 
 /** 按轮次生成不依赖真实时钟的 Mock 时间。 */
@@ -398,16 +506,18 @@ export const createMockCopyTestAiChat = (
 ): typeof aiChat => {
   /** 每个 Mock 实例独立维护调用轮次，避免测试与页面实例互相污染。 */
   let sequenceIndex = options.sequenceIndex ?? 0;
+  let previousContent: string | undefined;
   /** 固定或回拨时钟下仍保证完整响应按调用变化。 */
   const monotonicNow = options.now
     ? createMonotonicNow(options.now)
     : undefined;
   return request => {
-    const response = buildMockCopyTestAiChatResponse(request, {
+    const response = ensureChangedMockResponse(buildMockCopyTestAiChatResponse(request, {
       ...options,
       now: monotonicNow,
       sequenceIndex,
-    });
+    }), previousContent);
+    previousContent = response.data?.content;
     sequenceIndex += 1;
     return Promise.resolve(response);
   };

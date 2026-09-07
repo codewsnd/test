@@ -93,6 +93,8 @@ const subscribeToCopyTestTrigger = (openModal: CopyTestModalOpener): (() => void
 
 /** 渲染 CopyTest 组件。 */
 export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
+  /** 使用当前 React 树承载通知，兼容运行环境并继承主题上下文。 */
+  const [notificationApi, notificationHolder] = message.useMessage();
   /** 非受控模式下的弹窗显示状态。 */
   const [internalOpen, setInternalOpen] = useState(false);
 
@@ -104,6 +106,7 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
 
   /** CopyTest 业务状态与用户操作控制器。 */
   const controller = useCopyTestController({
+    notifications: notificationApi,
     onClose: () => {
       if (!controlled) {
         setInternalOpen(false);
@@ -196,6 +199,7 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
       }}
       footer={null}
     >
+      {notificationHolder}
       <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
         <CopyTestImportBar
           confluenceUrl={controller.confluenceUrl}
@@ -259,6 +263,8 @@ export const CopyTest: React.FC<CopyTestProps> = ({ open, onClose }) => {
         )}
 
         <UploadScreenshotModal
+          displayConfiguration={controller.displayConfiguration}
+          onDisplayConfigurationChange={controller.handleDisplayConfigurationChange}
           canValidate={controller.canValidate}
           onClose={controller.handleCloseUploadModal}
           onFilesSelected={controller.handleFilesSelected}

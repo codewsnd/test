@@ -319,7 +319,7 @@ export const PREVIEW_DOCUMENT_STYLE = `
     width: fit-content;
     max-width: 100%;
     margin: 0 0 8px auto;
-    border: 1px solid #172b4d;
+    border: 1px solid #eee;
     border-radius: 0;
     padding: 2px 8px;
   }

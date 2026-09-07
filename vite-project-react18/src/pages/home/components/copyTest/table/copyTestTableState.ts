@@ -833,7 +833,9 @@ const applyValidationResultsToEvidenceGroup = (
     rowGroups,
     results,
     uploadedImages,
-    context.sourceColumnKey
+    context.sourceColumnKey,
+    [],
+    true
   );
   /** 删除后仍有图片结果的来源锚点。 */
   const renderableAnchorRowIndexes = new Set(

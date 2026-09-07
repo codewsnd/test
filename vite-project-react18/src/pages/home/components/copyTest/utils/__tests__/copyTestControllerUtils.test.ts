@@ -5,10 +5,12 @@ import {
   getCopyTestValidationContext,
   getEmptyAttachmentPreviewBundle,
   getRequiredExportStorage,
+  getRequiredExportStorageOrThrow,
 } from '../copyTestControllerUtils';
 import { applyCopyTestValidationResults, ensureCopyTestWorkingColumns } from '../../table/copyTestTableEditor';
 import { parseCopyTestStorageTables } from '../../table/copyTestTableParser';
 import type { UseCopyTestSessionResult } from '../../hooks/useCopyTestSession';
+import { CopyTestExportError } from '../../table/copyTestExportErrors';
 
 const hoisted = vi.hoisted(() => ({ warning: vi.fn() }));
 
@@ -45,6 +47,14 @@ const tableState = {
 } as unknown as UseCopyTestSessionResult;
 
 describe('copyTestControllerUtils', () => {
+  it('returns selection-specific export errors without emitting a second static notification', () => {
+    hoisted.warning.mockClear();
+    expect(() => getRequiredExportStorageOrThrow({ ...tableState, selectedTable: undefined }))
+      .toThrow(new CopyTestExportError('SELECTION_REQUIRED'));
+    expect(() => getRequiredExportStorageOrThrow({ ...tableState, selectedRowIndexes: [] }))
+      .toThrow(new CopyTestExportError('ROWS_REQUIRED'));
+    expect(hoisted.warning).not.toHaveBeenCalled();
+  });
   it('validates export and validation context guards', () => {
     expect(getRequiredExportStorage({ ...tableState, selectedTable: undefined })).toBeNull();
     expect(getRequiredExportStorage({ ...tableState, selectedRowIndexes: [] })).toBeNull();

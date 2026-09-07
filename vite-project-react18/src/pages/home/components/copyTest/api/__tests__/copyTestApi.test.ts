@@ -340,7 +340,7 @@ describe('copyTestApi validation parsing and request contract', () => {
     const partialResults = [0, 1, 2].map(rowIndex => {
       return buildValidResult({ rowIndex });
     });
-    hoisted.aiChat.mockResolvedValueOnce(
+    hoisted.mockCopyTestAiChat.mockResolvedValueOnce(
       buildAiResponse(partialResults)
     );
 
@@ -348,12 +348,26 @@ describe('copyTestApi validation parsing and request contract', () => {
     await vi.runAllTimersAsync();
 
     await expect(validation).resolves.toEqual(partialResults);
-    expect(hoisted.aiChat).toHaveBeenCalledTimes(1);
+    expect(hoisted.mockCopyTestAiChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('includes display matching rules in the request and uses the mock response contract', async () => {
+    vi.useFakeTimers();
+    const configuration = { evidenceUpdateMode: 'add', evidenceMode: 'multiple' } as const;
+    const matchedResult = buildValidResult({ evidenceImageFileNames: ['screen-a.png', 'screen-b.png'] });
+    hoisted.mockCopyTestAiChat.mockResolvedValueOnce(buildAiResponse([matchedResult]));
+    const validation = copyTestValidationApi(images, [rows[0]], 'Target', configuration);
+    await vi.runAllTimersAsync();
+    await expect(validation).resolves.toEqual([matchedResult]);
+    const request = hoisted.mockCopyTestAiChat.mock.lastCall?.[0];
+    expect(JSON.parse(request.messages[1].content).evidenceMode).toBe('multiple');
+    expect(request.messages[0].content).toContain('An unrelated screenshot must never be included.');
+    expect(hoisted.aiChat).not.toHaveBeenCalled();
   });
 
   it('rejects truncated JSON without an automatic second request', async () => {
     vi.useFakeTimers();
-    hoisted.aiChat.mockResolvedValueOnce({
+    hoisted.mockCopyTestAiChat.mockResolvedValueOnce({
       data: {
         characterCount: 12,
         content: '{"results":[',
@@ -371,12 +385,12 @@ describe('copyTestApi validation parsing and request contract', () => {
     await vi.runAllTimersAsync();
     await assertion;
 
-    expect(hoisted.aiChat).toHaveBeenCalledTimes(1);
+    expect(hoisted.mockCopyTestAiChat).toHaveBeenCalledTimes(1);
   });
 
   it('does not retry request failures', async () => {
     vi.useFakeTimers();
-    hoisted.aiChat.mockResolvedValue({
+    hoisted.mockCopyTestAiChat.mockResolvedValue({
       error: 'service unavailable',
       success: false,
     });
@@ -391,6 +405,6 @@ describe('copyTestApi validation parsing and request contract', () => {
 
     await vi.runAllTimersAsync();
     await failedRequestAssertion;
-    expect(hoisted.aiChat).toHaveBeenCalledTimes(1);
+    expect(hoisted.mockCopyTestAiChat).toHaveBeenCalledTimes(1);
   });
 });
