@@ -416,7 +416,8 @@ const buildConfiguredMockResults = (
     const reason = evidenceImageFileNames.length === 0
       ? NO_MATCH_FAILURE_REASONS[cycle % NO_MATCH_FAILURE_REASONS.length]
       : RANDOM_FAILURE_REASONS[(index + sequenceIndex) % RANDOM_FAILURE_REASONS.length];
-    return { rowIndex: row.rowIndex, passed, evidenceImageFileNames, languageIssues: passed ? [] : [reason] };
+    const issue = `Mock round ${sequenceIndex + 1}: ${reason}`.slice(0, COPY_TEST_MAX_LANGUAGE_ISSUE_CHARACTERS);
+    return { rowIndex: row.rowIndex, passed, evidenceImageFileNames, languageIssues: passed ? [] : [issue] };
   });
 };
 

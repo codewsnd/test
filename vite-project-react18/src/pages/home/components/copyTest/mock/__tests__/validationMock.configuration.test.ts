@@ -34,7 +34,7 @@ describe('configured validation mock scenarios', () => {
     expect(partialResults[1].evidenceImageFileNames).toEqual([]);
     expect(partialResults[2].evidenceImageFileNames).toEqual([]);
     expect(JSON.parse(none.data!.content).results).toEqual([0, 1, 3].map(rowIndex => ({
-      rowIndex, passed: false, evidenceImageFileNames: [], languageIssues: ['No matching screenshot was found.'],
+      rowIndex, passed: false, evidenceImageFileNames: [], languageIssues: ['Mock round 3: No matching screenshot was found.'],
     })));
     expect(JSON.parse(restarted.data!.content).results[0].evidenceImageFileNames).toHaveLength(1);
   });
@@ -63,6 +63,23 @@ describe('configured validation mock scenarios', () => {
     expect(next[0].evidenceImageFileNames).toEqual([]);
     expect(next[1].evidenceImageFileNames).not.toEqual([]);
     expect(next[0].passed).toBe(false);
+  });
+
+  it('distinguishes repeated no-match cycles by round while preserving the row contract', async () => {
+    const mock = createMockCopyTestAiChat();
+    const noMatchContents = new Set<string>();
+    for (let round = 0; round < 36; round += 1) {
+      const response = await mock(request('multiple'));
+      if (round % 3 === 2) {
+        const content = response.data!.content;
+        expect(noMatchContents.has(content)).toBe(false);
+        noMatchContents.add(content);
+        const { results } = JSON.parse(content);
+        expect(results[0].languageIssues[0]).toContain(`Mock round ${round + 1}:`);
+        expect(results[0].evidenceImageFileNames).toEqual([]);
+        expect(results[0].passed).toBe(false);
+      }
+    }
   });
 
   it.each([{ fileNames: ['a.png'] }, { fileNames: [] }])('keeps single-row responses different with images $fileNames', async ({ fileNames }) => {
