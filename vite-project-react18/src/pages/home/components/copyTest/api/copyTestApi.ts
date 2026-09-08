@@ -42,7 +42,7 @@ const IMAGE_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i;
 const MOCK_VALIDATION_DELAY_MS = 300;
 
 /** 当前组件固定启用本地 Mock，使用真实接口时显式关闭。 */
-export const COPY_TEST_AI_CHAT_MOCK_ENABLED = true;
+export const COPY_TEST_AI_CHAT_MOCK_ENABLED = false;
 
 /** Confluence storage 查询接口的返回结构。 */
 export interface CopyTestStorageResponse {
