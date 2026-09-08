@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildCopyTestValidationRequest,
   copyTestAttachmentsApi,
@@ -87,10 +87,6 @@ describe('copyTestApi validation parsing and request contract', () => {
     hoisted.axiosGet.mockReset();
     hoisted.axiosPost.mockReset();
     hoisted.mockCopyTestAiChat.mockReset();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
   });
 
   it('calls adapters and silences only Confluence import requests', () => {
@@ -331,43 +327,36 @@ describe('copyTestApi validation parsing and request contract', () => {
   });
 
   it('accepts an incomplete result set without an automatic second request', async () => {
-    vi.useFakeTimers();
-    const requestedRows = [0, 1, 2, 3].map(rowIndex => ({
+    const requestedRows = [0, 1].map(rowIndex => ({
       evidenceGroupId: rowIndex,
       expected: `Copy ${rowIndex + 1}`,
       rowIndex,
     }));
-    const partialResults = [0, 1, 2].map(rowIndex => {
-      return buildValidResult({ rowIndex });
-    });
-    hoisted.mockCopyTestAiChat.mockResolvedValueOnce(
+    const partialResults = [buildValidResult()];
+    hoisted.aiChat.mockResolvedValueOnce(
       buildAiResponse(partialResults)
     );
 
     const validation = copyTestValidationApi([images[0]], requestedRows, 'Target');
-    await vi.runAllTimersAsync();
-
     await expect(validation).resolves.toEqual(partialResults);
-    expect(hoisted.mockCopyTestAiChat).toHaveBeenCalledTimes(1);
+    expect(hoisted.aiChat).toHaveBeenCalledTimes(1);
   });
 
-  it('includes display matching rules in the request and uses the mock response contract', async () => {
-    vi.useFakeTimers();
+  it('includes display matching rules in the aiChat request without using the local mock', async () => {
     const configuration = { evidenceUpdateMode: 'add', evidenceMode: 'multiple' } as const;
     const matchedResult = buildValidResult({ evidenceImageFileNames: ['screen-a.png', 'screen-b.png'] });
-    hoisted.mockCopyTestAiChat.mockResolvedValueOnce(buildAiResponse([matchedResult]));
-    const validation = copyTestValidationApi(images, [rows[0]], 'Target', configuration);
-    await vi.runAllTimersAsync();
+    hoisted.aiChat.mockResolvedValueOnce(buildAiResponse([matchedResult]));
+    const validation = copyTestValidationApi(images.slice(0, 2), [rows[0]], 'Target', configuration);
     await expect(validation).resolves.toEqual([matchedResult]);
-    const request = hoisted.mockCopyTestAiChat.mock.lastCall?.[0];
+    expect(hoisted.aiChat).toHaveBeenCalledTimes(1);
+    const request = hoisted.aiChat.mock.lastCall?.[0];
     expect(JSON.parse(request.messages[1].content).evidenceMode).toBe('multiple');
     expect(request.messages[0].content).toContain('An unrelated screenshot must never be included.');
-    expect(hoisted.aiChat).not.toHaveBeenCalled();
+    expect(hoisted.mockCopyTestAiChat).not.toHaveBeenCalled();
   });
 
   it('rejects truncated JSON without an automatic second request', async () => {
-    vi.useFakeTimers();
-    hoisted.mockCopyTestAiChat.mockResolvedValueOnce({
+    hoisted.aiChat.mockResolvedValueOnce({
       data: {
         characterCount: 12,
         content: '{"results":[',
@@ -378,19 +367,15 @@ describe('copyTestApi validation parsing and request contract', () => {
     });
 
     const validation = copyTestValidationApi([images[0]], [rows[0]], 'Target');
-    const assertion = expect(validation).rejects.toThrow(
+    await expect(validation).rejects.toThrow(
       'AI validation returned invalid content: the response is not raw JSON'
     );
 
-    await vi.runAllTimersAsync();
-    await assertion;
-
-    expect(hoisted.mockCopyTestAiChat).toHaveBeenCalledTimes(1);
+    expect(hoisted.aiChat).toHaveBeenCalledTimes(1);
   });
 
   it('does not retry request failures', async () => {
-    vi.useFakeTimers();
-    hoisted.mockCopyTestAiChat.mockResolvedValue({
+    hoisted.aiChat.mockResolvedValueOnce({
       error: 'service unavailable',
       success: false,
     });
@@ -399,12 +384,20 @@ describe('copyTestApi validation parsing and request contract', () => {
       [rows[0]],
       'Target'
     );
-    const failedRequestAssertion = expect(failedRequest).rejects.toThrow(
+    await expect(failedRequest).rejects.toThrow(
       'service unavailable'
     );
 
-    await vi.runAllTimersAsync();
-    await failedRequestAssertion;
-    expect(hoisted.mockCopyTestAiChat).toHaveBeenCalledTimes(1);
+    expect(hoisted.aiChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates rejected requests without retrying or falling back to the local mock', async () => {
+    const error = new Error('network unavailable');
+    hoisted.aiChat.mockRejectedValueOnce(error);
+
+    await expect(copyTestValidationApi([images[0]], [rows[0]], 'Target')).rejects.toBe(error);
+
+    expect(hoisted.aiChat).toHaveBeenCalledTimes(1);
+    expect(hoisted.mockCopyTestAiChat).not.toHaveBeenCalled();
   });
 });
