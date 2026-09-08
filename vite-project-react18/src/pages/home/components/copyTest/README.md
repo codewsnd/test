@@ -36,8 +36,10 @@ CopyTest 用于比较 Confluence 表格中的文案与页面截图，并生成�
 ### 3. 上传截图并校验
 
 1. 点击 **Upload Screenshot**。
-2. 点击 **Select screenshots**，选择一张或多张图片。
+2. 点击 **Select screenshots** 选择图片，或直接将图片拖入图片区域。也可以先点击图片区域（或用 Tab 聚焦），再按 **Ctrl+V / ⌘V** 粘贴剪贴板中的图片。
 3. 确认图片列表后，点击 **Validate**。
+
+粘贴支持一张或多张图片，沿用上传的去重、数量和大小限制；纯文本不会加入图片列表。读取图片和 Validate 期间暂停接收粘贴。
 
 **Select screenshots** 下方的 **Display Configuration** 提供两组配置，默认 **Add + Single-image**：
 

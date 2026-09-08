@@ -6,7 +6,7 @@ import { Button, Image, Modal, Space, Typography } from 'antd';
 import { DeleteOutlined, UploadOutlined } from '@ant-design/icons';
 import { MAX_UPLOAD_IMAGE_COUNT, MAX_UPLOAD_TOTAL_LABEL } from '../constants';
 import type { CopyTestMemoryImage } from '../types';
-import { formatFileSize } from '../utils/uploadUtils';
+import { formatFileSize, isImageFile } from '../utils/uploadUtils';
 import { CopyTestDisplayConfiguration } from './CopyTestDisplayConfiguration';
 import type { CopyTestDisplayConfiguration as DisplayConfiguration } from '../types';
 
@@ -14,7 +14,7 @@ import type { CopyTestDisplayConfiguration as DisplayConfiguration } from '../ty
 const { Text } = Typography;
 
 /** 截图缩略图尺寸。 */
-const IMAGE_PREVIEW_HEIGHT = 60;
+const IMAGE_PREVIEW_HEIGHT = 75;
 
 /** 截图辅助信息使用的 Ant Design 文本类型。 */
 const TEXT_TYPE_SECONDARY = 'secondary';
@@ -129,8 +129,8 @@ const UploadImageList: React.FC<Pick<
   return (
     <Image.PreviewGroup>
       <div
-        className="grid max-h-[360px] gap-1 overflow-y-auto pr-1"
-        style={{ gridTemplateColumns: 'repeat(10, minmax(0, 1fr))' }}
+        className="grid max-h-[450px] gap-1 overflow-y-auto pr-1"
+        style={{ gridTemplateColumns: 'repeat(8, minmax(0, 1fr))' }}
       >
         {uploadImages.map(image => (
           <UploadImageCard
@@ -145,7 +145,19 @@ const UploadImageList: React.FC<Pick<
   );
 };
 
-/** 空列表和已有图片时均支持拖入文件，统一交给现有上传校验处理。 */
+/** 优先读取剪贴板文件列表，兼容仅通过 items 提供图片的浏览器。 */
+const getClipboardImages = (clipboardData: DataTransfer): File[] => {
+  const files = Array.from(clipboardData.files);
+  if (files.length > 0) {
+    return files.filter(isImageFile);
+  }
+  return Array.from(clipboardData.items)
+    .filter(item => item.kind === 'file')
+    .map(item => item.getAsFile())
+    .filter((file): file is File => file !== null && isImageFile(file));
+};
+
+/** 空列表和已有图片时均支持拖入或粘贴图片，统一交给现有上传校验处理。 */
 const ScreenshotDropZone: React.FC<{
   children: React.ReactNode;
   disabled: boolean;
@@ -167,19 +179,37 @@ const ScreenshotDropZone: React.FC<{
     await onFilesSelected(files);
   };
 
+  const handlePaste = async (event: React.ClipboardEvent<HTMLElement>): Promise<void> => {
+    if (disabled) {
+      return;
+    }
+    const files = getClipboardImages(event.clipboardData);
+    if (files.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    await onFilesSelected(files);
+  };
+
   return (
     <section
       aria-label="Screenshot drop area"
       aria-disabled={disabled}
-      className="rounded border border-dashed border-gray-300 p-2"
+      tabIndex={disabled ? -1 : 0}
+      className="rounded border border-dashed border-gray-300 p-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
       onDragOver={handleDragOver}
       onDrop={handleDrop}
+      onPaste={handlePaste}
     >
       <div
-        className={`flex w-full items-center justify-center gap-2 text-gray-500 ${disabled ? 'opacity-50' : ''} ${empty ? 'py-8' : 'mb-2 py-2'}`}
+        className={`flex w-full items-center justify-center gap-2 text-gray-500 ${disabled ? 'opacity-50' : ''} ${empty ? 'py-10' : 'mb-2 py-2.5'}`}
       >
         <UploadOutlined />
-        {empty ? 'Drag screenshots here' : 'Drag more screenshots here'}
+        <span>{empty ? 'Drop or paste screenshots here' : 'Drop or paste more screenshots here'}</span>
+        <Text type={TEXT_TYPE_SECONDARY} className="text-xs">
+          To paste, click this area and press Ctrl+V / ⌘V.
+        </Text>
       </div>
       {children}
     </section>
@@ -223,9 +253,11 @@ export const UploadScreenshotModal: React.FC<UploadScreenshotModalProps> = ({
   return (
     <Modal
       title="Upload Screenshot"
+      centered
       open={open}
       onCancel={onClose}
-      width={760}
+      width={950}
+      styles={{ body: { maxHeight: 'calc(100dvh - 200px)', overflowY: 'auto' } }}
       footer={[
         <Button key="close" onClick={onClose} disabled={preparingUpload || processing}>
           Close
@@ -266,7 +298,7 @@ export const UploadScreenshotModal: React.FC<UploadScreenshotModalProps> = ({
           onChange={handleFilesSelected}
         />
         <ScreenshotDropZone
-          disabled={uploadInteractionDisabled}
+          disabled={!open || uploadInteractionDisabled}
           empty={uploadImages.length === 0}
           onFilesSelected={onFilesSelected}
         >

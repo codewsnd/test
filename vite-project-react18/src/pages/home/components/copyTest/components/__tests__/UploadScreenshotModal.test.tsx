@@ -24,7 +24,73 @@ vi.mock('antd', async importOriginal => {
   return { ...actual, Button, Modal, Space, Typography };
 });
 
+/** 粘贴测试只覆盖弹窗上传入口，文件读取由现有上传测试负责。 */
+const renderPasteModal = (uploadImages: React.ComponentProps<typeof UploadScreenshotModal>['uploadImages'] = []) => {
+  const onFilesSelected = vi.fn(() => Promise.resolve());
+  render(
+    <UploadScreenshotModal
+      displayConfiguration={DEFAULT_COPY_TEST_DISPLAY_CONFIGURATION}
+      onDisplayConfigurationChange={vi.fn()}
+      canValidate={false}
+      onClose={vi.fn()}
+      onFilesSelected={onFilesSelected}
+      onRemoveImage={vi.fn()}
+      onValidate={vi.fn()}
+      open
+      preparingUpload={false}
+      processing={false}
+      uploadImages={uploadImages}
+      uploadTotalSize={0}
+    />
+  );
+  return { onFilesSelected, zone: screen.getByRole('region', { name: 'Screenshot drop area' }) };
+};
+
 describe('UploadScreenshotModal', () => {
+  it.each([true, false])('accepts pasted images once and ignores accompanying non-image files when empty=%s', empty => {
+    const { onFilesSelected, zone } = renderPasteModal(empty ? [] : [
+      { fileName: 'old.png', md5: 'old', base64: 'data:image/png;base64,QQ==', size: 1 },
+    ]);
+    const images = [
+      new File(['a'], 'first.png', { type: 'image/png' }),
+      new File(['b'], 'second.jpg', { type: 'image/jpeg' }),
+    ];
+    const clipboardData = {
+      files: [...images, new File(['text'], 'note.txt', { type: 'text/plain' })],
+      items: images.map(file => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+    };
+    zone.focus();
+    expect(document.activeElement).toBe(zone);
+    expect(fireEvent.paste(zone, { clipboardData })).toBe(false);
+    expect(onFilesSelected).toHaveBeenCalledExactlyOnceWith(images);
+    expect(screen.getByText('To paste, click this area and press Ctrl+V / ⌘V.')).toBeTruthy();
+  });
+
+  it('accepts clipboard item images while ignoring text and unreadable file items', () => {
+    const { onFilesSelected, zone } = renderPasteModal();
+    const file = new File(['a'], 'clipboard.png', { type: 'image/png' });
+    fireEvent.paste(zone, {
+      clipboardData: {
+        files: [],
+        items: [
+          { kind: 'string', type: 'text/plain' },
+          { kind: 'file', type: 'image/png', getAsFile: () => null },
+          { kind: 'file', type: 'image/png', getAsFile: () => file },
+        ],
+      },
+    });
+    expect(onFilesSelected).toHaveBeenCalledExactlyOnceWith([file]);
+  });
+
+  it('does not consume empty or text-only paste events', () => {
+    const { onFilesSelected, zone } = renderPasteModal();
+    expect(fireEvent.paste(zone, { clipboardData: { files: [], items: [] } })).toBe(true);
+    expect(fireEvent.paste(zone, {
+      clipboardData: { files: [], items: [{ kind: 'string', type: 'text/plain' }] },
+    })).toBe(true);
+    expect(onFilesSelected).not.toHaveBeenCalled();
+  });
+
   it('renders upload list, empty state, and fires file/remove/validate callbacks', () => {
     const onFilesSelected = vi.fn(() => Promise.resolve());
     const onRemove = vi.fn();
@@ -77,7 +143,7 @@ describe('UploadScreenshotModal', () => {
         uploadTotalSize={0}
       />
     );
-    expect(screen.getByText('Drag screenshots here')).toBeTruthy();
+    expect(screen.getByText('Drop or paste screenshots here')).toBeTruthy();
   });
 
   it.each([true, false])('accepts dropped files without opening the picker on area click when empty=%s', empty => {
@@ -110,7 +176,7 @@ describe('UploadScreenshotModal', () => {
     expect(onFilesSelected).toHaveBeenCalledTimes(1);
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const click = vi.spyOn(input, 'click').mockImplementation(() => {});
-    fireEvent.click(screen.getByText(/Drag .*screenshots here/));
+    fireEvent.click(screen.getByText(/Drop or paste .*screenshots here/));
     fireEvent.click(zone);
     expect(click).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText('Select screenshots'));
@@ -177,8 +243,10 @@ describe('UploadScreenshotModal', () => {
     fireEvent(zone, dragEvent);
     expect(dragEvent.dataTransfer?.dropEffect).toBe('none');
     fireEvent.drop(zone, { dataTransfer });
+    fireEvent.paste(zone, { clipboardData: { files: dataTransfer.files, items: [] } });
     expect(zone.getAttribute('aria-disabled')).toBe('true');
-    fireEvent.click(screen.getByText('Drag more screenshots here'));
+    expect(zone.tabIndex).toBe(-1);
+    fireEvent.click(screen.getByText('Drop or paste more screenshots here'));
     expect(onFilesSelected).not.toHaveBeenCalled();
     expect(onRemoveImage).not.toHaveBeenCalled();
     expect(onValidate).not.toHaveBeenCalled();
