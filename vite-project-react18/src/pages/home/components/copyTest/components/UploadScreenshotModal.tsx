@@ -129,7 +129,7 @@ const UploadImageList: React.FC<Pick<
   return (
     <Image.PreviewGroup>
       <div
-        className="grid max-h-[450px] gap-1 overflow-y-auto pr-1"
+        className="grid gap-1"
         style={{ gridTemplateColumns: 'repeat(8, minmax(0, 1fr))' }}
       >
         {uploadImages.map(image => (
@@ -207,9 +207,6 @@ const ScreenshotDropZone: React.FC<{
       >
         <UploadOutlined />
         <span>{empty ? 'Drop or paste screenshots here' : 'Drop or paste more screenshots here'}</span>
-        <Text type={TEXT_TYPE_SECONDARY} className="text-xs">
-          To paste, click this area and press Ctrl+V / ⌘V.
-        </Text>
       </div>
       {children}
     </section>

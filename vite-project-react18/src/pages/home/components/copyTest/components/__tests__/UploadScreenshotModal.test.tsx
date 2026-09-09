@@ -63,7 +63,6 @@ describe('UploadScreenshotModal', () => {
     expect(document.activeElement).toBe(zone);
     expect(fireEvent.paste(zone, { clipboardData })).toBe(false);
     expect(onFilesSelected).toHaveBeenCalledExactlyOnceWith(images);
-    expect(screen.getByText('To paste, click this area and press Ctrl+V / ⌘V.')).toBeTruthy();
   });
 
   it('accepts clipboard item images while ignoring text and unreadable file items', () => {
