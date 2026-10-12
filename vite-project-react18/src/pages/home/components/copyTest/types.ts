@@ -22,7 +22,7 @@ export interface CopyTestProps {
 
 /** 两项配置均针对本批匹配的 Test Evidence，Test Result 根据最终 Evidence 生成。 */
 export interface CopyTestDisplayConfiguration {
-  /** 匹配行的 Evidence 追加或替换方式，无匹配行不变。 */
+  /** Add 追加匹配图片；Replace 清除选中范围的旧 Evidence/Result 后写入新结果。 */
   evidenceUpdateMode: 'add' | 'replace';
   /** 仅限制本批每组匹配图片数量，不裁剪 Add 保留的历史图片。 */
   evidenceMode: 'single' | 'multiple';

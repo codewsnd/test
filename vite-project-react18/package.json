@@ -84,7 +84,6 @@
     "mermaid": "11.16.1"
   },
   "overrides": {
-    "nanoid": "5.1.16",
     "@vitest/spy": "4.1.9",
     "@vitest/snapshot": "4.1.9"
   }

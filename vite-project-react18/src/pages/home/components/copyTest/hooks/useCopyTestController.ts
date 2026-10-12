@@ -26,7 +26,7 @@ import type {
 } from '../types';
 import { DEFAULT_COPY_TEST_DISPLAY_CONFIGURATION } from '../types';
 import { resetCopyTestValidationMockSequence } from '../mock/validationMock';
-import { countCopyTestMatchedImages, selectCopyTestMatchedResults } from '../utils/copyTestValidationMerge';
+import { buildCopyTestReplacementResults, countCopyTestMatchedImages, selectCopyTestMatchedResults } from '../utils/copyTestValidationMerge';
 import {
   getConfluenceTableError,
   getConfluenceUrlError,
@@ -35,6 +35,8 @@ import {
 } from '../utils/urlUtils';
 import {
   getCopyTestValidationContext,
+  hasCopyTestValidationEvidence,
+  COPY_TEST_NO_EVIDENCE_ERROR,
   getRequiredExportStorageOrThrow,
   type CopyTestValidationContext,
 } from '../utils/copyTestControllerUtils';
@@ -688,12 +690,15 @@ export const useCopyTestController = ({
 
     const matchedResults = selectCopyTestMatchedResults(results, images, context.rows, configuration.evidenceMode);
     const matchedCount = countCopyTestMatchedImages(matchedResults);
-    if (matchedCount === 0) {
+    if (matchedCount === 0 && configuration.evidenceUpdateMode === 'add') {
       return 0;
     }
 
     /** 按返回的附件文件名绑定本次上传内存图片后的结果。 */
-    const boundResults = bindResultImages(matchedResults, images);
+    const nextResults = configuration.evidenceUpdateMode === 'replace'
+      ? buildCopyTestReplacementResults(matchedResults, context.rows)
+      : matchedResults;
+    const boundResults = bindResultImages(nextResults, images);
     tableState.applyValidationResults(
       boundResults,
       images,
@@ -759,6 +764,19 @@ export const useCopyTestController = ({
     tableState.setResultStatus(update);
   };
 
+  /** 在发起请求前阻止空 Evidence 的 Replace，保留上传列表和当前表格。 */
+  const getValidationContext = (): CopyTestValidationContext | null => {
+    const context = getCopyTestValidationContext(tableState, uploadState.uploadImages);
+    if (!context) {
+      return null;
+    }
+    if (displayConfiguration.evidenceUpdateMode === 'replace' && !hasCopyTestValidationEvidence(context)) {
+      notifications.error(COPY_TEST_NO_EVIDENCE_ERROR);
+      return null;
+    }
+    return context;
+  };
+
   /** 校验上传与选择上下文并执行一次 AI 校验。 */
   const handleValidateClick = async (): Promise<void> => {
     if (!canValidate || validationInProgressRef.current) {
@@ -766,7 +784,7 @@ export const useCopyTestController = ({
     }
 
     /** 通过图片限制和表格选择校验后的请求上下文。 */
-    const context = getCopyTestValidationContext(tableState, uploadState.uploadImages);
+    const context = getValidationContext();
     if (!context) {
       return;
     }
@@ -792,7 +810,7 @@ export const useCopyTestController = ({
       if (matchedCount === null) {
         return;
       }
-      if (matchedCount === 0) {
+      if (matchedCount === 0 && configuration.evidenceUpdateMode === 'add') {
         notifications.warning('No matching screenshots found. Existing results and evidence were kept.');
         return;
       }

@@ -68,7 +68,7 @@ export const COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE = 'data-copy-test-result-a
 export const COPY_TEST_RESULT_AI_PASSED_ATTRIBUTE = 'data-copy-test-result-ai-passed';
 
 /** Result 单元格与最初 AI 判定一致时显示的文案。 */
-export const COPY_TEST_AI_COMPARISON_LABEL = 'AI comparson';
+export const COPY_TEST_AI_COMPARISON_LABEL = 'AI Comparison';
 
 /** Result Passed 分组使用的属性值。 */
 export const COPY_TEST_RESULT_PASSED_GROUP_VALUE = 'passed';

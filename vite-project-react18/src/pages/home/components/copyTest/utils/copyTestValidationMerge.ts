@@ -81,13 +81,30 @@ const appendMatchedResult = (
   };
 };
 
-/** 无匹配行不参与写入；有匹配行按 Add 或 Replace 更新。 */
+/** Replace 为选中但未匹配的行补空结果，使旧 Evidence 和 Result 同步清除。 */
+export const buildCopyTestReplacementResults = (
+  matched: CopyTestValidationResult[],
+  rows: CopyTestRowInput[]
+): CopyTestValidationResult[] => {
+  const byRow = new Map(matched.map(result => [result.rowIndex, result]));
+  return rows.map(row => byRow.get(row.rowIndex) ?? {
+    rowIndex: row.rowIndex,
+    passed: false,
+    evidenceImageFileNames: [],
+    languageIssues: [],
+  });
+};
+
+/** Add 保留未匹配历史；Replace 先移除本次目标行历史，再写入新匹配。 */
 export const mergeCopyTestMatchedResults = (
   historical: CopyTestValidationResultWithEvidence[],
   current: CopyTestValidationResultWithEvidence[],
   evidenceUpdateMode: CopyTestDisplayConfiguration['evidenceUpdateMode']
 ): CopyTestValidationResultWithEvidence[] => {
   const results = new Map(historical.map(result => [result.rowIndex, result]));
+  if (evidenceUpdateMode === 'replace') {
+    current.forEach(result => results.delete(result.rowIndex));
+  }
   current.filter(result => result.evidenceImages.length > 0).forEach(result => {
     const previous = results.get(result.rowIndex);
     const next = evidenceUpdateMode === 'add' && previous ? appendMatchedResult(previous, result) : result;

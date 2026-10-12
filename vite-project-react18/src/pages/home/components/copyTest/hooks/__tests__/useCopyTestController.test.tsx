@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCopyTestController } from '../useCopyTestController';
 import { COPY_TEST_EXPORT_ERROR_MESSAGES } from '../../table/copyTestExportErrors';
+import { COPY_TEST_NO_EVIDENCE_ERROR } from '../../utils/copyTestControllerUtils';
 
 const hoisted = vi.hoisted(() => ({
   attachmentsApi: vi.fn(),
@@ -216,7 +217,7 @@ describe('useCopyTestController', () => {
     expect(hoisted.storageApi).toHaveBeenCalledTimes(3);
   });
 
-  it.each(['add', 'replace'] as const)('%s reports no match without clearing existing content or the upload list', async evidenceUpdateMode => {
+  it.each(['add', 'replace'] as const)('%s applies its no-match policy to existing evidence', async evidenceUpdateMode => {
     hoisted.storageApi.mockResolvedValue({ storage: storageHtml });
     const notifications = { error: vi.fn(), success: vi.fn(), warning: vi.fn() };
     const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn(), notifications }));
@@ -240,6 +241,16 @@ describe('useCopyTestController', () => {
     }]);
     notifications.success.mockClear();
     await act(() => result.current.handleValidateClick());
+    if (evidenceUpdateMode === 'replace') {
+      expect(result.current.tableState.selectedTable?.workingHtml).not.toContain('uuid-value.png');
+      expect(result.current.tableState.selectedTable?.workingHtml).not.toContain('Passed:');
+      expect(result.current.tableState.getCurrentValidationImages()).toEqual([]);
+      expect(result.current.tableState.selectedColumnHasExportableContent).toBe(true);
+      expect(result.current.uploadState.uploadImages).toEqual([]);
+      expect(result.current.uploadModalOpen).toBe(false);
+      expect(notifications.warning).not.toHaveBeenCalled();
+      return;
+    }
     expect(result.current.tableState.selectedTable?.workingHtml).toBe(before);
     expect(result.current.tableState.revision).toBe(revision);
     expect(result.current.uploadState.uploadImages).toHaveLength(1);
@@ -247,6 +258,50 @@ describe('useCopyTestController', () => {
     expect(result.current.validationLoading).toBe(false);
     expect(notifications.success).not.toHaveBeenCalled();
     expect(notifications.warning).toHaveBeenCalledWith('No matching screenshots found. Existing results and evidence were kept.');
+  });
+
+  it('blocks Replace before calling validation when the selected Evidence is empty', async () => {
+    hoisted.storageApi.mockResolvedValue({ storage: storageHtml });
+    const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
+    act(() => { result.current.handleConfluenceUrlChange('http://wiki'); });
+    await act(() => result.current.handleLoadTables());
+    await act(() => result.current.handleComparisonColumnChange(1));
+    act(() => {
+      result.current.handleDisplayConfigurationChange({ evidenceUpdateMode: 'replace', evidenceMode: 'single' });
+      result.current.handleChooseImages();
+    });
+    await act(() => result.current.handleFilesSelected([new File(['a'], 'first.png', { type: 'image/png' })]));
+    const before = result.current.tableState.selectedTable?.workingHtml;
+    await act(() => result.current.handleValidateClick());
+    expect(hoisted.messageError).toHaveBeenCalledWith(COPY_TEST_NO_EVIDENCE_ERROR);
+    expect(hoisted.validationApi).not.toHaveBeenCalled();
+    expect(result.current.validationLoading).toBe(false);
+    expect(result.current.uploadModalOpen).toBe(true);
+    expect(result.current.uploadState.uploadImages).toHaveLength(1);
+    expect(result.current.tableState.selectedTable?.workingHtml).toBe(before);
+  });
+
+  it('allows Replace for imported Evidence and retains old data when validation fails', async () => {
+    hoisted.storageApi.mockResolvedValue({ storage: managedEvidenceStorage });
+    hoisted.attachmentsApi.mockResolvedValue({ images: [{ fileName: 'screen.png', base64: 'data:image/png;base64,QQ==' }] });
+    hoisted.validationApi.mockRejectedValueOnce(new Error('validation unavailable'));
+    const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
+    act(() => { result.current.handleConfluenceUrlChange('http://wiki'); });
+    await act(() => result.current.handleLoadTables());
+    await act(() => result.current.handleComparisonColumnChange(0));
+    act(() => { result.current.handleDisplayConfigurationChange({ evidenceUpdateMode: 'replace', evidenceMode: 'single' }); });
+    await act(() => result.current.handleFilesSelected([new File(['a'], 'first.png', { type: 'image/png' })]));
+    const before = result.current.tableState.selectedTable?.workingHtml;
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      await act(() => result.current.handleValidateClick());
+      expect(hoisted.validationApi).toHaveBeenCalledTimes(1);
+      expect(hoisted.messageError).toHaveBeenCalledWith('Copy test validation failed');
+      expect(result.current.tableState.selectedTable?.workingHtml).toBe(before);
+      expect(result.current.uploadState.uploadImages).toHaveLength(1);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it('passes Multi-images configuration and reports distinct matched images even for failed copy', async () => {
@@ -461,7 +516,6 @@ describe('useCopyTestController', () => {
     const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn() }));
 
     act(() => {
-      result.current.handleDisplayConfigurationChange({ evidenceUpdateMode: 'replace', evidenceMode: 'single' });
       result.current.handleConfluenceUrlChange('http://wiki');
     });
     await act(() => result.current.handleLoadTables());
@@ -472,6 +526,9 @@ describe('useCopyTestController', () => {
       new File(['first'], 'first.png', { type: 'image/png' }),
     ]));
     await act(() => result.current.handleValidateClick());
+    act(() => {
+      result.current.handleDisplayConfigurationChange({ evidenceUpdateMode: 'replace', evidenceMode: 'single' });
+    });
     await act(() => result.current.handleFilesSelected([
       new File(['second'], 'second.png', { type: 'image/png' }),
     ]));

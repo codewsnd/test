@@ -55,17 +55,45 @@ describe('display configuration applied to the working table', () => {
     expect(result.current.getCurrentValidationImages().map(image => image.fileName)).toEqual(expect.arrayContaining([...expected, 'a.png']));
   });
 
-  it.each(['add', 'replace'] as const)('%s with no match keeps HTML, revision and snapshots untouched', evidenceUpdateMode => {
+  it('Add with no match keeps HTML, revision and snapshots untouched', () => {
     const { result } = setupSession();
     const before = result.current.selectedTable?.workingHtml;
     const revision = result.current.revision;
     const images = result.current.getCurrentValidationImages();
     act(() => {
-      result.current.applyValidationResults([matched(0, [], false)], [], 0, 'Target', 0, { evidenceUpdateMode, evidenceMode: 'single' });
+      result.current.applyValidationResults([matched(0, [], false)], [], 0, 'Target', 0, { evidenceUpdateMode: 'add', evidenceMode: 'single' });
     });
     expect(result.current.selectedTable?.workingHtml).toBe(before);
     expect(result.current.revision).toBe(revision);
     expect(result.current.getCurrentValidationImages()).toBe(images);
+  });
+
+  it.each(['single', 'multiple'] as const)('Replace clears old shared evidence and unmatched results in %s mode', evidenceMode => {
+    const { result } = setupSession();
+    act(() => {
+      result.current.applyValidationResults([matched(0, [imageB], false), matched(1, [], false)],
+        [imageB], 0, 'Target', 0, { evidenceUpdateMode: 'replace', evidenceMode });
+    });
+    const table = result.current.selectedTable!;
+    const snapshot = hydrateCopyTestValidationSnapshot(table, 0, 'Target');
+    expect(table.workingHtml).not.toContain('a.png');
+    expect(snapshot?.results.map(row => row.rowIndex)).toEqual([0]);
+    expect(snapshot?.results[0].evidenceImageFileNames).toEqual(['b.png']);
+    expect(snapshot?.results[0].passed).toBe(false);
+    expect(result.current.getCurrentValidationImages()).toEqual([imageB]);
+  });
+
+  it('Replace with no matches clears both columns and remains exportable', () => {
+    const { result } = setupSession();
+    act(() => {
+      result.current.applyValidationResults([matched(0, [], false), matched(1, [], false)], [],
+        0, 'Target', 0, { evidenceUpdateMode: 'replace', evidenceMode: 'single' });
+    });
+    const table = result.current.selectedTable!;
+    expect(table.workingHtml).not.toContain('a.png');
+    expect(table.workingHtml).not.toContain('Passed:');
+    expect(result.current.getCurrentValidationImages()).toEqual([]);
+    expect(result.current.selectedColumnHasExportableContent).toBe(true);
   });
 
   it('keeps unmatched row references isolated when an appended image is deleted', () => {

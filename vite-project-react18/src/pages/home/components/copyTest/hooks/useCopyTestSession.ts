@@ -626,7 +626,7 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     tableIndex: number,
     configuration?: CopyTestDisplayConfiguration
   ): void => {
-    const results = configuration
+    const results = configuration?.evidenceUpdateMode === 'add'
       ? inputResults.filter(result => result.evidenceImages.length > 0)
       : inputResults;
     if (configuration && results.length === 0) {

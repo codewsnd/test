@@ -27,9 +27,15 @@ describe('matched validation results', () => {
     expect(mergeCopyTestMatchedResults([historical], [duplicate], 'add')[0].evidenceImageFileNames).toEqual(['a.png']);
   });
 
-  it.each(['add', 'replace'] as const)('%s leaves unmatched rows unchanged', mode => {
+  it('Add leaves unmatched rows unchanged', () => {
     const unmatched = { ...current, evidenceImages: [], evidenceImageFileNames: [] };
-    expect(mergeCopyTestMatchedResults([historical], [unmatched], mode)).toEqual([historical]);
+    expect(mergeCopyTestMatchedResults([historical], [unmatched], 'add')).toEqual([historical]);
+  });
+
+  it('Replace clears an unmatched target while retaining unselected rows', () => {
+    const unmatched = { ...current, evidenceImages: [], evidenceImageFileNames: [] };
+    const untouched = { ...historical, rowIndex: 1 };
+    expect(mergeCopyTestMatchedResults([historical, untouched], [unmatched], 'replace')).toEqual([untouched]);
   });
 
   it('replaces only the matching row', () => {

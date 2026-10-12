@@ -17,7 +17,7 @@ describe('tableConstants', () => {
     expect(constants.COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE).toBe(
       'data-copy-test-result-ai-comparison'
     );
-    expect(constants.COPY_TEST_AI_COMPARISON_LABEL).toBe('AI comparson');
+    expect(constants.COPY_TEST_AI_COMPARISON_LABEL).toBe('AI Comparison');
     expect(constants.COPY_TEST_RESULT_SCREEN_ORDER_ATTRIBUTE).toBe(
       'data-copy-test-result-screen-order'
     );

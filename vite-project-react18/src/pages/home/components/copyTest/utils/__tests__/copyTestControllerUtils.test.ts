@@ -6,6 +6,7 @@ import {
   getEmptyAttachmentPreviewBundle,
   getRequiredExportStorage,
   getRequiredExportStorageOrThrow,
+  hasCopyTestValidationEvidence,
 } from '../copyTestControllerUtils';
 import { applyCopyTestValidationResults, ensureCopyTestWorkingColumns } from '../../table/copyTestTableEditor';
 import { parseCopyTestStorageTables } from '../../table/copyTestTableParser';
@@ -47,6 +48,36 @@ const tableState = {
 } as unknown as UseCopyTestSessionResult;
 
 describe('copyTestControllerUtils', () => {
+  it.each([
+    { content: '<p><br></p>', expected: false },
+    { content: '<p>&nbsp;</p>', expected: false },
+    { content: '<p>Existing evidence</p>', expected: true },
+    { content: '<ac:image><ri:attachment ri:filename="old.png" /></ac:image>', expected: true },
+    { content: '<img src="old.png" />', expected: true },
+  ])('detects selected Evidence content: $content', ({ content, expected }) => {
+    const generated = ensureCopyTestWorkingColumns(parsedTable, 0, 'Target');
+    const doc = new DOMParser().parseFromString(generated.workingHtml, 'text/html');
+    doc.querySelector('td[data-copy-test-column-type="evidence"]')!.innerHTML = content;
+    const table = parseCopyTestStorageTables(doc.body.innerHTML)[0];
+    expect(hasCopyTestValidationEvidence({
+      selectedTable: table, selectedColumnIndex: 0, selectedColumnLabel: 'Target',
+      rows: [{ rowIndex: 0, evidenceGroupId: 0, expected: 'copy' }],
+    })).toBe(expected);
+  });
+
+  it('does not count Evidence belonging to unselected rows', () => {
+    const table = applyCopyTestValidationResults(
+      parseCopyTestStorageTables('<table><tr><th>Target</th></tr><tr><td>A</td></tr><tr><td></td></tr><tr><td>B</td></tr></table>')[0],
+      [{ rowIndex: 0, passed: true, languageIssues: [], evidenceImageFileNames: ['a.png'],
+        evidenceImages: [{ fileName: 'a.png', base64: 'data:image/png;base64,QQ==' }] }],
+      0, 'Target', [{ fileName: 'a.png', base64: 'data:image/png;base64,QQ==' }]
+    );
+    expect(hasCopyTestValidationEvidence({
+      selectedTable: table, selectedColumnIndex: 0, selectedColumnLabel: 'Target',
+      rows: [{ rowIndex: 2, evidenceGroupId: 2, expected: 'B' }],
+    })).toBe(false);
+  });
+
   it('returns selection-specific export errors without emitting a second static notification', () => {
     hoisted.warning.mockClear();
     expect(() => getRequiredExportStorageOrThrow({ ...tableState, selectedTable: undefined }))

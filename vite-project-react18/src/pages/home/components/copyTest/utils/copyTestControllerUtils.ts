@@ -18,6 +18,10 @@ import { createCopyTestExportScope } from '../table/copyTestExportScope';
 import type { CopyTestMemoryImage, CopyTestTableEntry } from '../types';
 import type { UseCopyTestSessionResult } from '../hooks/useCopyTestSession';
 import { getImageLimitError } from './uploadUtils';
+import { findGeneratedColumnIndexes, getSourceColumnKey } from '../table/copyTestTableParser';
+
+/** Replace 模式下没有可替换 Evidence 时的统一提示。 */
+export const COPY_TEST_NO_EVIDENCE_ERROR = 'There is currently no historical comparison result. Please select Add mode.';
 
 /** 发起一次 CopyTest 校验所需的稳定上下文。 */
 export interface CopyTestValidationContext {
@@ -30,6 +34,24 @@ export interface CopyTestValidationContext {
   /** 校验结果要写回的工作表格。 */
   selectedTable: CopyTestTableEntry;
 }
+
+/** 按选中来源行读取 Evidence；合并单元格通过逻辑槽位读取。 */
+export const hasCopyTestValidationEvidence = (context: CopyTestValidationContext): boolean => {
+  const { selectedTable, selectedColumnIndex, selectedColumnLabel, rows } = context;
+  const sourceKey = getSourceColumnKey(selectedColumnIndex, selectedColumnLabel);
+  const { evidence } = findGeneratedColumnIndexes(selectedTable.headers, sourceKey);
+  if (evidence === undefined) {
+    return false;
+  }
+  return rows.some(row => {
+    const cell = selectedTable.model.rows[row.rowIndex + 1]?.slots[evidence]?.cell.element;
+    if (!cell) {
+      return false;
+    }
+    return Boolean(cell.textContent?.trim() || cell.querySelector('img')
+      || cell.getElementsByTagName('ac:image').length);
+  });
+};
 
 /** 构建 storage 附件预览所需的参数。 */
 interface AttachmentPreviewParams {
