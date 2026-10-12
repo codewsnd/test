@@ -2,6 +2,7 @@
  * 文件作用：解析 Confluence 表格结构并构建行列 slot 模型。
  */
 import type { CopyTestRowInput } from '../api/copyTestApi';
+import { recoverCopyTestColumnIdentities } from './copyTestConfluenceRecovery';
 import { buildCopyTestSpanGrid, type CopyTestGridCellInput, type CopyTestSpanGrid } from './copyTestGridModel';
 import {
   COPY_TEST_EVIDENCE_HEADER_PREFIX,
@@ -449,6 +450,7 @@ export const parseTableModel = (table: HTMLTableElement): CopyTestTableModel => 
     (maxCount, row) => Math.max(maxCount, row.slots.length),
     0
   );
+  recoverCopyTestColumnIdentities(rows);
   return {
     columnCount,
     headers: buildHeaders(rows[0]),

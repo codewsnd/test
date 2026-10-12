@@ -11,6 +11,7 @@ import {
   COPY_TEST_SCHEMA_ATTRIBUTE,
   COPY_TEST_SCHEMA_VERSION,
 } from './tableConstants';
+import { restoreCopyTestEvidenceMetadata } from './copyTestEvidenceMetadata';
 import {
   getGeneratedColumnLabel,
   parseHtml,
@@ -620,6 +621,7 @@ export const ensureCopyTestGeneratedColumns = (
 
   /** 完成 metadata 与 rowspan 同步后的最终模型。 */
   const syncedModel = parseTableModel(tableElement);
+  restoreCopyTestEvidenceMetadata(syncedModel, indexes.evidence, sourceColumnKey);
   return {
     context: {
       evidenceColumnIndex: indexes.evidence,
