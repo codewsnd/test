@@ -15,7 +15,7 @@ export const CopyTestDisplayConfiguration: React.FC<Props> = ({ disabled, value,
     <div className="flex flex-wrap items-start gap-x-6 gap-y-3 rounded border border-gray-200 bg-gray-50 p-3">
       <span className="inline-flex items-center gap-2 leading-[22px]">
         Display Configuration
-        <Tooltip trigger={['hover', 'focus']} title="Add keeps existing evidence and appends new matched images. Replace requires existing Test Evidence in the selected rows and replaces their Test Evidence and Test Result with the new validation data, clearing selected rows without a match. Single-image selects one matched image per group in this batch; Multi-images allows several. Unselected rows remain unchanged.">
+        <Tooltip trigger={['hover', 'focus']} title="Add keeps existing evidence and appends new matched images. Replace requires existing Test Evidence in the selected rows and at least one matched image in this batch before replacing their Test Evidence and Test Result, clearing selected rows without a match. If no images match, existing results and evidence are kept. Single-image selects one matched image per group in this batch; Multi-images allows several. Unselected rows remain unchanged.">
           <button type="button" aria-label="About display configuration" className="inline-flex border-0 bg-transparent p-0 text-gray-500">
             <QuestionCircleOutlined />
           </button>

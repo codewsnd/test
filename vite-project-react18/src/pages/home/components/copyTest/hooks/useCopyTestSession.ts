@@ -629,7 +629,8 @@ export const useCopyTestSession = (): UseCopyTestSessionResult => {
     const results = configuration?.evidenceUpdateMode === 'add'
       ? inputResults.filter(result => result.evidenceImages.length > 0)
       : inputResults;
-    if (configuration && results.length === 0) {
+    /** 本批没有任何匹配图片时，两种模式都保留历史，Replace 不应用清空占位行。 */
+    if (configuration && !results.some(result => result.evidenceImages.length > 0)) {
       return;
     }
     /** 校验发起时锁定的目标工作表格。 */

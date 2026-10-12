@@ -83,17 +83,20 @@ describe('display configuration applied to the working table', () => {
     expect(result.current.getCurrentValidationImages()).toEqual([imageB]);
   });
 
-  it('Replace with no matches clears both columns and remains exportable', () => {
+  it.each(['single', 'multiple'] as const)('Replace with no matches preserves history in %s mode', evidenceMode => {
     const { result } = setupSession();
+    const before = result.current.selectedTable?.workingHtml;
+    const revision = result.current.revision;
+    const images = result.current.getCurrentValidationImages();
+    const pendingExport = result.current.selectedColumnHasExportableContent;
     act(() => {
-      result.current.applyValidationResults([matched(0, [], false), matched(1, [], false)], [],
-        0, 'Target', 0, { evidenceUpdateMode: 'replace', evidenceMode: 'single' });
+      result.current.applyValidationResults([matched(0, [], false), matched(1, [], false)], [imageB],
+        0, 'Target', 0, { evidenceUpdateMode: 'replace', evidenceMode });
     });
-    const table = result.current.selectedTable!;
-    expect(table.workingHtml).not.toContain('a.png');
-    expect(table.workingHtml).not.toContain('Passed:');
-    expect(result.current.getCurrentValidationImages()).toEqual([]);
-    expect(result.current.selectedColumnHasExportableContent).toBe(true);
+    expect(result.current.selectedTable?.workingHtml).toBe(before);
+    expect(result.current.revision).toBe(revision);
+    expect(result.current.getCurrentValidationImages()).toBe(images);
+    expect(result.current.selectedColumnHasExportableContent).toBe(pendingExport);
   });
 
   it('keeps unmatched row references isolated when an appended image is deleted', () => {

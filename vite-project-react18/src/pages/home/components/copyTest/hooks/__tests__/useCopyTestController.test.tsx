@@ -217,42 +217,47 @@ describe('useCopyTestController', () => {
     expect(hoisted.storageApi).toHaveBeenCalledTimes(3);
   });
 
-  it.each(['add', 'replace'] as const)('%s applies its no-match policy to existing evidence', async evidenceUpdateMode => {
-    hoisted.storageApi.mockResolvedValue({ storage: storageHtml });
+  it.each([
+    { evidenceUpdateMode: 'add', evidenceMode: 'single' },
+    { evidenceUpdateMode: 'add', evidenceMode: 'multiple' },
+    { evidenceUpdateMode: 'replace', evidenceMode: 'single' },
+    { evidenceUpdateMode: 'replace', evidenceMode: 'multiple' },
+  ] as const)('$evidenceUpdateMode / $evidenceMode preserves both groups when no image matches', async configuration => {
+    const groupedStorage = '<table><tr><th>Reference</th><th>Target</th></tr><tr><td>A</td><td>First</td></tr><tr><td></td><td></td></tr><tr><td>B</td><td>Second</td></tr></table>';
+    hoisted.storageApi.mockResolvedValue({ storage: groupedStorage });
+    hoisted.uuid.mockReturnValueOnce('old-image').mockReturnValue('new-image');
     const notifications = { error: vi.fn(), success: vi.fn(), warning: vi.fn() };
     const { result } = renderHook(() => useCopyTestController({ onClose: vi.fn(), notifications }));
     act(() => { result.current.handleConfluenceUrlChange('http://wiki'); });
     await act(() => result.current.handleLoadTables());
     await act(() => result.current.handleComparisonColumnChange(1));
     await act(() => result.current.handleFilesSelected([new File(['a'], 'first.png', { type: 'image/png' })]));
-    hoisted.validationApi.mockResolvedValueOnce([{
-      rowIndex: 0, passed: true, evidenceImageFileNames: ['uuid-value.png'], languageIssues: [],
-    }]);
+    hoisted.validationApi.mockResolvedValueOnce([
+      { rowIndex: 0, passed: true, evidenceImageFileNames: ['old-image.png'], languageIssues: [] },
+      { rowIndex: 2, passed: false, evidenceImageFileNames: ['old-image.png'], languageIssues: ['Different copy.'] },
+    ]);
     await act(() => result.current.handleValidateClick());
     const before = result.current.tableState.selectedTable?.workingHtml;
     const revision = result.current.tableState.revision;
+    const previousImages = result.current.tableState.getCurrentValidationImages();
+    const pendingExport = result.current.tableState.selectedColumnHasExportableContent;
+    expect(before).toContain('Passed:');
+    expect(before).toContain('Failed:');
+    expect(result.current.tableState.buildSelectedRowsForValidation().map(row => row.evidenceGroupId)).toEqual([0, 2]);
     act(() => {
-      result.current.handleDisplayConfigurationChange({ evidenceUpdateMode, evidenceMode: 'multiple' });
+      result.current.handleDisplayConfigurationChange(configuration);
       result.current.handleChooseImages();
     });
     await act(() => result.current.handleFilesSelected([new File(['b'], 'second.png', { type: 'image/png' })]));
-    hoisted.validationApi.mockResolvedValueOnce([{
-      rowIndex: 0, passed: false, evidenceImageFileNames: [], languageIssues: ['No matching screenshot.'],
-    }]);
+    hoisted.validationApi.mockResolvedValueOnce([0, 2].map(rowIndex => ({
+      rowIndex, passed: false, evidenceImageFileNames: [], languageIssues: ['No matching screenshot.'],
+    })));
     notifications.success.mockClear();
     await act(() => result.current.handleValidateClick());
-    if (evidenceUpdateMode === 'replace') {
-      expect(result.current.tableState.selectedTable?.workingHtml).not.toContain('uuid-value.png');
-      expect(result.current.tableState.selectedTable?.workingHtml).not.toContain('Passed:');
-      expect(result.current.tableState.getCurrentValidationImages()).toEqual([]);
-      expect(result.current.tableState.selectedColumnHasExportableContent).toBe(true);
-      expect(result.current.uploadState.uploadImages).toEqual([]);
-      expect(result.current.uploadModalOpen).toBe(false);
-      expect(notifications.warning).not.toHaveBeenCalled();
-      return;
-    }
     expect(result.current.tableState.selectedTable?.workingHtml).toBe(before);
     expect(result.current.tableState.revision).toBe(revision);
+    expect(result.current.tableState.getCurrentValidationImages()).toBe(previousImages);
+    expect(result.current.tableState.selectedColumnHasExportableContent).toBe(pendingExport);
     expect(result.current.uploadState.uploadImages).toHaveLength(1);
     expect(result.current.uploadModalOpen).toBe(true);
     expect(result.current.validationLoading).toBe(false);

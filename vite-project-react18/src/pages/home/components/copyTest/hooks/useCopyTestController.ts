@@ -690,7 +690,7 @@ export const useCopyTestController = ({
 
     const matchedResults = selectCopyTestMatchedResults(results, images, context.rows, configuration.evidenceMode);
     const matchedCount = countCopyTestMatchedImages(matchedResults);
-    if (matchedCount === 0 && configuration.evidenceUpdateMode === 'add') {
+    if (matchedCount === 0) {
       return 0;
     }
 
@@ -810,7 +810,7 @@ export const useCopyTestController = ({
       if (matchedCount === null) {
         return;
       }
-      if (matchedCount === 0 && configuration.evidenceUpdateMode === 'add') {
+      if (matchedCount === 0) {
         notifications.warning('No matching screenshots found. Existing results and evidence were kept.');
         return;
       }
