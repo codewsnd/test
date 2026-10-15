@@ -73,6 +73,41 @@ fastmcp run server.py:mcp --transport http --host 127.0.0.1 --port 8000
 }
 ```
 
+## 本地 MCP Inspector 官方界面（9090）
+
+前端项目位于 `frontend/`，使用 Vite 全屏加载本地安装的 MCP Inspector `2.11.0` 官方界面。依赖固定在 `package-lock.json`，日常启动不再通过 npx 下载 Inspector。现有 `@modelcontextprotocol/ext-apps` `0.4.0` 和 `@modelcontextprotocol/sdk` `1.32.1` 保持不变。
+
+首次拉取项目时，在前端目录安装依赖：
+
+```powershell
+cd frontend
+mise.exe exec node@24.18.0 -- npm.cmd ci
+cd ..
+```
+
+在 `fastmcp-project` 目录启动后端，并保持终端运行：
+
+```powershell
+.\.venv\Scripts\fastmcp.exe run server.py:mcp --transport http --host 127.0.0.1 --port 8000
+```
+
+另开终端，在前端目录启动界面：
+
+```powershell
+cd frontend
+mise.exe exec node@24.18.0 -- npm.cmd run dev
+```
+
+打开 `http://127.0.0.1:9090`。`npm run dev` 启动本地 Vite 与 Inspector，不安装或下载 npm 依赖。浏览器入口固定为 `9090`，被占用时会报错，不会自动切换。
+
+- 页面默认连接 `http://127.0.0.1:8000/mcp`，只显示官方界面；管理其他服务可使用官方 **Servers** 页。
+- 官方 **Tools** 页：选择 `get_weather_text`，填写 `city` 并执行，查看普通文本结果。
+- 官方 **Apps** 页：选择 `get_weather_app`，填写 `city` 并点击 **Open App**，查看 HTML 天气卡片。
+- Inspector 的布局、样式、Network 面板及交互直接使用官方实现，没有修改依赖包源码。
+- 使用完后，分别在前后端终端按 Ctrl+C；前端停止时会一并关闭它启动的 Inspector。
+
+前端构建和独立预览见 [frontend/README.md](frontend/README.md)。天气卡片的 SDK 使用本地打包产物，不请求 CDN；Inspector 官方页面字体仍沿用其原有加载方式。下面的 FastMCP Apps 和 Inspector 是可选的手动调试方式。
+
 ## 使用 FastMCP 自带的 Apps 预览界面
 
 在项目目录执行以下 PowerShell 命令，不需要大模型或模型 API Key：
@@ -99,6 +134,26 @@ FastMCP `3.2.4` 默认开启自动重载，其重载子进程通过 `PATH` 查�
 .\.venv\Scripts\Activate.ps1
 fastmcp dev apps server.py:mcp --mcp-port 8000 --dev-port 8088
 ```
+
+## 使用 Inspector 测试普通文本工具
+
+保持 FastMCP Apps 预览运行（其 MCP 服务监听 `8000`），另开一个 PowerShell，在本项目目录执行：
+
+```powershell
+mise.exe exec node@24.18.0 -- npx.cmd -y "@modelcontextprotocol/inspector@latest" --server-url "http://127.0.0.1:8000/mcp" --transport http
+```
+
+打开终端打印的完整浏览器链接，连接服务，进入 `Tools`，选择 `get_weather_text`，填写 `city` 为 `上海` 后调用。`Apps` 页面也可以测试 `get_weather_app` 的 HTML 卡片。
+
+PowerShell 中使用 `mise.exe` 直接调用程序，避免 `mise` 包装函数影响 `--` 参数分隔符。请完整复制代码块内的一行命令，URL 应为普通文本，不要粘贴 Markdown 链接格式，也不要在行尾添加反斜杠 `\`。
+
+本目录的 `mise.toml` 单独指定 Node `24.18.0`，避免继承仓库根目录的 Node `22.9.0`；本次验证的 Inspector 版本为 `2.11.0`，要求 Node 至少为 `22.19.0`。未使用 mise 的环境可以在满足要求的 Node 环境中直接运行上述 `npx` 命令。
+
+### Inspector 提示 Cannot find native binding
+
+这是 Inspector 的 Node 依赖加载问题。排查时应查看完整错误中的 `cause`，确认具体缺少的包，不要据此删除本仓库其他项目的 `package-lock.json` 或 `node_modules`。
+
+本机此次错误来自 npx 缓存缺少 `@rolldown/binding-win32-x64-msvc@1.2.14`，已按缓存内 `rolldown` 的版本补齐。与此独立的 Node 版本问题，通过上面的 `mise.exe exec node@24.18.0` 命令解决。
 
 ## 验证安装
 
@@ -133,7 +188,9 @@ HTML 工具通过 `AppConfig(resource_uri="ui://weather/view.html")` 关联卡�
 
 卡片需要支持 MCP Apps 的客户端。不支持的客户端仍可读取工具返回的普通文本摘要；直接在浏览器打开 HTML 会显示客户端使用提示。
 
-页面从 `https://unpkg.com` 加载固定版本的 `@modelcontextprotocol/ext-apps@0.4.0` SDK，该域名已在资源的 CSP 中声明，因此查看卡片需要能访问该 CDN。天气数据全部来自本地 Mock，Python 依赖仍只有 `fastmcp==3.2.4`，无需安装 `fastmcp[apps]`。
+天气卡片使用本地 `tools/weather/vendor/weather-app-sdk.js`，由固定版本的 `@modelcontextprotocol/ext-apps@0.4.0` 打包生成。Python 读取此文件并内联到 MCP HTML 资源，因此卡片不请求 `unpkg.com`，无需额外 SDK 静态服务，也不受 MCP 服务端口变化影响。资源 CSP 的 `resourceDomains`、`connectDomains` 均为空，天气数据仍全部来自 Mock。
+
+本地 SDK 产物随项目保存；Python 运行时无需 Node。需要重新生成时，在 `frontend/` 执行 `npm run build:sdk`，`npm run dev` 和 `npm run build` 也会自动执行该步骤，只使用已安装的本地依赖。
 
 文件结构：
 
@@ -145,6 +202,7 @@ tools/
     __init__.py              # 两个天气工具和 HTML 资源注册
     mock_weather.py          # 共享 Mock 数据及文本格式化
     templates/weather.html   # 自定义天气卡片
+    vendor/weather-app-sdk.js # 本地 SDK，随 HTML 资源内联返回
 tests/test_weather.py        # MCP 协议集成测试
 ```
 

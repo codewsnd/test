@@ -12,6 +12,7 @@ from .mock_weather import DEFAULT_CITY, format_weather, get_mock_weather
 
 WEATHER_VIEW_URI = "ui://weather/view.html"
 WEATHER_TEMPLATE = Path(__file__).parent / "templates" / "weather.html"
+WEATHER_SDK = Path(__file__).parent / "vendor" / "weather-app-sdk.js"
 WEATHER_ANNOTATIONS = ToolAnnotations(
     readOnlyHint=True,
     destructiveHint=False,
@@ -35,8 +36,10 @@ def get_weather_app(city: str = DEFAULT_CITY) -> ToolResult:
 
 
 def weather_view() -> str:
-    """返回天气卡片模板，查询结果由 MCP Apps 宿主单独传入。"""
-    return WEATHER_TEMPLATE.read_text(encoding="utf-8")
+    """将本地 SDK 内联到卡片，查询结果仍由 MCP Apps 宿主单独传入。"""
+    template = WEATHER_TEMPLATE.read_text(encoding="utf-8")
+    sdk = WEATHER_SDK.read_text(encoding="utf-8")
+    return template.replace("/* __WEATHER_APP_SDK__ */", sdk)
 
 
 def register_weather_tools(mcp: FastMCP) -> None:
@@ -52,7 +55,7 @@ def register_weather_tools(mcp: FastMCP) -> None:
         app=AppConfig(
             prefers_border=True,
             csp=ResourceCSP(
-                resource_domains=["https://unpkg.com"],
+                resource_domains=[],
                 connect_domains=[],
             ),
         ),

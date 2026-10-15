@@ -88,7 +88,8 @@
       <noscript>需要启用 JavaScript，并在支持 MCP Apps 的客户端中查看天气卡片。</noscript>
     </main>
     <script type="module">
-      const SDK_URL = "https://unpkg.com/@modelcontextprotocol/ext-apps@0.4.0/app-with-deps";
+      /* __WEATHER_APP_SDK__ */
+      const { App } = WeatherAppSDK;
       const WEATHER_TOOL = "get_weather_app";
       const citySelect = document.getElementById("city-select");
       const queryButton = document.getElementById("query-button");
@@ -163,7 +164,6 @@
           return;
         }
         try {
-          const { App } = await import(SDK_URL);
           app = new App({ name: "Mock Weather", version: "1.0.0" }, {});
           app.ontoolresult = handleToolResult;
           app.ontoolcancelled = () => showError("天气查询已取消。");
@@ -175,7 +175,7 @@
             setStatus("已连接，等待天气数据；也可以选择城市查询。");
           }
         } catch (error) {
-          showError(`卡片连接失败，请检查客户端的 MCP Apps 支持及 unpkg.com 访问：${error.message}`);
+          showError(`卡片连接失败，请检查客户端的 MCP Apps 支持：${error.message}`);
         }
       }
 

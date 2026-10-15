@@ -72,7 +72,12 @@ class WeatherProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(resource.text.startswith("<!DOCTYPE html>"))
         self.assertIn("app.ontoolresult = handleToolResult", resource.text)
         self.assertIn("app.callServerTool", resource.text)
-        self.assertEqual(resource.meta["ui"]["csp"]["resourceDomains"], ["https://unpkg.com"])
+        self.assertIn("@modelcontextprotocol/ext-apps@0.4.0", resource.text)
+        self.assertIn("var WeatherAppSDK=", resource.text)
+        self.assertNotIn("/* __WEATHER_APP_SDK__ */", resource.text)
+        self.assertNotIn("unpkg.com", resource.text)
+        self.assertNotIn("import(SDK_URL)", resource.text)
+        self.assertEqual(resource.meta["ui"]["csp"]["resourceDomains"], [])
         self.assertEqual(resource.meta["ui"]["csp"]["connectDomains"], [])
 
 
