@@ -19,6 +19,18 @@ interface VisibleResult {
 const PENDING_LABEL = 'Needs revalidation:';
 const STATUS_LABELS = ['Passed:', 'Failed:', PENDING_LABEL];
 
+const readResultLabel = (element: Element): string => {
+  const clone = element.cloneNode(true) as Element;
+  clone.querySelectorAll('ul,ol').forEach(list => list.remove());
+  // 兼容旧页残留的 Anchor：参数不是可见文件名，也不作为恢复关联的依据。
+  clone.querySelectorAll('*').forEach(child => {
+    if (child.tagName.toLowerCase() === 'ac:structured-macro' && child.getAttribute('ac:name') === 'anchor') {
+      child.remove();
+    }
+  });
+  return clone.textContent?.trim() || '';
+};
+
 const readResults = (cell: Element): VisibleResult[] => {
   let status: string | undefined;
   const results: VisibleResult[] = [];
@@ -34,10 +46,8 @@ const readResults = (cell: Element): VisibleResult[] => {
       return;
     }
     if (status !== undefined) {
-      const clone = element.cloneNode(true) as Element;
-      clone.querySelectorAll('ul,ol').forEach(list => list.remove());
       results.push({
-        item: element, label: clone.textContent?.trim() || '',
+        item: element, label: readResultLabel(element),
         passed: status === PENDING_LABEL ? undefined : status === STATUS_LABELS[0],
         issues: Array.from(element.querySelectorAll('ul > li')).map(item => item.textContent?.trim() || ''),
       });

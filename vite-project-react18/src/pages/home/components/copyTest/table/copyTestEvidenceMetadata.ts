@@ -18,6 +18,34 @@ export interface RecoveredEvidenceImage {
   image: Element;
 }
 
+const readImageAttachmentLink = (link: Element): string => {
+  const path = /\/download\/attachments\/\d+\/([^/?#]+)/.exec(link.getAttribute('href') || '');
+  if (!path) {
+    return '';
+  }
+  try {
+    const fileName = decodeURIComponent(path[1]);
+    return /\.(?:png|jpe?g|webp|gif|bmp|avif)$/i.test(fileName) ? fileName : '';
+  } catch {
+    return '';
+  }
+};
+
+/** 旧版 Confluence 会将部分图片（如 WEBP）保存为下载链接，在系统 Evidence 列恢复图片引用。 */
+const restoreImageAttachmentLinks = (cell: Element): void => {
+  cell.querySelectorAll('a[href]').forEach(link => {
+    const fileName = readImageAttachmentLink(link);
+    if (!fileName || link.closest('td,th') !== cell) {
+      return;
+    }
+    const image = cell.ownerDocument.createElement('ac:image');
+    const attachment = cell.ownerDocument.createElement('ri:attachment');
+    attachment.setAttribute('ri:filename', fileName);
+    image.append(attachment);
+    link.replaceWith(image);
+  });
+};
+
 /** 遇到上一张图即停止，避免无标题图片借用其他图片的名字。 */
 const readCaption = (image: Element, cell: Element): string => {
   const walker = cell.ownerDocument.createTreeWalker(cell, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
@@ -57,6 +85,7 @@ export const readCopyTestEvidenceImages = (cell: Element): RecoveredEvidenceImag
 };
 
 const restoreImages = (cell: Element, prefix: string): RecoveredEvidenceImage[] => {
+  restoreImageAttachmentLinks(cell);
   const images = readCopyTestEvidenceImages(cell);
   images.forEach((entry, index) => {
     const duplicate = images.filter(image => image.fileName === entry.fileName).length > 1;

@@ -16,6 +16,9 @@ const IDS = [
   '0198f4e0-0001-7000-8000-000000000000.png',
   '0198f4e0-0002-7000-8000-000000000000.png',
 ];
+const anchor = (id: string): string => {
+  return `<ac:structured-macro ac:name="anchor"><ac:parameter ac:name="">copytest-result-${id}</ac:parameter></ac:structured-macro>`;
+};
 const headers = '<tr><th>Copy</th><th>Test Result - Copy</th><th>Test Evidence - Copy</th></tr>';
 const group = (status: string, labels: string[]): string => {
   return `<p><strong>${status}:</strong></p><ul>${labels.map(label => `<li>${label}</li>`).join('')}</ul>`;
@@ -45,6 +48,37 @@ const remove = (table: CopyTestWorkingTable, index: number): CopyTestWorkingTabl
 };
 
 describe('plain text image compatibility', () => {
+  it('旧 Anchor 的内部参数不计入文件名，删除仍按可见名称关联', () => {
+    const table = load(storage(group('Passed', [`${anchor(IDS[0])}首页`, `${anchor(IDS[1])}付款`]), ['首页', '付款']));
+    expect(resultText(table)).not.toContain('copytest-result-');
+    const deleted = remove(table, 0);
+    expect(getConfluenceStorageTableImageFileNames(deleted.workingHtml)).toEqual([IDS[1]]);
+    expect(resultText(deleted)).toBe('Passed:付款');
+  });
+
+  it.each([0, 1])('旧页图片附件链接与普通图片共享 Evidence，删除第 %i 张同步所有覆盖行', index => {
+    const webp = IDS[0].replace('.png', '.webp');
+    const first = group('Passed', [`${anchor(IDS[1])}付款`])
+      + group('Failed', [`${anchor(webp)}订单<ul><li>文字缺失</li></ul>`]);
+    const second = group('Passed', [`${anchor(webp)}订单`, `${anchor(IDS[1])}付款`]);
+    const images = `<div><strong>订单</strong><br /><a href="/download/attachments/360553/${webp}?version=1">${webp}</a></div>`
+      + `<div><strong>付款</strong><ac:image><ri:attachment ri:filename="${IDS[1]}" /></ac:image></div>`;
+    const table = load(`<table>${headers}<tr><td>业务一</td><td>${first}</td><td rowspan="2">${images}</td></tr>`
+      + `<tr><td>业务二</td><td>${second}</td></tr></table>`);
+    expect(getConfluenceStorageTableImageFileNames(table.workingHtml)).toEqual([webp, IDS[1]]);
+    const deleted = remove(table, index);
+    expect(getConfluenceStorageTableImageFileNames(deleted.workingHtml)).toEqual(index === 0 ? [IDS[1]] : [webp]);
+    const kept = index === 0 ? '付款' : '订单';
+    const removed = index === 0 ? '订单' : '付款';
+    [1, 2].forEach(row => {
+      const text = deleted.model.rows[row].slots[1]!.cell.element.textContent;
+      expect(text).toContain(kept);
+      expect(text).not.toContain(removed);
+      expect(text).not.toContain('copytest-result-');
+    });
+    expect(resultText(deleted).includes('文字缺失')).toBe(index === 1);
+  });
+
   it('从图片顶部普通文字恢复中文多点名称，删除不同名图只更新对应结果', () => {
     const table = load(storage(group('Passed', ['首页.最终版', '付款']), ['首页.最终版', '付款']));
     expect(parseHtml(table.workingHtml).querySelector(`[${ALT}]`)?.getAttribute(ALT)).toBe('首页.最终版.png');
