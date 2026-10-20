@@ -53,15 +53,18 @@ describe('Confluence editor compatibility', () => {
       table,
     });
     expect(exported).toContain('<p>Edited text</p>');
+    if (!exported) {
+      throw new Error('Expected exported storage');
+    }
     expect(parseCopyTestStorageTables(exported)[0].headers).toHaveLength(3);
     expect(exported.match(/AI Comparison/g)).toHaveLength(3);
     expect(getConfluenceStorageTableImageFileNames(exported)).toEqual(FILE_NAMES);
   });
 
-  it('does not reclaim title-only business columns', () => {
-    const storage = createEditedStorage().replaceAll('AI Comparison', 'Human notes');
+  it('recovers system columns without an AI label', () => {
+    const storage = createEditedStorage().replace(/AI Comparison/g, '');
     const table = parseCopyTestStorageTables(storage)[0];
-    expect(table.headers.every(header => !header.generatedType)).toBe(true);
+    expect(table.headers.map(header => header.generatedType)).toEqual([undefined, 'result', 'evidence']);
   });
 
   it('does not guess between duplicate result columns', () => {

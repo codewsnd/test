@@ -62,7 +62,7 @@ describe('buildCopyTestExportTableModel', () => {
       expect.objectContaining({
         dataUrl: AVAILABLE_IMAGE.base64,
         fileName: 'screen-a.png',
-        label: 'Screen01',
+        label: 'screen-a',
       }),
     ]);
     expect(model.missingImageFileNames).toEqual([]);
@@ -123,7 +123,7 @@ describe('buildCopyTestExportTableModel', () => {
     expect(model.missingImageFileNames).toEqual([]);
   });
 
-  it('falls back to the attachment filename stem when an Evidence label is missing', () => {
+  it('uses a numbered label instead of a UUID when the original name is missing', () => {
     /** 不含 strong 标签、需要从附件名生成显示名称的 Evidence 表格。 */
     const tableHtml = [
       '<table><tr><td data-copy-test-column-type="evidence">',
@@ -153,7 +153,7 @@ describe('buildCopyTestExportTableModel', () => {
 
     expect(model.rows[0].cells[0].images.map(image => image.label)).toEqual([
       'This is test.final',
-      '019c1234-5678-7abc-8def-0123456789ab',
+      'Image02',
       '首页.最终版',
       '旧版首页',
     ]);

@@ -143,7 +143,8 @@ const getStorageImageLabel = (imageElement: Element, fallback: string): string =
 const buildCellImage = (
   imageElement: Element,
   imageDataByFileName: Map<string, string>,
-  missingImageFileNames: Set<string>
+  missingImageFileNames: Set<string>,
+  imageIndex: number
 ): CopyTestExportCellImage | null => {
   /** 当前 Confluence 图片引用的规范附件文件名。 */
   const fileName = getStorageImageFileName(imageElement);
@@ -167,13 +168,12 @@ const buildCellImage = (
       imageElement.getAttribute('ac:height'),
       COPY_TEST_EXPORT_IMAGE_DEFAULT_HEIGHT
     ),
-    label: getStorageImageLabel(
-      imageElement,
-      getCopyTestStoredImageDisplayName({
-        attachmentFileName: fileName,
-        displayFileName: imageElement.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE),
-      })
-    ),
+    label: getCopyTestStoredImageDisplayName({
+      attachmentFileName: fileName,
+      displayFileName: imageElement.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE),
+      existingLabel: getStorageImageLabel(imageElement, ''),
+      imageIndex,
+    }),
     width: readPositiveSize(
       imageElement.getAttribute('ac:width'),
       COPY_TEST_EXPORT_IMAGE_DEFAULT_WIDTH
@@ -191,12 +191,13 @@ const getCellImages = (
   const imageElements = Array.from(cell.querySelectorAll('*')).filter(element => {
     return element.tagName.toLowerCase() === 'ac:image' && isOwnedByCell(element, cell);
   });
-  return imageElements.flatMap(element => {
+  return imageElements.flatMap((element, imageIndex) => {
     /** 当前 Confluence 图片转换后的中立模型。 */
     const image = buildCellImage(
       element,
       imageDataByFileName,
-      missingImageFileNames
+      missingImageFileNames,
+      imageIndex
     );
     return image ? [image] : [];
   });

@@ -6,12 +6,14 @@ import {
   COPY_TEST_EVIDENCE_CARD_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE,
   COPY_TEST_EVIDENCE_IMAGE_ID_ATTRIBUTE,
+  COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE,
   COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE,
   COPY_TEST_GENERATED_EVIDENCE_TYPE,
   COPY_TEST_GENERATED_RESULT_TYPE,
   COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE,
   COPY_TEST_OWNER_ID_ATTRIBUTE,
   COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE,
+  COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE,
   COPY_TEST_SCHEMA_ATTRIBUTE,
   COPY_TEST_SCHEMA_VERSION,
 } from './tableConstants';
@@ -44,6 +46,7 @@ interface CopyTestManagedCell {
 interface CopyTestStoredImageLabel {
   /** Evidence 和 Result 共同使用的稳定图片 ID。 */
   imageId: string;
+  instanceId: string;
   /** 去掉路径和扩展名后的用户可识别标签。 */
   label: string;
   /** Evidence 卡片中保存可见标签的 strong 节点。 */
@@ -106,7 +109,7 @@ const getAttachmentFileName = (imageElement: Element): string => {
 };
 
 /** 读取 Evidence 卡片中的稳定图片身份和目标展示标签。 */
-const readStoredImageLabel = (card: Element): CopyTestStoredImageLabel | null => {
+const readStoredImageLabel = (card: Element, imageIndex: number): CopyTestStoredImageLabel | null => {
   /** 当前卡片所在的严格受管单元格。 */
   const ownerCell = card.closest('th,td');
   /** 当前卡片唯一且仍由同一单元格拥有的 ac:image 候选。 */
@@ -137,10 +140,12 @@ const readStoredImageLabel = (card: Element): CopyTestStoredImageLabel | null =>
   const labelElement = findDirectChildByTagName(card, 'strong');
   return {
     imageId,
+    instanceId: imageElement.getAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE) || '',
     label: getCopyTestStoredImageDisplayName({
       attachmentFileName,
       displayFileName: imageElement.getAttribute(COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE),
       existingLabel: labelElement?.textContent,
+      imageIndex,
     }),
     labelElement,
   };
@@ -163,6 +168,9 @@ const registerStoredImageLabel = (
   if (!labelsByImageId.has(image.imageId)) {
     labelsByImageId.set(image.imageId, image.label);
   }
+  if (image.instanceId) {
+    labelsByImageId.set(image.instanceId, image.label);
+  }
   labelsBySourceColumn.set(sourceColumnKey, labelsByImageId);
 };
 
@@ -173,9 +181,9 @@ const buildStoredImageLabelMap = (cells: CopyTestManagedCell[]): CopyTestStoredI
   cells
     .filter(item => item.type === COPY_TEST_GENERATED_EVIDENCE_TYPE)
     .forEach(item => {
-      getOwnedEvidenceCards(item.cell).forEach(card => {
+      getOwnedEvidenceCards(item.cell).forEach((card, index) => {
         /** 当前 Evidence 卡片恢复出的图片身份和展示标签。 */
-        const image = readStoredImageLabel(card);
+        const image = readStoredImageLabel(card, index);
         if (image) {
           registerStoredImageLabel(labelsBySourceColumn, item.sourceColumnKey, image);
         }
@@ -202,9 +210,9 @@ const replaceVisibleLabel = (element: Element, label: string): boolean => {
 const migrateEvidenceCell = (item: CopyTestManagedCell): boolean => {
   /** 当前单元格内是否至少迁移了一张图片标签。 */
   let changed = false;
-  getOwnedEvidenceCards(item.cell).forEach(card => {
+  getOwnedEvidenceCards(item.cell).forEach((card, index) => {
     /** 当前卡片恢复出的图片身份、目标标签和可见节点。 */
-    const image = readStoredImageLabel(card);
+    const image = readStoredImageLabel(card, index);
     if (image?.labelElement && replaceVisibleLabel(image.labelElement, image.label)) {
       changed = true;
     }
@@ -231,7 +239,8 @@ const migrateResultCell = (
       /** 当前 Result 引用的内部图片 ID。 */
       const imageId = reference.getAttribute(COPY_TEST_RESULT_IMAGE_ID_ATTRIBUTE)?.trim() || '';
       /** 同一来源列 Evidence 中恢复出的目标标签。 */
-      const label = labelsByImageId.get(imageId);
+      const instanceId = reference.getAttribute(COPY_TEST_RESULT_IMAGE_INSTANCE_ATTRIBUTE) || '';
+      const label = labelsByImageId.get(instanceId) || labelsByImageId.get(imageId);
       if (label && replaceVisibleLabel(reference, label)) {
         changed = true;
       }

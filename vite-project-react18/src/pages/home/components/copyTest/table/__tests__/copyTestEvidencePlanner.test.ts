@@ -241,7 +241,7 @@ describe('copyTestEvidencePlanner', () => {
     });
   });
 
-  it('没有原始文件名时显示不带扩展名的 UUID', () => {
+  it('没有原始文件名时使用序号兜底', () => {
     const uuidImage: CopyTestImage = {
       base64: SCREEN_1.base64,
       fileName: '0198f4e0-0000-7000-8000-000000000000.webp',
@@ -250,6 +250,6 @@ describe('copyTestEvidencePlanner', () => {
       sourceGroup(1, [uuidImage]),
     ], [uuidImage]);
 
-    expect(plan[0].screens[0].label).toBe('0198f4e0-0000-7000-8000-000000000000');
+    expect(plan[0].screens[0].label).toBe('Image01');
   });
 });

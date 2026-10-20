@@ -45,6 +45,8 @@ import {
 } from './copyTestEvidencePlanner';
 import {
   getCopyTestImageDisplayFileName,
+  getCopyTestImageDisplayName,
+  getCopyTestDistinctImageLabels,
   getCopyTestImageId,
 } from './copyTestImageUtils';
 import {
@@ -309,13 +311,16 @@ const createScreenRefs = (
   anchorRowIndex: number,
   sourceColumnKey: string
 ): ScreenRef[] => {
+  const labels = getCopyTestDistinctImageLabels(screens.map((screen, index) => {
+    return getCopyTestImageDisplayName(screen.image, index);
+  }));
   return screens.map(
     /** 为当前行组的每张 Evidence 图片生成稳定引用与展示标签。 */
     (screen, screenIndex) => ({
       image: screen.image,
       imageId: getCopyTestImageId(screen.image),
       instanceId: getImageInstanceId(screen.image, anchorRowIndex, sourceColumnKey),
-      label: screen.label,
+      label: labels[screenIndex],
       order: screenIndex,
     })
   );
@@ -598,7 +603,7 @@ const applyEvidenceCardValues = (
     skeleton.image.setAttribute(COPY_TEST_EVIDENCE_IMAGE_INSTANCE_ATTRIBUTE, screen.instanceId);
     skeleton.image.setAttribute(
       COPY_TEST_EVIDENCE_IMAGE_ALT_ATTRIBUTE,
-      getCopyTestImageDisplayFileName(screen.image)
+      getCopyTestImageDisplayFileName(screen.image, screenIndex)
     );
     skeleton.attachment.setAttribute('ri:filename', screen.image.fileName);
   });

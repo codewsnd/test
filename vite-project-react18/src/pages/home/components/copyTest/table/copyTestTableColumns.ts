@@ -621,7 +621,7 @@ export const ensureCopyTestGeneratedColumns = (
 
   /** 完成 metadata 与 rowspan 同步后的最终模型。 */
   const syncedModel = parseTableModel(tableElement);
-  restoreCopyTestEvidenceMetadata(syncedModel, indexes.evidence, sourceColumnKey);
+  restoreCopyTestEvidenceMetadata(syncedModel, indexes.evidence, sourceColumnKey, indexes.result);
   return {
     context: {
       evidenceColumnIndex: indexes.evidence,

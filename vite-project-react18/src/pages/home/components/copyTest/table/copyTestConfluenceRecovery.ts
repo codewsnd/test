@@ -1,7 +1,6 @@
 /** Confluence 编辑器移除自定义属性后，保守恢复既有双列的模型身份。 */
 import type { CopyTestCellModel, CopyTestRowModel } from './tableModel';
 import {
-  COPY_TEST_AI_COMPARISON_LABEL,
   COPY_TEST_EVIDENCE_HEADER_PREFIX,
   COPY_TEST_GENERATED_COLUMN_TYPE_ATTRIBUTE,
   COPY_TEST_GENERATED_SOURCE_COLUMN_KEY_ATTRIBUTE,
@@ -16,7 +15,7 @@ const OWNERSHIP_ATTRIBUTES = [
   COPY_TEST_OWNER_ID_ATTRIBUTE,
   COPY_TEST_SCHEMA_ATTRIBUTE,
 ];
-const HISTORICAL_STATUS_PATTERN = /^(?:Passed|Failed):$/;
+const HISTORICAL_STATUS_PATTERN = /^(?:Passed|Failed|Needs revalidation):$/;
 
 const normalizeHeader = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
@@ -38,21 +37,15 @@ const hasNoOwnership = (cell: CopyTestCellModel): boolean => {
     && !OWNERSHIP_ATTRIBUTES.some(attribute => cell.element.hasAttribute(attribute));
 };
 
-/** 要求保留 CopyTest 的 AI 标记和状态列表，不能只凭标题接管人工列。 */
+/** 用户不编辑系统双列，兼容无 AI 标记的旧结果及删除后的空列。 */
 const hasHistoricalResult = (cell: CopyTestCellModel): boolean => {
+  if (!cell.element.textContent?.trim()) {
+    return true;
+  }
   const descendants = Array.from(cell.element.querySelectorAll('div, strong'))
     .filter(element => element.closest('td, th') === cell.element);
-  return descendants.some(element => normalizeHeader(element.textContent || '') === COPY_TEST_AI_COMPARISON_LABEL)
-    && descendants.some(element => HISTORICAL_STATUS_PATTERN.test(normalizeHeader(element.textContent || '')))
+  return descendants.some(element => HISTORICAL_STATUS_PATTERN.test(normalizeHeader(element.textContent || '')))
     && Boolean(cell.element.querySelector('ul > li'));
-};
-
-const hasAttachment = (cell: CopyTestCellModel): boolean => {
-  return Array.from(cell.element.querySelectorAll('*')).some(element => {
-    return element.tagName.toLowerCase() === 'ri:attachment'
-      && element.closest('td, th') === cell.element
-      && Boolean(element.getAttribute('ri:filename')?.trim());
-  });
 };
 
 /** 仅恢复模型字段，原始 storage 和 DOM 属性保持不变，供精确导出定位使用。 */
@@ -70,8 +63,7 @@ const recoverPair = (rows: CopyTestRowModel[], headers: CopyTestCellModel[], sou
   const evidenceCells = getOwnedColumnCells(rows, evidence.columnIndex);
   const allCells = [...resultCells, ...evidenceCells];
   if (!allCells.every(hasNoOwnership)
-    || !resultCells.some(hasHistoricalResult)
-    || !evidenceCells.some(hasAttachment)) {
+    || !resultCells.slice(1).every(hasHistoricalResult)) {
     return;
   }
   const sourceColumnKey = `${source.columnIndex}:${label}`;

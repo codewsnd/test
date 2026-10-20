@@ -2,6 +2,7 @@
  * 文件作用：从 working DOM 恢复状态，并处理 Result 切换和 Evidence 删除。
  */
 import type { CopyTestImage } from '../api/copyTestApi';
+import { deleteLegacyEvidenceImage } from './copyTestLegacyDeletion';
 import {
   COPY_TEST_RESULT_AI_COMPARISON_ATTRIBUTE,
   COPY_TEST_RESULT_AI_PASSED_ATTRIBUTE,
@@ -903,6 +904,23 @@ const deleteEvidenceImageFromSnapshot = (
   };
 };
 
+const deleteUnresolvedEvidenceImage = (
+  table: CopyTestWorkingTable,
+  target: CopyTestEvidenceDeleteTarget,
+  selectedColumnIndex: number,
+  selectedColumnLabel: string
+): CopyTestEvidenceDeleteResult => {
+  const next = deleteLegacyEvidenceImage(table, target, selectedColumnIndex, selectedColumnLabel);
+  if (!next) {
+    return { imageStillUsed: false, removed: false, table };
+  }
+  const snapshot = hydrateCopyTestValidationSnapshot(next, selectedColumnIndex, selectedColumnLabel);
+  return {
+    removed: true, table: next, imageStillUsed: isEvidenceImageStillUsed(next, target.imageId),
+    validationImages: snapshot?.images || [], validationResults: snapshot?.results || [],
+  };
+};
+
 /** 删除 Evidence 图片并同步当前 source column 的 Result 引用。 */
 export const deleteCopyTestEvidenceImage = (
   table: CopyTestWorkingTable,
@@ -955,7 +973,7 @@ export const deleteCopyTestEvidenceImage = (
     snapshot,
     currentGroups[0]
   )) {
-    return { imageStillUsed: false, removed: false, table };
+    return deleteUnresolvedEvidenceImage(table, target, selectedColumnIndex, selectedColumnLabel);
   }
 
   /** DOM 关系不完整时使用已确认与当前连通块一致的调用方快照再次删除。 */

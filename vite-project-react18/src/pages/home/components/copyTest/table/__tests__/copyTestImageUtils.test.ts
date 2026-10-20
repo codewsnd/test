@@ -31,13 +31,14 @@ describe('copyTestImageUtils', () => {
     expect(getCopyTestImageDisplayName(image)).toBe('首页.最终版');
   });
 
-  it('没有原始文件名时显示不带扩展名的 UUID', () => {
+  it('没有原始文件名时使用序号而不显示 UUID', () => {
     const image = {
       base64: 'x',
       fileName: '0198f4e0-0000-7000-8000-000000000000.webp',
     };
 
-    expect(getCopyTestImageDisplayName(image)).toBe('0198f4e0-0000-7000-8000-000000000000');
+    expect(getCopyTestImageDisplayName(image)).toBe('Image01');
+    expect(getCopyTestImageDisplayName(image, 1)).toBe('Image02');
   });
 
   it('兼容附件名回退、隐藏文件和外部路径', () => {

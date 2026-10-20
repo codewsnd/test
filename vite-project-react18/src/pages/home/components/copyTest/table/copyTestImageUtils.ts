@@ -21,7 +21,18 @@ export interface CopyTestStoredImageNameInput {
   displayFileName?: string | null;
   /** Evidence 卡片中当前可见的旧标签。 */
   existingLabel?: string | null;
+  imageIndex?: number;
 }
+
+const UUID_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$/i;
+
+export const getCopyTestImageFallbackName = (index = 0): string => {
+  return `Image${String(index + 1).padStart(2, '0')}`;
+};
+
+const isUsableName = (name: string): boolean => {
+  return Boolean(name.trim()) && !UUID_PATTERN.test(getCopyTestFileNameStem(name));
+};
 
 /** 使用附件文件名作为 CopyTest 图片的唯一稳定 ID。 */
 export const getCopyTestImageId = (image: CopyTestImage): string => {
@@ -29,8 +40,9 @@ export const getCopyTestImageId = (image: CopyTestImage): string => {
 };
 
 /** 读取用户可识别的图片文件名，无原始名时回退到附件名。 */
-export const getCopyTestImageDisplayFileName = (image: CopyTestImage): string => {
-  return image.originalFileName?.trim() ? image.originalFileName : image.fileName;
+export const getCopyTestImageDisplayFileName = (image: CopyTestImage, index = 0): string => {
+  const name = image.originalFileName?.trim() || image.fileName;
+  return isUsableName(name) ? name : getCopyTestImageFallbackName(index);
 };
 
 /** 去掉路径和最后一段扩展名，保留文件名主体。 */
@@ -46,8 +58,26 @@ export const getCopyTestFileNameStem = (value: string): string => {
 };
 
 /** 去掉路径和最后一段扩展名，保留用户真实文件名主体。 */
-export const getCopyTestImageDisplayName = (image: CopyTestImage): string => {
-  return getCopyTestFileNameStem(getCopyTestImageDisplayFileName(image));
+export const getCopyTestImageDisplayName = (image: CopyTestImage, index = 0): string => {
+  return getCopyTestFileNameStem(getCopyTestImageDisplayFileName(image, index));
+};
+
+/** 用普通文字区分同组同名图；关联不依赖 Confluence 保留自定义属性。 */
+export const getCopyTestDistinctImageLabels = (labels: string[]): string[] => {
+  const used = new Set(labels);
+  return labels.map((label, index) => {
+    if (labels.filter(value => value === label).length === 1) {
+      return label;
+    }
+    let suffix = index + 1;
+    let candidate = `${label} [Image ${suffix}]`;
+    while (used.has(candidate)) {
+      suffix += 1;
+      candidate = `${label} [Image ${suffix}]`;
+    }
+    used.add(candidate);
+    return candidate;
+  });
 };
 
 /** 从旧 Screen 标签中读取已经展示过的文件名主体。 */
@@ -76,14 +106,22 @@ export const getCopyTestStoredImageDisplayName = ({
   attachmentFileName,
   displayFileName,
   existingLabel,
+  imageIndex = 0,
 }: CopyTestStoredImageNameInput): string => {
   /** 当前 metadata 中可能保存的完整原始文件名。 */
   const storedDisplayFileName = displayFileName?.trim() || '';
-  if (storedDisplayFileName && storedDisplayFileName !== attachmentFileName.trim()) {
+  const legacyLabelName = getLegacyLabelName(existingLabel);
+  if (/\[Image \d+\]$/.test(legacyLabelName)) {
+    return legacyLabelName;
+  }
+  if (isUsableName(storedDisplayFileName) && storedDisplayFileName !== attachmentFileName.trim()) {
     return getCopyTestFileNameStem(storedDisplayFileName);
   }
 
   /** 已经写入历史卡片的文件名可在 metadata 被清理后继续恢复。 */
-  const legacyLabelName = getLegacyLabelName(existingLabel);
-  return legacyLabelName || getLegacyAttachmentName(attachmentFileName);
+  const attachmentName = getLegacyAttachmentName(attachmentFileName);
+  if (isUsableName(legacyLabelName)) {
+    return legacyLabelName;
+  }
+  return isUsableName(attachmentName) ? attachmentName : getCopyTestImageFallbackName(imageIndex);
 };
